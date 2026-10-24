@@ -92,6 +92,42 @@ using CallSite = std::variant<OutsideCycle, InsideCycle>;
 // anywhere else, a tail call's free way to the return among them.
 enum class TailStanding : std::uint8_t { Elsewhere, LostToLayout };
 
+// The calls of `fn` that are tails lost to a layout: each whose results
+// reach `fn`'s return through a re-pack, read off its tails once.
+llvm::SmallVector<CallOp> lostTails(FuncOp fn);
+
+// The layout a call asks a result of its callee at: as the callee's type
+// lays it out, in place where its index is known and its type not marked
+// open; or open, as an index unknown at compile time would be, for a tail
+// lost to a layout.
+enum class ResultLayout : std::uint8_t { AsGiven, AtOpen };
+
+// What `call`, standing where `standing` says, asks of each result: open,
+// for a tail lost to a layout, each result its caller lays out otherwise
+// than the call gives it, as the layout classes say (the reading by which a
+// cast between the two is free or re-packs), so the cast is free and the
+// call a tail call; every other result as given. A result no copy of the
+// callee could give closed is marked open in the callee's own type, decided
+// once when the callee was taken up (openResults), so it reaches the copy
+// by the substitution, which keeps the mark, and no call asks for it.
+llvm::SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing);
+
+// The results of `callee`'s copy keyed to `layouts` and to the holds
+// `passed` names (passedHolds), on the callee's own types, before the key's
+// classes: each result asked open at the layout the callee's type marked
+// open, at the weakest hold the callee's tails will give it in the copy
+// (each tail's value cast to that layout at the grade its reindex gives, a
+// value the copy re-packs at no more than a building reindex gives, one a
+// call of another function gives at no more than the weakest counted hold,
+// as the copy keys that callee open in turn, and the callee's own calls
+// tails like any other); then each bounded by the holds passed where a
+// lowered parameter may reach it (keyGivenBack, read off `given`). The one
+// rule a key's results are made by (signatureOf) and its caller reads them
+// by before the copy is built (keyCalls).
+llvm::SmallVector<mlir::Type> keyedResults(FuncOp callee, llvm::ArrayRef<ResultLayout> layouts,
+                                           identities::FactsView given,
+                                           llvm::ArrayRef<std::optional<Hold>> passed);
+
 // What a call wants, by kind: its signature copy where its index arguments
 // fix a layout class the callee's layout changes under or a bare tensor
 // argument's extent the callee names, as `site` lets a size key it, or it

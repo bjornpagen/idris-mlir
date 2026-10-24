@@ -45,7 +45,6 @@
 #include "mlir/Support/TypeID.h"
 #include "llvm/ADT/ArrayRef.h"
 
-#include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <optional>
@@ -231,12 +230,6 @@ public:
   // count of calls.
   void setCallees(FunctionId f, llvm::ArrayRef<Call> row);
   std::span<const Call> callees(FunctionId f) const { return rows[f.index()]; }
-  // Whether `f`'s row, as last written, names `f`: read off the row, which
-  // the pass replaces while it holds the editor, so no bit laid at the
-  // freeze can say it.
-  bool callsItself(FunctionId f) const {
-    return std::ranges::any_of(callees(f), [&](const Call &call) { return call.callee == f; });
-  }
   // The function `callee` names, which the verifier proved one.
   FunctionId id(mlir::FlatSymbolRefAttr callee) const;
   // The function `callee` names, or none: a copy the pass has made and not

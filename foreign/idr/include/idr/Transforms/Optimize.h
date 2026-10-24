@@ -9,11 +9,13 @@
 //     copies will give, its results opened where a tail cannot agree with
 //     them or lowered to the hold its return gives), and runs rounds of its
 //     inner pipeline (the redirect to the copies its calls' keys name, leaf
-//     inlining, the e-graph, constants) until a round asks for no copy and
-//     inlines no leaf; the copies it asked for are made, numbered and taken
-//     up before it goes on; then, every function final, the results no
-//     caller reads and the labels' captures nothing reads go from the whole
-//     program, and each copy says what kind of copy it is;
+//     inlining, the e-graph, constants, and a redirect of what the round
+//     left at a call at a hold its parameter does not take) until a round
+//     asks for no copy and inlines no leaf; the copies it asked for are
+//     made, numbered and taken up before it goes on; then, every function
+//     final, the results no caller reads and the labels' captures nothing
+//     reads go from the whole program, and each copy says what kind of copy
+//     it is;
 //   - inline, once, on the final graph, with every call site counted, on
 //     upstream's inliner, a callee's verdict its profitability and the
 //     e-graph its simplification;
@@ -168,6 +170,7 @@ public:
   // The leaves the member's last round inlined, which its turn alone
   // writes and reads: a round that inlined one goes on to another.
   void noteLeaves(FunctionId fn, unsigned inlined) { members[fn.index()].leaves += inlined; }
+  bool inlinedLeaves(FunctionId fn) const { return members[fn.index()].leaves != 0; }
   unsigned takeLeaves(FunctionId fn) { return std::exchange(members[fn.index()].leaves, 0); }
 
   // The functions with a call of `fn`, as the program held them and as
@@ -253,8 +256,10 @@ struct InnerCounts {
 
 // The inner pipeline of one run, on idr.func: the redirect first, so the
 // e-graph sees a combinator called on known closures as a call of its
-// copy; then leaf inlining, the e-graph, and constants last, so a final
-// body states its summary.
+// copy; then leaf inlining, the e-graph, and constants, so a final body
+// states its summary; and the redirect again, of the calls the round left
+// passing a hold their callee's parameter does not take, where the round
+// would otherwise be its member's last (InRound).
 void buildInnerPipeline(mlir::OpPassManager &pm, Schedule &schedule, specialize::Nodes &nodes,
                         const InnerCounts &counts);
 

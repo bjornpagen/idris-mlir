@@ -168,9 +168,36 @@ FunctionType passing(CallOp call, const Node *made, FunctionType type,
   return FunctionType::get(type.getContext(), inputs, type.getResults());
 }
 
-// Each call of `fn` in walk order: its want decided, its key requested,
-// and the call made a call of the granted copy. How many calls it
-// redirected; a failure is an internal error, emitted.
+// The calls the step at `place` in `self`'s round decides, in walk order:
+// every call, first; last, none where the round goes on anyway (it asked
+// for a copy or inlined a leaf, so the next round's first step decides
+// every call), and otherwise each call of a final callee that passes an
+// operand at a hold its parameter does not take, which the first step
+// keyed, or found refused, at the hold it was passed then.
+SmallVector<CallOp> callsDecided(FuncOp fn, optimize::Schedule &schedule, FunctionId self,
+                                 InRound place) {
+  SmallVector<CallOp> calls;
+  if (place == InRound::First) {
+    fn.walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
+    return calls;
+  }
+  if (schedule.requesterOf(self).asks() || schedule.inlinedLeaves(self))
+    return calls;
+  fn.walk<WalkOrder::PreOrder>([&](CallOp call) {
+    std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
+    if (!callee)
+      return;
+    if (std::optional<optimize::Readable> known = schedule.final(*callee);
+        known && llvm::any_of(passedHolds(call, known->fn.getArgumentTypes()),
+                              [](const std::optional<Hold> &passed) { return passed.has_value(); }))
+      calls.push_back(call);
+  });
+  return calls;
+}
+
+// Each call of `fn` its step decides (callsDecided) in walk order: its want
+// decided, its key requested, and the call made a call of the granted copy.
+// How many calls it redirected; a failure is an internal error, emitted.
 //
 // The calls are numbered by their place in the one walk. A raise erases
 // the dispatch it moves into the copy, later in the call's block, and
@@ -185,21 +212,17 @@ FunctionType passing(CallOp call, const Node *made, FunctionType type,
 // way to the return has a call or a use of one's results on that way too,
 // before the edit and after, so that call was no tail and is none: no
 // other call's standing moves.
-FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes &nodes) {
+FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes &nodes,
+                                  InRound place) {
   FunctionId self = schedule.graph.id(FlatSymbolRefAttr::get(fn.getSymNameAttr()));
   Requester &asking = schedule.requesterOf(self);
   const Node *requester = nodes.find(self);
-  SmallVector<CallOp> calls;
-  fn.walk<WalkOrder::PreOrder>([&](CallOp call) { calls.push_back(call); });
-  // The calls whose results reach the function's return through a re-pack:
-  // the tails lost to a layout.
-  SmallVector<Operation *> lost;
-  for (const tail::Tail &each : tail::tailsOf(fn))
-    if (each.repack && isa<CallOp>(each.source))
-      lost.push_back(each.source);
+  SmallVector<CallOp> calls = callsDecided(fn, schedule, self, place);
+  if (calls.empty())
+    return 0u;
+  SmallVector<CallOp> lost = lostTails(fn);
   auto standingOf = [&](CallOp call) {
-    return llvm::is_contained(lost, call.getOperation()) ? TailStanding::LostToLayout
-                                                         : TailStanding::Elsewhere;
+    return llvm::is_contained(lost, call) ? TailStanding::LostToLayout : TailStanding::Elsewhere;
   };
   auto count = static_cast<unsigned>(calls.size());
   llvm::BitVector erased(count);
@@ -293,11 +316,12 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
 }
 
 struct Redirect : impl::IdrRedirectBase<Redirect> {
-  Redirect(optimize::Schedule &schedule, Nodes &nodes, Pass::Statistic &numRedirected)
-      : schedule(schedule), nodes(nodes), numRedirected(numRedirected) {}
+  Redirect(optimize::Schedule &schedule, Nodes &nodes, Pass::Statistic &numRedirected,
+           InRound place)
+      : schedule(schedule), nodes(nodes), numRedirected(numRedirected), place(place) {}
 
   void runOnOperation() override {
-    FailureOr<unsigned> redirected = redirectCalls(getOperation(), schedule, nodes);
+    FailureOr<unsigned> redirected = redirectCalls(getOperation(), schedule, nodes, place);
     if (failed(redirected))
       return signalPassFailure();
     numRedirected += *redirected;
@@ -308,13 +332,23 @@ struct Redirect : impl::IdrRedirectBase<Redirect> {
   optimize::Schedule &schedule;
   Nodes &nodes;
   Pass::Statistic &numRedirected;
+  InRound place;
 };
 
 } // namespace
 
+SmallVector<CallOp> detail::lostTails(FuncOp fn) {
+  SmallVector<CallOp> lost;
+  for (const tail::Tail &each : tail::tailsOf(fn))
+    if (each.repack)
+      if (auto call = dyn_cast<CallOp>(each.source))
+        lost.push_back(call);
+  return lost;
+}
+
 std::unique_ptr<Pass> createRedirect(optimize::Schedule &schedule, Nodes &nodes,
-                                     Pass::Statistic &redirected) {
-  return std::make_unique<Redirect>(schedule, nodes, redirected);
+                                     Pass::Statistic &redirected, InRound place) {
+  return std::make_unique<Redirect>(schedule, nodes, redirected, place);
 }
 
 } // namespace idr::specialize

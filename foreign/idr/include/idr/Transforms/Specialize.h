@@ -20,10 +20,12 @@
 // its indices kept: a copy keyed open returns that, so the two lower to one
 // return. A copy keyed open asks only open: each of its tails gives the
 // open layout, so each tail call in it whose callee gives a closed result
-// asks that callee open in turn, at the grade the copy returns it at. A
-// result's open form is its type, or an array's element, marked open at
-// that grade, the mark one of two, so the axis at most doubles the keys of
-// each class and hold, and the copies end with no budget and no fixpoint.
+// asks that callee open in turn. A result's open form is its type, or an
+// array's element, marked open, at the weakest hold the callee's tails give
+// it there, which its caller reads before the copy is built; the mark is
+// one of two and the hold the callee's, so the axis at most doubles the
+// keys of each class and hold, and the copies end with no budget and no
+// fixpoint.
 // A result no copy could give closed, since a tail of its owner gives it
 // at what no substitution closes, is no key's: the owner's own type marks
 // it open (openResults), every copy returns it open by the substitution,
@@ -232,20 +234,25 @@ struct SignatureKey {
   IndexArgsAttr indices;
 };
 
-// The type a copy keyed open returns `type` at, for a caller that holds the
-// value as `held`: a data type marked open, laid out as at an unknown index
-// with the indices Idris proved and its refinement kept, or an array whose
-// element is so marked, at the grade `held` has, so a cast to a type of
-// that grade laid out so builds nothing and keeps the hold; any other type
-// as it is, whose layout no index decides.
-mlir::Type openResult(mlir::Type type, mlir::Type held);
+// `call`, whose results were `had`, now gives some of them at other types
+// (a call of a function whose results opened or claim less, or of a copy
+// keyed open for a tail lost to a layout): each such result reaches each use
+// through one cast from the call's result, a use that cast it on at the
+// type that use asked, and every other use at the type the call gave, each
+// where the cast gives what was asked, a share forgetting the rest. Where
+// the cast gives less (the result at a weaker hold than the type its uses
+// read claimed), it gives that, and the values of the caller that read it
+// are re-graded down (regrade). A result whose layout stayed needs no cast,
+// only its readers re-graded.
+void convertResults(CallOp call, llvm::ArrayRef<mlir::Type> had);
 
 // `fn` returning `results`, which differ from its own results only where
 // one opens or claims less (a copy's result keyed to a lowered parameter
-// that may reach it, keyGivenBack): every tail of it gives that result at
-// the new type, what it gave there cast to it once at the grade that cast
-// gives and shared down to the new type's claim where it claims less, and
-// each call in it takes the tail fact its place now gives it.
+// that may reach it, keyGivenBack, or opened at the hold its tails give,
+// keyedResults): every tail of it gives that result at the new type, what
+// it gave there cast to it once at the grade that cast gives and shared
+// down to the new type's claim where it claims less, and each call in it
+// takes the tail fact its place now gives it.
 void openTails(FuncOp fn, llvm::ArrayRef<mlir::Type> results);
 
 // The hold each argument of `call` is passed at where it differs from its
@@ -286,7 +293,9 @@ void keyGivenBack(identities::FactsView given, llvm::ArrayRef<std::optional<Hold
 //   takes, at each result that operand may reach, the hold the callee's
 //   copy keyed to it will give (keyGivenBack), so it reads the key's
 //   results before the copy is built and the values they carry on are
-//   re-graded down.
+//   re-graded down; and where a tail lost to a layout will call a copy
+//   keyed open that gives a result at less than its own result claims
+//   (keyedResults), its return gives that result so already, shared down.
 // - Its results: for a function the program held, the one rule for a
 //   result a tail of its function gives at a layout the function's own
 //   type cannot agree with, in the function or in a copy whose classes

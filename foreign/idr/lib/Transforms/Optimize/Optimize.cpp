@@ -45,10 +45,13 @@ static_assert(LLVM_ENABLE_STATS, "pass statistics need an LLVM built with LLVM_F
 
 void idr::optimize::buildInnerPipeline(OpPassManager &pm, Schedule &schedule,
                                        specialize::Nodes &nodes, const InnerCounts &counts) {
-  pm.addPass(specialize::createRedirect(schedule, nodes, counts.redirected));
+  pm.addPass(specialize::createRedirect(schedule, nodes, counts.redirected,
+                                        specialize::InRound::First));
   pm.addPass(inlining::createInlineLeaves(schedule, counts.inlinedLeaves));
   pm.addPass(createIdrSimplify(schedule.callees));
   pm.addPass(createConstants(schedule, counts.constants));
+  pm.addPass(specialize::createRedirect(schedule, nodes, counts.redirected,
+                                        specialize::InRound::Last));
 }
 
 namespace idr::optimize {

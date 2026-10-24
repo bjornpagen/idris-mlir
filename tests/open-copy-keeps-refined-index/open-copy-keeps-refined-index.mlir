@@ -20,7 +20,8 @@
 // inlined into it. @h makes the same call of @g as @f, at another count, so
 // the copy of @g returns to more than one place and is never a join point
 // of its one tail caller; and @main calls @f and @h twice each where no
-// tail is lost, so neither is a join point of @main.
+// tail is lost, so neither is a join point of @main. @main writes out the
+// constructors of what each call gives, so no result is left unread.
 #Vect = #idr.family<"Vect" [nat] {
     @Nil where 0 ()
     @Cons <nat> where v0 + 1 (i64, !idr.self[v0])
@@ -39,6 +40,15 @@ idr.program @vectors root(@main) stage(first) {
     %b = idr.call @f(%five) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (i64) -> !Any
     %c = idr.call @h(%three) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (i64) -> !Any
     %d = idr.call @h(%five) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (i64) -> !Any
+    %ta = idr.data.tag %a : !Any
+    %tb = idr.data.tag %b : !Any
+    %tc = idr.data.tag %c : !Any
+    %td = idr.data.tag %d : !Any
+    %ab = arith.addi %ta, %tb : i64
+    %cd = arith.addi %tc, %td : i64
+    %tags = arith.addi %ab, %cd : i64
+    %text = idr.str.show_sint %tags : (i64) -> !idr.str
+    idr.io.put_str %text : (!idr.str) -> ()
     idr.return
   }
   idr.func <{binders = #idr.index_binders<[nat]>}> @f(%n: i64) -> !Any {

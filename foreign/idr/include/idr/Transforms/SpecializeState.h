@@ -157,6 +157,8 @@ class Requester {
 public:
   llvm::ArrayRef<const PatternKey *> given(FunctionId owner) const;
   void give(const Asked &asked);
+  // Whether anything was asked since the last take.
+  bool asks() const { return !waiting.empty(); }
   // What was asked since the last take, in name order, each key once.
   llvm::SmallVector<Asked> take();
 
@@ -244,11 +246,22 @@ private:
   Forms consumers;
 };
 
+// Where idr-redirect stands in a round of idr-optimize's inner pipeline:
+// first, before leaf inlining and the e-graph see the member, deciding
+// every call; or last, after the e-graph and constants, in a round that
+// would otherwise be its member's last (it asked for no copy and inlined no
+// leaf), deciding each call of a final callee that passes an operand at a
+// hold its parameter does not take, which the round made after its first
+// step decided: static data the e-graph placed at the argument, which the
+// copy keyed to it counts nothing of. A copy that step asks for makes the
+// round not the last, so the next one reads the call of the copy.
+enum class InRound : std::uint8_t { First, Last };
+
 // idr-redirect, a step of idr-optimize's inner pipeline: each call whose
 // arguments compose a key, or whose result a dispatch consumes, requests
-// its node and calls it.
+// its node and calls it, of the calls its place in the round decides.
 std::unique_ptr<mlir::Pass> createRedirect(optimize::Schedule &schedule, Nodes &nodes,
-                                           mlir::Pass::Statistic &redirected);
+                                           mlir::Pass::Statistic &redirected, InRound place);
 
 struct Nodes::State {
   explicit State(const optimize::Schedule &schedule) : schedule(schedule) {}

@@ -14,8 +14,13 @@
 // The loop ends by construction: a member is given finitely many copies,
 // each once, so the rounds that ask for one are finitely many, and a round
 // that inlines a leaf grows the member, which the caller cap bounds. A
-// round that only simplified ends the loop: what it exposed and no later
-// round reads leaves the program less optimized, never different.
+// round that only simplified ends the loop, but for what its own steps left
+// at a call after the redirect that opened it: a call of a final callee
+// whose argument the e-graph made static data, at a parameter that counts,
+// is keyed by the hold it is passed at by the redirect that closes the
+// round (InRound::Last), so the round asks for that copy and another
+// follows it. Anything else such a round exposed is read by no later
+// round, which leaves the program less optimized, never different.
 //
 // When every member is done, the component becomes final between waves,
 // where its facts are read off its final bodies: its unread parameters

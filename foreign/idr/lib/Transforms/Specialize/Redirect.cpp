@@ -23,7 +23,9 @@
 // caller was taken up (openResults again). The one result type a copy
 // changes is a result keyed open for a tail lost to a layout: the call
 // gives it at its caller's layout, so the cast after it, which re-packed,
-// now builds nothing.
+// now builds nothing, and is made again from the call's result at the hold
+// the copy gives (convertResults), which its caller read when it was taken
+// up.
 //
 // A copy called where the call was stands at the call's place, so it keeps
 // the call's tail fact; where it gives a result open, the re-pack it waited
@@ -111,11 +113,15 @@ SmallVector<Value> operandsOf(RewriterBase &rewriter, CallOp call, const Pattern
 // passed at the copy's type for it, and the copy's results as the call
 // sees them, `type`'s at `indices`, which are the call's own types but
 // where the key opens one for a tail lost to a layout. Such a tail gives
-// each result to the call's uses as it is, each such use a cast towards its
-// caller's return, which builds nothing now.
+// each result to the call's uses, each a cast towards its caller's return,
+// which builds nothing now: at the hold the copy gives it, which its
+// caller's readers took when it was taken up (keyCalls), so each cast is
+// made again from the copy's result (convertResults), shared down where
+// its readers claim less.
 CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, FunctionType type,
                 IndexArgsAttr indices, ArrayRef<Value> operands) {
   Location loc = call.getLoc();
+  SmallVector<Type> took(call.getResultTypes());
   rewriter.setInsertionPoint(call);
   SmallVector<Value> passed;
   for (auto [operand, input] : llvm::zip_equal(operands, type.getInputs()))
@@ -141,6 +147,8 @@ CallOp redirect(RewriterBase &rewriter, CallOp call, FlatSymbolRefAttr target, F
   SmallVector<Value> old(call.getArgs());
   rewriter.replaceOp(call, fresh.getResults());
   eraseUnused(rewriter, old);
+  if (opened)
+    convertResults(fresh, took);
   if (!tailCallOf(fresh))
     fresh.setTailKind(tail::withContext(fresh));
   return fresh;

@@ -245,28 +245,10 @@ SmallVector<Extent> keyedBy(ExtentsAttr extents, IndexArgsAttr args, const CallS
   return keying;
 }
 
-// The layout a call asks a result of its callee at: as the callee's type
-// lays it out, in place where its index is known and its type not marked
-// open; or open, as an index unknown at compile time would be, at the
-// grade of `held`, the caller's own result, for a tail lost to a layout.
-struct AsGiven {};
-struct AtOpen {
-  Type held;
-};
-using ResultLayout = std::variant<AsGiven, AtOpen>;
+} // namespace
 
-// What `call`, standing where `standing` says, asks of each result as its
-// caller holds it. A tail lost to a layout asks open each result its
-// caller lays out otherwise than the call gives it, as the layout classes
-// say (the reading by which a cast between the two is free or re-packs): a
-// copy that returns it open makes the cast free, so the call is a tail
-// call. Every other result is asked as given. A result no copy of the
-// callee could give closed is marked open in the callee's own type,
-// decided once when the callee was taken up (openResults), so it reaches
-// the copy by the substitution, which keeps the mark, and no call asks for
-// it.
 SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
-  SmallVector<ResultLayout> asked(call->getNumResults(), AsGiven{});
+  SmallVector<ResultLayout> asked(call->getNumResults(), ResultLayout::AsGiven);
   if (standing == TailStanding::Elsewhere)
     return asked;
   // A tail's results are its caller's, one for one: the way from the call
@@ -275,8 +257,43 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
   for (auto [ask, given, returned] :
        llvm::zip_equal(asked, call.getResultTypes(), caller.getResultTypes()))
     if (families::layoutMatch(given, returned) == LayoutMatch::OtherLayout)
-      ask = AtOpen{returned};
+      ask = ResultLayout::AtOpen;
   return asked;
+}
+
+namespace {
+
+// Whether `call`'s caller reads each result of a copy giving `results`
+// (its key's, substituted) at no more than the copy gives it. The caller
+// took each result when it was taken up, between waves (openResults): one
+// asked as given at the hold the call's own result has, which that copy
+// then gives (a result laid out at the call so as to hold no reference
+// has none to read); one asked open at its own result's hold, to which the
+// re-pack after the call gives it, which the copy's then fits. A key made
+// later gives less only where a parameter its operand lowered in the
+// caller's own round may reach a result (static data placed at the
+// argument), and that would re-grade the caller past its decided return,
+// so such a call is not keyed: the program is less optimized there, its
+// argument crossing at the parameter's hold until its function is final
+// (shareCrossings).
+bool readsAsKeyed(CallOp call, ArrayRef<ResultLayout> layouts, TypeRange results) {
+  auto caller = call->getParentOfType<FuncOp>();
+  for (auto [index, layout] : llvm::enumerate(layouts)) {
+    auto position = static_cast<unsigned>(index);
+    std::optional<Hold> gives = holdOf(results[position]);
+    if (!gives)
+      continue;
+    if (layout == ResultLayout::AsGiven) {
+      if (std::optional<Hold> took = holdOf(call.getResultTypes()[position]);
+          took && *took != *gives)
+        return false;
+      continue;
+    }
+    std::optional<Hold> held = holdOf(caller.getResultTypes()[position]);
+    if (held && !gives->fits(*held))
+      return false;
+  }
+  return true;
 }
 
 // The signature copy `call` asks of `callee`: its index arguments' layout
@@ -284,19 +301,19 @@ SmallVector<ResultLayout> layoutsAsked(CallOp call, TailStanding standing) {
 // argument's extent the callee names becomes a constant that `site` lets
 // key it, each parameter at the hold the call passes where the two differ
 // (static data where the callee would count, which that copy then counts
-// nothing of; a claim re-grading lowered, which no cast raises back), each
-// result such a parameter may reach at no more than that hold, read off
-// what the callee's component published (`given`), which the call's own
-// results already took when its caller was taken up (keyGivenBack), and
+// nothing of; a claim re-grading lowered, which no cast raises back), and
 // each result its caller needs open, where `standing` is a tail lost to a
-// layout, returned open. None where nothing changes the callee.
+// layout, returned open; its results as keyedResults gives them, the one
+// rule the call's caller read them by when it was taken up. None where
+// nothing changes the callee, or where the caller would read a result at
+// more than the copy gives (readsAsKeyed).
 // The copy's signature is the callee's at those index arguments, every
 // binder they do not fix kept as the copy's own level, read through all the
 // callee's extents by the one substitution its copy is made by, so each
 // extent whose term is fixed there is static in it, and the call casts its
 // operand there; a result the callee's type marks open stays open, and a
-// result asked open is that result marked open, an array's element where it
-// is an array (openResult), which the copy's tails give.
+// result asked open, marked open on the callee's type, keeps the mark
+// through the substitution, which the copy's tails give.
 std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp callee,
                                          FunctionId calleeId, identities::FactsView given,
                                          const CallSite &site, TailStanding standing) {
@@ -310,14 +327,11 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
   for (auto [input, hold] : llvm::zip_equal(inputs, passed))
     if (hold)
       input = atHold(input, *hold);
-  SmallVector<Type> returned(type.getResults());
-  keyGivenBack(given, passed, returned);
   SmallVector<ResultLayout> layouts = layoutsAsked(call, standing);
-  auto open = [](const ResultLayout &layout) {
-    return idr::match(layout, [](AsGiven) { return false; }, [](const AtOpen &) { return true; });
-  };
-  if (!classes && llvm::equal(inputs, type.getInputs()) && llvm::none_of(layouts, open))
+  if (!classes && llvm::equal(inputs, type.getInputs()) &&
+      !llvm::is_contained(layouts, ResultLayout::AtOpen))
     return std::nullopt;
+  SmallVector<Type> returned = keyedResults(callee, layouts, given, passed);
   // Each binder is a level, and a level is a 32-bit number. With no class
   // fixed, every binder stays, each the copy's level it was the callee's.
   auto binders = static_cast<std::uint32_t>(callee.getBinders().getSorts().size());
@@ -326,17 +340,10 @@ std::optional<SignatureWant> signatureOf(Arena &arena, CallOp call, FuncOp calle
   // The classes keep every index the call's view closes, results included,
   // so the copy's own result is that view, closed, and its tails cast it to
   // the open type: what a known index lets it build in place, it builds.
-  FunctionType substituted = families::substitute(
+  FunctionType signature = families::substitute(
       FunctionType::get(call.getContext(), inputs, returned), extents, indices);
-  SmallVector<Type> results;
-  for (auto [layout, result] : llvm::zip_equal(layouts, substituted.getResults())) {
-    Type own = result;
-    results.push_back(idr::match(
-        layout, [&](AsGiven) { return own; },
-        [&](const AtOpen &at) { return openResult(own, at.held); }));
-  }
-  FunctionType signature =
-      FunctionType::get(call.getContext(), substituted.getInputs(), results);
+  if (!readsAsKeyed(call, layouts, signature.getResults()))
+    return std::nullopt;
   return SignatureWant{arena.key(calleeId, signature, indices)};
 }
 

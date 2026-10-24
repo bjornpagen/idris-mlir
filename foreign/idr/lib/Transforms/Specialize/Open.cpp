@@ -9,14 +9,14 @@
 //
 // Two ways come to it. A tail call whose caller lays its result out open
 // asks its callee's copy keyed open: the caller's layout is a fact of the
-// call, which the request reads (layoutsAsked), and openResult is the type
-// that copy returns, which openTails gives from every tail of the copy. And
-// the one rule here, for a result a tail gives at a layout the function's
-// own type cannot agree with, decided once per function when the schedule
-// takes it up: the function's result is marked open in its own type. The
-// two cannot agree in the function where its type lays the result out
-// closed and the tail gives it as at an unknown index (an index the
-// language cannot express, a level of the function's own, a callee's
+// call, which the request reads (layoutsAsked), and keyedResults gives the
+// type that copy returns, which openTails gives from every tail of the
+// copy. And the one rule here, for a result a tail gives at a layout the
+// function's own type cannot agree with, decided once per function when the
+// schedule takes it up: the function's result is marked open in its own
+// type. The two cannot agree in the function where its type lays the
+// result out closed and the tail gives it as at an unknown index (an index
+// the language cannot express, a level of the function's own, a callee's
 // result marked open), as a function declared at `Vect 3` meets; nor in a
 // copy whose classes would close the result's levels where the tail holds
 // what no substitution closes (an opaque index, an open mark), as one
@@ -47,7 +47,18 @@
 // open type claims less.
 // So an opened result is at the weakest hold its tails give, which every
 // tail fits: one that gives a cell no one claims and one that builds from
-// words share it.
+// words share it. A copy keyed open is opened the same way, at the weakest
+// hold the tails of its callee will give in it (keyedResults), each read in
+// the callee before the copy is built: the copy's tails are given after its
+// classes close the levels they close, so one whose value is laid out at
+// such a level re-packs there by building, and the callee's own calls are
+// tails like any other until the copy's round calls the copy instead. Its
+// caller reads that hold through the re-pack, which builds nothing once the
+// copy returns the result open, so the caller takes it when it is taken up
+// (keyCalls): where its own result claims more, its return gives it shared
+// down to that hold, which the result rule then gives its result, and the
+// redirect that calls the copy gives the re-pack's readers what they read
+// (convertResults).
 //
 // So a call may be given back less than its caller's type claimed. A claim
 // is an optimization and a weaker one is always sound, so no cast raises
@@ -93,6 +104,7 @@
 #include "idr/IR/Tail.h"
 #include "idr/Transforms/Optimize.h"
 #include "idr/Transforms/Specialize.h"
+#include "idr/Transforms/Specialize/Calls.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
@@ -133,17 +145,6 @@ LaidOut laidOut(Type type) {
     return LaidOut{dyn_cast<DataType>(array.getElementType()), array};
   return LaidOut{dataTypeOf(carrier), ShapedType()};
 }
-
-} // namespace
-
-Type openResult(Type type, Type held) {
-  LaidOut at = laidOut(type);
-  if (!at.data)
-    return type;
-  return graded(gradeOf(held), at.opened());
-}
-
-namespace {
 
 //===----------------------------------------------------------------------===//
 // Giving a value at another type
@@ -662,22 +663,64 @@ bool disagrees(Type given, Type result) {
   return returns.freeLevels() != 0 && (gives.getMark() == LayoutMark::Open || holdsOpaque(gives));
 }
 
+// Where the tails of a function whose result opens are given the opened
+// type: in the function itself, whose own calls take the opened type before
+// its tails are given it (decideResults); or in a copy of it a key opens,
+// built from it after the key is made (Signatures::edit), whose tails are
+// given it once the key's classes close the levels they close, and whose
+// calls of the function still give what the function gives until the
+// copy's round calls the copy instead.
+enum class TailsGiven : std::uint8_t { InItself, InCopy };
+
+// Whether a value laid out by `type` may be laid out otherwise in a copy:
+// its data type, or its array's element, marked by its indices with a
+// level a class may close, so that its index is known there.
+bool mayClose(Type type) {
+  DataType data = laidOut(type).data;
+  return data && data.getMark() == LayoutMark::ByIndices && data.freeLevels() != 0;
+}
+
+// What a tail of a function `self` names gives at `open` in a copy of it,
+// where `given`, its value, is re-packed there: its layout is not the open
+// one, or a class may make it so. The re-pack builds, so it gives no more
+// than a building reindex gives. And where `given` is what a call of
+// another function gives, that call is a tail lost to a layout in the copy,
+// which the copy's own round keys open in turn at the hold that callee's
+// tails give, which nothing here reads: so no more than the weakest counted
+// hold, which every such key's hold fits, so the copy's result never
+// claims more than what its own tail call will give it. None where the copy
+// gives the value as it is.
+std::optional<Hold> repackedInCopy(Value given, Type open, StringAttr self) {
+  Type type = given.getType();
+  if (!mayClose(type) && families::layoutMatch(type, open) == LayoutMatch::SameLayout)
+    return std::nullopt;
+  if (auto call = given.getDefiningOp<CallOp>(); call && call.getCalleeAttr().getAttr() != self)
+    return Hold::counted();
+  return families::builtHold(Unique::None);
+}
+
 // The hold `fn`'s result `position` opens at, laid out as `open`: the
 // weakest each tail's value gives there, the hold its reindex to `open`
-// gives, so every tail fits it, a stronger one through a share. A value a
-// call of `fn` itself gives is no tail's of its own: that call gives the
-// opened type, whatever it is. Where no tail gives one, the result's own,
-// or a counted one where it holds none.
-Hold openHold(FuncOp fn, const Spine &spine, unsigned position, Type open) {
+// gives, so every tail fits it, a stronger one through a share. Given in
+// the function itself, a value a call of `fn` gives is no tail's: that
+// call gives the opened type, whatever it is. Given in a copy, such a call
+// is a tail like any other, and a value the copy re-packs gives no more
+// than repackedInCopy says, whatever it gives in `fn`. Where no tail gives
+// one, the result's own, or a counted one where it holds none.
+Hold openHold(FuncOp fn, const Spine &spine, unsigned position, Type open, TailsGiven at) {
   StringAttr self = fn.getSymNameAttr();
   SmallVector<Hold> holds;
   for (Block *end : spine.ends) {
     Value given = uncast(end->getTerminator()->getOperand(position));
-    if (auto call = given.getDefiningOp<CallOp>(); call && call.getCalleeAttr().getAttr() == self)
+    if (auto call = given.getDefiningOp<CallOp>();
+        at == TailsGiven::InItself && call && call.getCalleeAttr().getAttr() == self)
       continue;
     std::optional<Hold> hold = holdOf(reindexed(given.getType(), open));
     assert(hold && "an open value holds references");
     holds.push_back(*hold);
+    if (at == TailsGiven::InCopy)
+      if (std::optional<Hold> repacked = repackedInCopy(given, open, self))
+        holds.push_back(*repacked);
   }
   if (holds.empty())
     return holdOf(fn.getResultTypes()[position]).value_or(Hold::counted());
@@ -685,6 +728,32 @@ Hold openHold(FuncOp fn, const Spine &spine, unsigned position, Type open) {
   assert(hold && "a function's tails give holds of one release before lifetimes");
   return *hold;
 }
+
+} // namespace
+
+SmallVector<Type> detail::keyedResults(FuncOp callee, ArrayRef<ResultLayout> layouts,
+                                       identities::FactsView given,
+                                       ArrayRef<std::optional<Hold>> passed) {
+  SmallVector<Type> results(callee.getResultTypes());
+  if (llvm::is_contained(layouts, ResultLayout::AtOpen)) {
+    Spine spine = spineOf(callee);
+    for (auto [index, layout] : llvm::enumerate(layouts)) {
+      if (layout == ResultLayout::AsGiven)
+        continue;
+      auto position = static_cast<unsigned>(index);
+      Type result = results[position];
+      LaidOut at = laidOut(result);
+      assert(at.data && "a call asks open only a result a data type lays out");
+      Type open = at.opened();
+      Hold hold = openHold(callee, spine, position, open, TailsGiven::InCopy);
+      results[position] = graded(Grade{usesOf(result), hold}, open);
+    }
+  }
+  keyGivenBack(given, passed, results);
+  return results;
+}
+
+namespace {
 
 // Whose a function's result layouts are: a function the program held has
 // them decided by the result rule; a copy's are its key's, which its
@@ -725,7 +794,7 @@ std::optional<SmallVector<Type>> openedResults(FuncOp fn, const Spine &spine, La
   for (auto [index, result] : llvm::enumerate(own)) {
     auto position = static_cast<unsigned>(index);
     if (std::optional<Type> open = opened[position]) {
-      Hold hold = openHold(fn, spine, position, *open);
+      Hold hold = openHold(fn, spine, position, *open, TailsGiven::InItself);
       results.push_back(graded(Grade{usesOf(result), hold}, *open));
       continue;
     }
@@ -744,18 +813,9 @@ std::optional<SmallVector<Type>> openedResults(FuncOp fn, const Spine &spine, La
   return results;
 }
 
-// `call`, a call of `callee` whose results changed, takes its callee's
-// types again, as every call holds its callee's; each result it gave at
-// another type reaches each use through one cast from the call's result: a
-// use that cast it on, at the type that use asked, and every other use at
-// the type the call gave, each where the cast gives what was asked, a
-// share forgetting the rest. Where the cast gives less (the result opened
-// at a weaker hold than the call's type claimed), it gives that, and the
-// values of the caller that read it are re-graded down (regrade). A result
-// whose layout stayed needs no cast, only its readers re-graded.
-void convertCall(CallOp call, FuncOp callee) {
-  SmallVector<Type> had(call.getResultTypes());
-  call.copyCallee(callee);
+} // namespace
+
+void convertResults(CallOp call, ArrayRef<Type> had) {
   OpBuilder b(call->getContext());
   b.setInsertionPointAfter(call);
   SmallVector<Value> lowered;
@@ -790,8 +850,20 @@ void convertCall(CallOp call, FuncOp callee) {
   }
   // The calls the walk reaches are the caller's decision's when it is
   // decided: here where it is of the callee's component, which is read
-  // again, and when it is taken up otherwise.
+  // again, and when it is taken up otherwise. A redirect's walk goes from a
+  // tail lost to a layout to its caller's return, which no call stands on.
   (void)regrade(call->getParentOfType<FuncOp>(), lowered);
+}
+
+namespace {
+
+// `call`, a call of `callee` whose results changed, takes its callee's
+// types again, as every call holds its callee's, and gives what its uses
+// read as they read it (convertResults).
+void convertCall(CallOp call, FuncOp callee) {
+  SmallVector<Type> had(call.getResultTypes());
+  call.copyCallee(callee);
+  convertResults(call, had);
 }
 
 // Every call of `id`, by the function that holds it: its own first, then
@@ -904,6 +976,18 @@ void lowerParameters(const optimize::Schedule &schedule, FunctionId id) {
 // reaches is decided in turn; a hold only descends, so the work ends. A
 // call of a member of the caller's component, a copy's among them, waits
 // for that member's parameters instead (lowerParameters).
+//
+// Then each tail lost to a layout whose callee is final, which in the
+// caller's round calls the callee's copy keyed open at each result the
+// caller lays out otherwise (layoutsAsked): that copy gives the result at
+// the hold its key's results give it (keyedResults, the one rule
+// signatureOf keys by), the weakest the callee's tails give it. The caller
+// reads it through the re-pack, which builds nothing once the copy gives
+// the result open; so where that hold claims less than the caller's own
+// result, the caller's return gives it so now, shared down to it, and the
+// result rule gives the caller's result that hold (decideResults), every
+// call of the caller converted with it. The redirect that calls the copy
+// then gives the re-pack's readers what they read (convertResults).
 void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
   SmallVector<CallOp> work;
   fn.getBody().walk([&](CallOp call) { work.push_back(call); });
@@ -925,6 +1009,46 @@ void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
       lowered.push_back(result);
     }
     llvm::append_range(work, regrade(fn, lowered));
+  }
+  // The weakest hold a copy keyed open gives each result, over the tails
+  // lost to a layout that ask for one there.
+  SmallVector<std::optional<Hold>> opened(fn.getNumResults());
+  for (CallOp call : detail::lostTails(fn)) {
+    std::optional<FunctionId> callee = schedule.graph.find(call.getCalleeAttr());
+    assert(callee && "between waves every copy a call names is placed");
+    std::optional<optimize::Readable> known = schedule.final(*callee);
+    if (!known)
+      continue;
+    SmallVector<detail::ResultLayout> layouts =
+        detail::layoutsAsked(call, detail::TailStanding::LostToLayout);
+    SmallVector<Type> keyed =
+        detail::keyedResults(known->fn, layouts, schedule.callees.of(call.getCalleeAttr()),
+                             passedHolds(call, known->fn.getArgumentTypes()));
+    for (auto [position, layout] : llvm::enumerate(layouts)) {
+      if (layout == detail::ResultLayout::AsGiven)
+        continue;
+      std::optional<Hold> gives = holdOf(keyed[position]);
+      assert(gives && "an open value holds references");
+      std::optional<Hold> &weakestSoFar = opened[position];
+      weakestSoFar = weakestSoFar ? weakest({*weakestSoFar, *gives}) : gives;
+      assert(weakestSoFar && "the copies a function's tails call give holds of one release before "
+                             "lifetimes");
+    }
+  }
+  Operation *end = fn.getBody().front().getTerminator();
+  for (auto [position, gives] : llvm::enumerate(opened)) {
+    if (!gives)
+      continue;
+    std::optional<Hold> own = holdOf(fn.getResultTypes()[position]);
+    assert(own && "a result a tail re-packs from an open layout holds references");
+    if (gives->fits(*own))
+      continue;
+    OpOperand &returned = end->getOpOperand(static_cast<unsigned>(position));
+    Value value = returned.get();
+    std::optional<Hold> target = weakest({*holdOf(value.getType()), *gives});
+    assert(target && "a return gives a hold of the release its open copies give");
+    OpBuilder b(end);
+    returned.set(heldAs(b, end->getLoc(), value, atHold(value.getType(), *target)));
   }
 }
 
