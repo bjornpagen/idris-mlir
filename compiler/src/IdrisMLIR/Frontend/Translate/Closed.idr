@@ -139,17 +139,20 @@ data VarInfo : (kc : Nat) -> Scoping -> Type -> Type where
   ||| known as a term (`BoundHere`), which a term only uses.
   Static : FixedDictionary -> Maybe (a, Holes) -> GivenParameter kc a -> VarInfo kc sp a
   ||| A part a compile-time match took out of an implementation the
-  ||| instance is given (`Cases.staticCase`), with the parameter it is of
-  ||| and the constructor each match on the way found it built with
-  ||| (`Opened`), the innermost first, so that a part no reduction reaches
-  ||| is put back into the implementation with nothing reduced again
-  ||| (`Cases.heldHere`). Only a case tree takes an implementation apart.
-  OpenedPart : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> List1 Opened -> VarInfo kc OfTree a
-  ||| An implementation a term's scope knows as a term: one a `let` binds or
-  ||| a lambda applied there takes, or a part a compile-time match took out
-  ||| of a given one (`asTermEntry`), which a term only uses. No case tree's
-  ||| scope holds one.
-  BoundHere : ClosedTerm -> Maybe (a, Holes) -> VarInfo kc OfTerm a
+  ||| instance is given (`Cases.staticCase`), with the parameter it is of,
+  ||| the constructor each match on the way found it built with (`Opened`),
+  ||| the innermost first, and the type the whole implementation is fixed
+  ||| at, so that a part no reduction reaches is put back into the
+  ||| implementation with nothing reduced again (`Cases.heldHere`). Only a
+  ||| case tree takes an implementation apart.
+  OpenedPart : ClosedTerm -> Maybe (a, Holes) -> GivenParameter kc a -> List1 Opened -> (whole : ClosedTerm) ->
+               VarInfo kc OfTree a
+  ||| An implementation a term's scope knows as a term, with its Idris type:
+  ||| one a `let` binds or a lambda applied there takes, at the type Idris
+  ||| checked there, or a part a compile-time match took out of a given one
+  ||| (`asTermEntry`), at its field's type, which a term only uses. No case
+  ||| tree's scope holds one.
+  BoundHere : ClosedTerm -> (type : ClosedTerm) -> Maybe (a, Holes) -> VarInfo kc OfTerm a
 
 export
 Functor (VarInfo kc sp) where
@@ -157,8 +160,8 @@ Functor (VarInfo kc sp) where
   map f (Shaped x t i sh) = Shaped (f x) t i sh
   map f (TypeValue t) = TypeValue t
   map f (Static t h p) = Static t (map (\(x, hs) => (f x, hs)) h) (map f p)
-  map f (OpenedPart t h p o) = OpenedPart t (map (\(x, hs) => (f x, hs)) h) (map f p) o
-  map f (BoundHere t h) = BoundHere t (map (\(x, hs) => (f x, hs)) h)
+  map f (OpenedPart t h p o whole) = OpenedPart t (map (\(x, hs) => (f x, hs)) h) (map f p) o whole
+  map f (BoundHere t ty h) = BoundHere t ty (map (\(x, hs) => (f x, hs)) h)
 
 -- An entry's implementation and a term's (`implementationOf` below) are
 -- read by one name, told apart by what they read.
@@ -169,8 +172,8 @@ namespace VarInfo
   export
   implementationOf : VarInfo kc sp a -> Maybe (ClosedTerm, Maybe (a, Holes))
   implementationOf (Static d h _) = Just (d.form, h)
-  implementationOf (OpenedPart t h _ _) = Just (t, h)
-  implementationOf (BoundHere t h) = Just (t, h)
+  implementationOf (OpenedPart t h _ _ _) = Just (t, h)
+  implementationOf (BoundHere t _ h) = Just (t, h)
   implementationOf _ = Nothing
 
 ||| A case tree's entry as a term's scope holds it, at a leaf: a part of an
@@ -182,7 +185,7 @@ asTermEntry (Runtime x t) = Runtime x t
 asTermEntry (Shaped x t i sh) = Shaped x t i sh
 asTermEntry (TypeValue t) = TypeValue t
 asTermEntry (Static d h p) = Static d h p
-asTermEntry (OpenedPart t h _ _) = BoundHere t h
+asTermEntry (OpenedPart t h _ o _) = BoundHere t (head o).partType h
 
 ||| The role Idris gives a constructor of a `Nat`-like type
 ||| (`TTImp.ProcessData.calcNaty`): the type is `NatT`, zero is `0`, and the
@@ -329,8 +332,8 @@ closeWritten fc env tm = closeOver fc (map value env) tm
     value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
     value (Static d _ _) = d.form
-    value (OpenedPart t _ _ _) = t
-    value (BoundHere t _) = t
+    value (OpenedPart t _ _ _ _) = t
+    value (BoundHere t _ _) = t
     value (Shaped _ _ _ s) = shapeWritten s
     value (Runtime {}) = probeTerm ProbeRuntime
 
@@ -1760,7 +1763,7 @@ closeNormalise fc env tm = do
     value : VarInfo kc spc a -> ClosedTerm
     value (TypeValue t) = t
     value (Static d _ _) = d.form
-    value (OpenedPart t _ _ _) = t
-    value (BoundHere t _) = t
+    value (OpenedPart t _ _ _ _) = t
+    value (BoundHere t _ _) = t
     value (Shaped _ _ _ s) = s
     value (Runtime {}) = runtimeVariable

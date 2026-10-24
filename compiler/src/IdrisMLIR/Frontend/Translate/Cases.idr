@@ -547,8 +547,8 @@ mutual
         Nothing => forced alts
       -- A match on an implementation selects its alternative now: a
       -- parameter's whole, or a part an earlier match took out of one.
-      Static d hole given => staticCase ctx env cls scrutinee hole given (WholeParameter d.reducesTo) alts
-      OpenedPart t hole given opened => staticCase ctx env cls scrutinee hole given (TakenOut t opened) alts
+      Static d hole given => staticCase ctx env cls scrutinee hole given d.type (WholeParameter d.reducesTo) alts
+      OpenedPart t hole given opened whole => staticCase ctx env cls scrutinee hole given whole (TakenOut t opened) alts
       Runtime i t => case coreOf t of
         WorldT => world alts
         core => runtime loc i core (idrisOf t) Nothing
@@ -822,14 +822,15 @@ mutual
   ||| constructor, and the alternative's variables stand for its arguments,
   ||| each a part taken out of it (`Taken`). An argument that mentions the
   ||| runtime value the implementation closes over closes over it too, and
-  ||| every argument is of the parameter the implementation is (`given`). A
-  ||| part no compile-time reduction reaches is computed where the match
-  ||| reaches it (`heldHere`).
+  ||| every argument is of the parameter the implementation is (`given`),
+  ||| whose whole implementation is fixed at type `whole`. A part no
+  ||| compile-time reduction reaches is computed where the match reaches it
+  ||| (`heldHere`).
   staticCase : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
-               Maybe (Fin nv, Holes) -> (given : GivenParameter kc (Fin nv)) -> Taken ->
+               Maybe (Fin nv, Holes) -> (given : GivenParameter kc (Fin nv)) -> (whole : ClosedTerm) -> Taken ->
                List (CaseAlt vars) -> Front (Term nv)
-  staticCase ctx env cls scrutinee hole given taken alts = case taken of
+  staticCase ctx env cls scrutinee hole given whole taken alts = case taken of
     -- A parameter's whole implementation is one the program fixes now:
     -- its kind holds the value it reduces to (`FixedDictionary`), read
     -- where it was classified, registered as a member, or built beside a
@@ -859,7 +860,7 @@ mutual
       -- part taken out of the implementation, with the constructor it was
       -- found built with (`o`) inside those the matches before found.
       info : Opened -> ArgumentAt -> ClosedTerm -> VarInfo kc OfTree (Fin nv)
-      info o (RuntimeValue _) v = OpenedPart v (if mentionsHole v then hole else Nothing) given (o ::: openedOf taken)
+      info o (RuntimeValue _) v = OpenedPart v (if mentionsHole v then hole else Nothing) given (o ::: openedOf taken) whole
       info _ _ v = TypeValue v
 
       -- Each argument of the constructor `con`, as its definition was read,
@@ -982,13 +983,13 @@ mutual
                              "implementation was taken apart: " ++ !(showTT t) ++ ", stuck on " ++ !(stuckText on))
         let types = maybe (fieldType ::: []) (\hs => appendl hs.types [fieldType]) held
         packed <- coreType ctx.fc ctx.owner ValueType !(normaliseClosed !(packedType types))
-        fixed <- builtDictionary form' value'
+        fixed <- builtDictionary form' whole value'
         let kinds = replaceAt position (DictParam fixed (Just (MkHoles types (MkBinder Many packed)))) own
         sig <- request ctx.fc ctx.owner ctx.request.instantiates
                        (replace {p = \n => Vect n PKind} (trans (sym ctx.counts) ctx.request.classifiesAll) kinds)
         loc <- toLoc ctx.fc
         -- The field is computed at its type's Core type, a choice's.
-        value <- computedAt ctx ctx.fc (ExpectedAt !(coreType ctx.fc ctx.owner ValueType fieldType)) t hole
+        value <- computedAt ctx ctx.fc (ExpectedAt !(coreType ctx.fc ctx.owner ValueType fieldType)) t fieldType hole
         let levels = ownLevels (length (telescopeOf r.signature.kinds))
         body <- case given.holding of
           Nothing => Call loc sig.callee Nothing levels <$> passedOn loc FS parameter (Var loc FZ) sig.kinds

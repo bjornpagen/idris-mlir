@@ -69,6 +69,27 @@ export
 mentionsMarker : Nat -> TT vs -> Bool
 mentionsMarker k = mentions (\t => binderOf t == Just k)
 
+-- A term with the part a path reaches replaced by a closed term; the path
+-- was found in the term (`Types.erasedIndices`), so it stays in it.
+putAt : List FormStep -> ClosedTerm -> TT vs -> TT vs
+putAt [] x _ = embedClosed x
+putAt (InFunction :: p) x (App fc f a) = App fc (putAt p x f) a
+putAt (InArgument :: p) x (App fc f a) = App fc f (putAt p x a)
+putAt (InBinderType :: p) x (Bind fc n (Pi pfc rig info a) sc) = Bind fc n (Pi pfc rig info (putAt p x a)) sc
+putAt (InBinderType :: p) x (Bind fc n (Lam lfc rig info a) sc) = Bind fc n (Lam lfc rig info (putAt p x a)) sc
+putAt (InScope :: p) x (Bind fc n b sc) = Bind fc n b (putAt p x sc)
+putAt (InLazy :: p) x (TDelayed fc r t) = TDelayed fc r (putAt p x t)
+putAt _ _ t = t
+
+||| A type argument's form with each of its erased indices (`ErasedIndex`)
+||| the stand-in for its level (`marker`), the first `level` and each next
+||| one more: the value an instance's scope holds for a type parameter,
+||| whose types then name those levels (`!idr.data<#Vect[v0]>`).
+export
+filledIndices : Nat -> List ErasedIndex -> ClosedTerm -> ClosedTerm
+filledIndices level [] t = t
+filledIndices level (i :: is) t = filledIndices (S level) is (putAt i.path (marker level) t)
+
 ------------------------------------------------------------------------------
 -- Reading the definitions
 ------------------------------------------------------------------------------

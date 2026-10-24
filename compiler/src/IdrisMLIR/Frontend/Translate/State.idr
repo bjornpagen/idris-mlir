@@ -157,7 +157,9 @@ record DictionaryReading where
 ||| An implementation the program fixes now, as the kind of a parameter
 ||| given it holds it (`DictParam`): its form as given (what a call writes,
 ||| where the call classifies it; its reading's form, where an instance is
-||| keyed by it, `atReading`); its reading (`StaticReading`); and the value
+||| keyed by it, `atReading`); the type it is fixed at, the parameter's or
+||| the choice's, which a use of it as a form applies it at
+||| (`Terms.implementationAt`); its reading (`StaticReading`); and the value
 ||| its form reduces to at its head (`FixedValue`), found once: where the
 ||| one classification of a dictionary read it, the reduct its reading kept
 ||| (`Template.dictionaryReading`), fixed at the type it is given at
@@ -169,6 +171,7 @@ public export
 record FixedDictionary where
   constructor MkFixedDictionary
   form : ClosedTerm
+  type : ClosedTerm
   asStatic : StaticReading
   0 ofDictionary : asStatic.readKind = ADictionary
   reducesTo : FixedValue
@@ -177,13 +180,38 @@ record FixedDictionary where
 ||| its reading reads, which its key writes there.
 public export
 atReading : FixedDictionary -> FixedDictionary
-atReading d = MkFixedDictionary d.asStatic.form d.asStatic d.ofDictionary d.reducesTo
+atReading d = MkFixedDictionary d.asStatic.form d.type d.asStatic d.ofDictionary d.reducesTo
+
+||| A step from a term into one of its parts, where a type argument's form
+||| can hold an index of an inductive family: an application's function or
+||| its argument, a binder's type or the scope it binds in, the type a lazy
+||| type holds.
+public export
+data FormStep = InFunction | InArgument | InBinderType | InScope | InLazy
+
+||| An index of an inductive family that a type argument's form leaves
+||| erased (`_` at an `Index` position of a type constructor's application,
+||| where the key names no level of its caller's, `Types.unmarked`), as an
+||| index parameter of the instance the form keys: the path to it from the
+||| form's root, the outermost step first, and its sort. Each call passes
+||| its term there (`Instances.indexForms`), so a closure's type keeps the
+||| index its caller names.
+public export
+record ErasedIndex where
+  constructor MkErasedIndex
+  path : List FormStep
+  sort : Sort
 
 ||| Parameter classification after instantiation (`Instances.classify`). A
 ||| type parameter and an implementation (a value of an interface's type,
 ||| such as an interface constraint, or a polymorphic function passed as a
 ||| value, `Types.polymorphicType`) are compile-time values: they key the
-||| instance and are not parameters at runtime. An implementation is one the
+||| instance and are not parameters at runtime. A type parameter's form
+||| holds each index of an inductive family its key erased as an index
+||| parameter of the instance (`ErasedIndex`), at the levels after those of
+||| the index parameters before it, which its value in the instance's
+||| scope names there (`TypeConstructors.filledIndices`); a call's own
+||| reading of its type argument holds none. An implementation is one the
 ||| program fixes now, with its reading and the value it reduces to
 ||| (`FixedDictionary`). It may close over runtime values (`{vars : _} ->
 ||| Show (Term vars)` at the scope a term has): which implementation it is
@@ -209,7 +237,7 @@ atReading d = MkFixedDictionary d.asStatic.form d.asStatic d.ofDictionary d.redu
 ||| positional, one per parameter of the definition's type, as the case
 ||| tree's scope has one variable per parameter.
 public export
-data PKind = TypeParam ClosedTerm
+data PKind = TypeParam ClosedTerm (List ErasedIndex)
            | DictParam FixedDictionary (Maybe Holes)
            | ChoiceParam Binder ChoiceType
            | ErasedParam
@@ -242,11 +270,13 @@ data KeysNothing : PKind -> Type where
   IndexKeysNothing : KeysNothing (IndexParam s)
 
 ||| An instance's telescope: the sorts of its index parameters, in order,
-||| the levels `0 .. p-1` of its body's scope.
+||| the levels `0 .. p-1` of its body's scope, each erased index of a type
+||| parameter's form one of them.
 export
 telescopeOf : List PKind -> List Sort
 telescopeOf [] = []
 telescopeOf (IndexParam s :: ks) = s :: telescopeOf ks
+telescopeOf (TypeParam _ is :: ks) = map (.sort) is ++ telescopeOf ks
 telescopeOf (_ :: ks) = telescopeOf ks
 
 ||| What a parameter binds at run time, if it is a parameter at run time:
@@ -526,11 +556,12 @@ appliedArity (AtUse uses) = 2 + uses
 ||| at the quantity it was read with; where nothing keys it, whatever the
 ||| parameter's binder decides, a kind that keys nothing (`KeysNothing`). So
 ||| the value an instance holds for a parameter its key names is the form
-||| the key writes there, and at every other parameter it holds no static
+||| the key writes there (a type's with its erased indices the instance's
+||| index parameters), and at every other parameter it holds no static
 ||| value.
 public export
 data AtKey : Maybe (KeyedAs, StaticReading) -> PKind -> Type where
-  TypeAtKey : {0 r : StaticReading} -> AtKey (Just (AsType, r)) (TypeParam r.form)
+  TypeAtKey : {0 r : StaticReading} -> {0 is : List ErasedIndex} -> AtKey (Just (AsType, r)) (TypeParam r.form is)
   DictionaryAtKey : {0 d : FixedDictionary} -> {0 holes : Maybe Holes} ->
                     AtKey (Just (AsDictionary holes, d.asStatic)) (DictParam (atReading d) holes)
   FormAtKey : {0 r : StaticReading} -> AtKey (Just (AsForm, r)) (FormParam r.form)
@@ -1218,15 +1249,15 @@ pairWith : (DefinitionRead facts -> DefinitionRead facts') -> PairRead facts -> 
 pairWith f pg =
   MkPairRead pg.pairAddress (f pg.pairDefined) pg.firstAddress (f pg.firstDefined) pg.secondAddress (f pg.secondDefined)
 
-||| Is a name the pair type `%pair` names, at the address the boundary read
-||| it at (nothing for a program that declares no `%pair`)? The name is
-||| the definition the frozen context gives it, compared by its address,
-||| so no two names are compared; a name it defines as nothing names no
-||| type.
+||| Is a name the definition at an address the boundary read (the pair type
+||| `%pair` names, base's `plus` on `Nat`; nothing for a program that
+||| defines none)? The name is the definition the frozen context gives it,
+||| compared by its address, so no two names are compared; a name it
+||| defines as nothing names no definition.
 export
-pairTypeNamed : Frozen -> (pairType : Maybe Address) -> Name -> Bool
-pairTypeNamed fz Nothing n = False
-pairTypeNamed fz (Just a) n = case definitionIn fz n of
+namedAt : Frozen -> Maybe Address -> Name -> Bool
+namedAt fz Nothing n = False
+namedAt fz (Just a) n = case definitionIn fz n of
   DefinedAs i resolved _ defines => sameAddress (definedAddress i resolved defines) a
   NotDefined _ => False
 
@@ -1329,11 +1360,14 @@ withSolution i s table = Data.SortedMap.Dependent.insert i s table
 ||| `Boundary.implementationHolding`); the solution of every metavariable a
 ||| term read names, by its entry (`Solutions`), which every walk that
 ||| meets one reads; the pair Idris's `%pair` names (`PairRead`), which
-||| holds values as one, none for a program that declares no `%pair`; and
-||| the address of `IO`'s type constructor (`ioType`), the type of what
+||| holds values as one, none for a program that declares no `%pair`; the
+||| address of `IO`'s type constructor (`ioType`), the type of what
 ||| `unsafePerformIO` runs, which the program's root runs `main` as, read
 ||| once after the freeze, so `IO` is known by that identity and never by
-||| its name again, nor by its shape (`Terms.ioOf`). Each definition holds
+||| its name again, nor by its shape (`Terms.ioOf`); and the address of
+||| base's `plus` on `Nat` (`natPlus`), which an index term reads as a sum
+||| (`Types.indexTerm`), read once with `IO`'s and known by that identity
+||| alone, none for a program that loads no `Prelude.Types`. Each definition holds
 ||| what the whole program's definitions say of it (`facts`): nothing while
 ||| they are being read, its constructors once they are, and its `Nature`
 ||| once those are (`Read`); the pair's, as every other's. Nothing the
@@ -1349,6 +1383,7 @@ record Reading (facts : Type) where
   solutions : Solutions frozen
   pair : Maybe (PairRead facts)
   ioType : Address
+  natPlus : Maybe Address
 
 ||| What every phase after the boundary reads of the program: each
 ||| definition with its `Nature`.
@@ -1385,6 +1420,7 @@ natured : (DefinitionRead facts -> Nature) -> Reading facts -> Read
 natured nature r =
   MkReading r.frozen (withNature (nature r.entry) r.entry) (map (\d => withNature (nature d) d) r.definitions)
             r.application r.interfaces r.solutions (map (pairWith (\d => withNature (nature d) d)) r.pair) r.ioType
+            r.natPlus
 
 ||| What was read of a name: the definition at the entry the frozen context
 ||| resolves it to, with the entry and the evidence that the name resolves

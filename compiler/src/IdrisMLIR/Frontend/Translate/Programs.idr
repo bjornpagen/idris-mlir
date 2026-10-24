@@ -64,18 +64,20 @@ parameterName (x :: xs) = (binderName x, xs)
 
 ||| An instance's runtime parameters' names, as the type it is classified
 ||| over names them, and what each variable of its body's scope stands for,
-||| one per parameter, the scope having one variable per kind: a type, an
-||| implementation or a parameter of quantity 0 a compile-time value, an
-||| index parameter its level (the next one `level`), which its body's
-||| types read, and a runtime parameter the next Core parameter. Each kind
+||| one per parameter, the scope having one variable per kind: a type (its
+||| erased indices its levels, `filledIndices`), an implementation or a
+||| parameter of quantity 0 a compile-time value, an index parameter its
+||| level (the next one `level`), which its body's types read, and a
+||| runtime parameter the next Core parameter. Each kind
 ||| comes with its parameter's position among the instance's `kc`
 ||| (`at`), which an implementation's entry keeps (`GivenParameter`).
 runtimeParams : {0 sp : Scoping} -> (level : Nat) -> List Name -> (vars : Scope) -> (kinds : List PKind) ->
                 (0 _ : length kinds = length vars) -> (at : Vect (length kinds) (Fin kc)) ->
                 (Vect (Runtimes kinds) Shown, StandsFor kc sp vars (Fin (Runtimes kinds)))
 runtimeParams level xs [] [] _ [] = ([], [])
-runtimeParams level xs (_ :: vs) (TypeParam t :: ks) same (_ :: at) =
-  let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (injective {f = S} same) at in (ps, TypeValue t :: env)
+runtimeParams level xs (_ :: vs) (TypeParam t is :: ks) same (_ :: at) =
+  let (ps, env) = runtimeParams (level + length is) (snd (parameterName xs)) vs ks (injective {f = S} same) at in
+  (ps, TypeValue (filledIndices level is t) :: env)
 runtimeParams level xs (_ :: vs) (DictParam t Nothing :: ks) same (p :: at) =
   let (ps, env) = runtimeParams level (snd (parameterName xs)) vs ks (injective {f = S} same) at in
   (ps, Static t Nothing (MkGivenParameter p Nothing) :: env)

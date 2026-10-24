@@ -111,11 +111,14 @@ paramLayout con params roles ty =
 ||| What is known of an erased index, from its normal form: a constructor
 ||| binder's stand-in (`marker`) is that binder's level; a chain of
 ||| successors of `Nat` (Idris's `ZERO` and `SUCC` flags, never names) over
-||| zero or a stand-in is a number or a level plus one per successor; a
-||| non-negative integer literal is a number; anything else is outside the
-||| language, refining nothing. Read once, where a type is read, where a
-||| call gives an index parameter its argument, and for each extent of an
-||| array's type, which its term fixes or names (`extentOf`).
+||| zero or a stand-in is a number or a level plus one per successor; base's
+||| `plus` on `Nat` applied to two such terms, known by the address the
+||| boundary read it at (`Reading.natPlus`), never by its name, is their
+||| sum (`plusTerm`), outside the language where either is; a non-negative
+||| integer literal is a number; anything else is outside the language,
+||| refining nothing. Read once, where a type is read, where a call gives
+||| an index parameter its argument, and for each extent of an array's
+||| type, which its term fixes or names (`extentOf`).
 export
 indexTerm : ClosedTerm -> Front ITerm
 indexTerm = go 0
@@ -130,10 +133,14 @@ indexTerm = go 0
     go k tm = case binderOf tm of
       Just level => pure (succ (IVar level) k)
       Nothing => case tm of
-        App _ _ pred => case !(roleOf tm) of
+        App _ f pred => case !(roleOf tm) of
           Just Zero => pure (INat k)
           Just Succ => go (S k) pred
-          Nothing => pure IOpaque
+          Nothing => case f of
+            App _ (Ref _ Func n) a => do
+              plus <- (\r => namedAt r.frozen r.natPlus n) <$> reading
+              if plus then (\x, y => succ (plusTerm x y) k) <$> go 0 a <*> go 0 pred else pure IOpaque
+            _ => pure IOpaque
         Ref _ (DataCon _ _) _ => case !(roleOf tm) of
           Just Zero => pure (INat k)
           _ => pure IOpaque
@@ -645,6 +652,56 @@ sortOfType tm = case getFn tm of
             NoTypeConstructor => SOpaque)
   _ => pure SOpaque
 
+||| The sorts of a type constructor's argument positions `ps`, in order,
+||| from its type, each binder before them erased: what a family's indices
+||| are (`familyIn`) and what an erased index of a type argument's form is
+||| (`erasedIndices`).
+indexSorts : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Defined -> List Nat -> Front (List Sort)
+indexSorts d ps = go none 0 !(normaliseClosed d.type)
+  where
+    go : Given vs -> Nat -> TT vs -> Front (List Sort)
+    go g i (Bind bfc _ (Pi _ _ _ a) sc) = do
+      rest <- go (give (Erased bfc Placeholder) g) (S i) sc
+      if elem i ps then (:: rest) <$> sortOfType !(normaliseClosed (close g a)) else pure rest
+    go g i _ = pure []
+
+||| The indices of inductive families a type argument's form leaves erased
+||| (`State.ErasedIndex`): each `_` at an `Index` position of a type
+||| constructor's application, in a type the form holds at a `Keyed`
+||| position or at its root, with its path and its sort (`indexSorts`), in
+||| the order a walk of the form meets them, an application's function
+||| before its argument and a binder's type before its scope. An index the
+||| form writes keys the instance as written, and a shape (`Formed`) or a
+||| held argument (`Held`) holds no index of a family's.
+export
+erasedIndices : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> String -> ClosedTerm -> Front (List ErasedIndex)
+erasedIndices owner = within [<]
+  where
+    mutual
+      within : SnocList FormStep -> TT vs -> Front (List ErasedIndex)
+      within p (Bind _ _ (Pi _ _ _ a) sc) = (++) <$> within (p :< InBinderType) a <*> within (p :< InScope) sc
+      within p (Bind _ _ (Lam _ _ _ a) sc) = (++) <$> within (p :< InBinderType) a <*> within (p :< InScope) sc
+      within p (TDelayed _ _ t) = within (p :< InLazy) t
+      within p tm = case getFnArgs tm of
+        (Ref _ (TyCon _) n, args) => do
+          (tc, facts) <- lookupTyCon EmptyFC owner n
+          arguments facts.roles tc (length args) p tm
+        _ => pure []
+
+      -- The arguments of an application of `k` arguments, the last first,
+      -- so that each is a subterm.
+      arguments : List Role -> Defined -> Nat -> SnocList FormStep -> TT vs -> Front (List ErasedIndex)
+      arguments rs tc (S k) p (App _ f a) = do
+        before <- arguments rs tc k (p :< InFunction) f
+        here <- case roleAt k rs of
+                  Keyed => within (p :< InArgument) a
+                  Index => case a of
+                    Erased _ Placeholder => map (MkErasedIndex ((p :< InArgument) <>> [])) <$> indexSorts tc [k]
+                    _ => pure []
+                  _ => pure []
+        pure (before ++ here)
+      arguments rs tc _ _ _ = pure []
+
 -- The levels a term or a type names, each once.
 mutual
   levelsOfTerm : ITerm -> List Nat
@@ -944,16 +1001,6 @@ mutual
                    (tname ++ ": the registry's entry promises that its values are rebuilt in place, which only " ++
                     "a type with exactly one constructor that holds fields keeps, and it has " ++ show (length cells))
       promised _ _ _ = pure None
-
-      -- The sorts of a type constructor's index positions, from its type.
-      indexSorts : Defined -> List Nat -> Front (List Sort)
-      indexSorts d ps = go none 0 !(normaliseClosed d.type)
-        where
-          go : Given vs -> Nat -> TT vs -> Front (List Sort)
-          go g i (Bind bfc _ (Pi _ _ _ a) sc) = do
-            rest <- go (give (Erased bfc Placeholder) g) (S i) sc
-            if elem i ps then (:: rest) <$> sortOfType !(normaliseClosed (close g a)) else pure rest
-          go g i _ = pure []
 
   ||| A constructor of a family being registered, at its place among its
   ||| type's constructors, as the boundary read it with the type's facts

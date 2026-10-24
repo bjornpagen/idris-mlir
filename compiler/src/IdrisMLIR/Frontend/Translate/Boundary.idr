@@ -402,7 +402,7 @@ implementationHolding fz ifs pt ty = case headed ty of
   ByTypeConstructor n =>
     if contains (fullNameIn fz n) ifs then AMember else case ty of
       App _ (App _ (Ref _ _ _) a) b =>
-        if pairTypeNamed fz pt n
+        if namedAt fz pt n
           then bothHold (implementationHolding fz ifs pt a) (implementationHolding fz ifs pt b)
           else NoMember
       _ => NoMember
@@ -1086,6 +1086,13 @@ pairingIn fz ds (Just placed) = do
 ioName : Name
 ioName = NS primIONS (knownUN KIO)
 
+||| Base's `plus` on `Nat`, `Prelude.Types.plus`, from the known vocabulary:
+||| the one place it is named, where its definition is found once
+||| (`readProgram`), so an index term reads it as a sum by that identity
+||| (`Types.indexTerm`).
+natPlusName : Name
+natPlusName = NS typesNS (knownUN Kplus)
+
 ||| What the translation reads of a program whose entry is the definition
 ||| named `entry`, and whose loaded interfaces are `interfaces`: every
 ||| definition it can meet from the entry and from the pair `%pair` names,
@@ -1096,7 +1103,8 @@ ioName = NS primIONS (knownUN KIO)
 ||| values that are members of a choice, its binders with what it takes at
 ||| each and their types, and the hook that lowers its calls read off its
 ||| type in normal form; the entry's name resolved once, and `IO`'s, whose
-||| type constructor's address is how `IO` is known after; the solution of
+||| type constructor's address is how `IO` is known after, and base's
+||| `plus` on `Nat`'s, where the program loads it; the solution of
 ||| every metavariable a term read names, by its entry, told from what the
 ||| reading before the freeze decoded there, which the frozen context
 ||| keeps (`Host.keptAt`); each type
@@ -1151,6 +1159,12 @@ readProgram ifs entry fallback = do
     | NotDefined _ => pure (Left (MkRefusal (Refusal ProgramShape) fallback
                                             (programEntry ++ ": main must be an IO action, and the program defines no IO")))
   let ioAddress = definedAddress ioEntry ioResolved ioDefines
+  -- Base's `plus` on `Nat`, found once here as `IO` is, and known from
+  -- here on by its address alone; a program that loads no `Prelude.Types`
+  -- has none, and no index term of it is a sum.
+  let natPlus = case definitionIn fz natPlusName of
+                  DefinedAs plusEntry plusResolved _ plusDefines => Just (definedAddress plusEntry plusResolved plusDefines)
+                  NotDefined _ => Nothing
   -- Each metavariable met told by its entry from what the reading before
   -- the freeze decoded there, which the frozen context keeps, so no phase
   -- after looks one up by name and no entry is decoded twice, with the
@@ -1170,9 +1184,9 @@ readProgram ifs entry fallback = do
     | Left refusal => pure (Left refusal)
   entryRead <- readEntry fz withConstructors entry entryAt entryResolved
   pairing <- pairingIn fz withConstructors placed
-  let constructedReading = MkReading fz entryRead withConstructors application ifs solutions pairing ioAddress
+  let constructedReading = MkReading fz entryRead withConstructors application ifs solutions pairing ioAddress natPlus
   let fromDefinitions = MkReading fz (withNature () entryRead) definitions application ifs solutions
-                                  (pairWith (withNature ()) <$> pairing) ioAddress
+                                  (pairWith (withNature ()) <$> pairing) ioAddress natPlus
   proved <- loopsOf fromDefinitions
   blocks <- blockNamesOf fromDefinitions entry
   Right <$> readWhole proved blocks constructedReading

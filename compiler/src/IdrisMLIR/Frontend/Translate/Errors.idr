@@ -240,10 +240,10 @@ fullTerm : Core.TT.Term.Term vs -> Front (Core.TT.Term.Term vs)
 fullTerm tm = (\r => fullNamesIn r.frozen tm) <$> reading
 
 ||| Whether a name is the type of Idris's `%pair`, the pair the boundary
-||| read (`State.pairTypeNamed`), by address.
+||| read (`State.namedAt`), by address.
 export
 pairTyped : Name -> Front Bool
-pairTyped n = (\r => pairTypeNamed r.frozen (pairTypeIn r) n) <$> reading
+pairTyped n = (\r => namedAt r.frozen (pairTypeIn r) n) <$> reading
 
 ||| Runs one check, or translates one part, of the program so that its
 ||| refusal does not stop the others: the part's refusal, recorded once

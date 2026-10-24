@@ -15,6 +15,7 @@ import Libraries.Data.List.Thin
 import IdrisMLIR.Frontend.Growth.Template
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
+import IdrisMLIR.Frontend.Translate.Contraction
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Keys
 import IdrisMLIR.Frontend.Translate.Readings
@@ -156,7 +157,7 @@ nextSupplied [] = (Keyless AValue, [])
 ||| (`FixedDictionary`), read where it was fixed, so nothing reads it
 ||| again.
 supplying : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> PKind -> Front Supply
-supplying (TypeParam t) = FromType <$> staticReading AType t
+supplying (TypeParam t _) = FromType <$> staticReading AType t
 supplying (DictParam d holes) = pure (FromDictionary holes d)
 supplying (FormParam f) = FromForm <$> staticReading AForm f
 supplying (ValueParam b (Just shape) _) = FromShape b.quantity <$> staticReading AShape shape
@@ -529,7 +530,7 @@ offeredAt fc owner level bfc rig a sc offer given = do
     typed Nothing = leftOut "type"
     typed (Just v) = do
       val <- v.normalised
-      OfferedKeyed (TypeParam val) level <$> normaliseClosed (subst val sc)
+      OfferedKeyed (TypeParam val []) level <$> normaliseClosed (subst val sc)
 
     -- An erased shape of the array language the rest of the type puts in
     -- a form keys the instance by its form.
@@ -641,7 +642,7 @@ offeredAt fc owner level bfc rig a sc offer given = do
               d <- dictionaryReading val
               let FixedNow fixed = fixedAt a' d.reduct
                 | ChosenAtRunTime _ => chosen q a'
-              static (MkFixedDictionary val d.asStatic d.ofDictionary fixed) Nothing
+              static (MkFixedDictionary val a' d.asStatic d.ofDictionary fixed) Nothing
             else do
               -- One that still needs a runtime value to say which it is is
               -- chosen at run time, among those the program fixes, unless
@@ -654,7 +655,7 @@ offeredAt fc owner level bfc rig a sc offer given = do
               let FixedNow fixed = fixedAt a' d.reduct
                 | ChosenAtRunTime _ => chosen q a'
               held <- coreType fc owner ValueType !(normaliseClosed !(packedType tys))
-              static (MkFixedDictionary key d.asStatic d.ofDictionary fixed) (Just (MkHoles tys (MkBinder Many held)))
+              static (MkFixedDictionary key a' d.asStatic d.ofDictionary fixed) (Just (MkHoles tys (MkBinder Many held)))
 
 ||| Walks an instance's type, as it admits it, over what its request
 ||| supplies each parameter with: which are type parameters or
@@ -691,9 +692,14 @@ classifyAt fc owner request level (S k) (Admits bfc rig a sc) supplied = do
     -- instance's own type gives. Nothing of the argument is read again: an
     -- implementation keeps the value it was fixed at. Where its kind keys
     -- nothing, no value is offered, and the binder decides a kind that
-    -- keys nothing.
+    -- keys nothing. A type's indices its key erased are index parameters
+    -- of the instance (`erasedIndices`), at the levels from this one,
+    -- which the rest of the type names where the type stands.
     parameter : (given : Supply) -> Front (Stepped given)
-    parameter (FromType r) = keyedAt (TypeParam r.form) TypeAtKey r.form
+    parameter (FromType r) = do
+      erased <- erasedIndices owner r.form
+      restType <- normaliseClosed (subst (filledIndices level erased r.form) sc)
+      pure (MkStepped (TypeParam r.form erased) (level + length erased) restType TypeAtKey)
     parameter (FromDictionary holes d) = keyedAt (DictParam (atReading d) holes) DictionaryAtKey d.asStatic.form
     parameter (FromForm r) = keyedAt (FormParam r.form) FormAtKey r.form
     parameter (FromShape q r) = do
@@ -723,15 +729,44 @@ classifyOffered fc owner request level (S k) (Admits bfc rig a sc) vals = do
     stepOf (OfferedKeyless kind _ next restType) = (kind, next, restType)
     stepOf (OfferedKeyed kind next restType) = (kind, next, restType)
 
+-- A term closed, where it names none of the binders it is under.
+closedTerm : {vs : Core.Name.Scoped.Scope} -> TT vs -> Maybe ClosedTerm
+closedTerm {vs = []} t = Just t
+closedTerm {vs = _ :: _} t = shrink t (Drop Refl) >>= closedTerm
+
+-- The closed term at a path into a term (`ErasedIndex`), where the path
+-- stays in the term and what it reaches names none of the binders it is
+-- under; nothing where the term has another shape there.
+closedAt : {vs : Core.Name.Scoped.Scope} -> List FormStep -> TT vs -> Maybe ClosedTerm
+closedAt [] t = closedTerm t
+closedAt (InFunction :: p) (App _ f _) = closedAt p f
+closedAt (InArgument :: p) (App _ _ a) = closedAt p a
+closedAt (InBinderType :: p) (Bind _ _ (Pi _ _ _ a) _) = closedAt p a
+closedAt (InBinderType :: p) (Bind _ _ (Lam _ _ _ a) _) = closedAt p a
+closedAt (InScope :: p) (Bind _ _ _ sc) = closedAt p sc
+closedAt (InLazy :: p) (TDelayed _ _ t) = closedAt p t
+closedAt _ _ = Nothing
+
 ||| What a call gives each index parameter of its callee, in order: the
 ||| argument at its position, normalised in the caller's scope with the
-||| caller's own levels kept; nothing where the call gives none.
+||| caller's own levels kept; at each erased index of a type parameter's
+||| form, the part of the call's type argument there, read as the key read
+||| the form (`Closed.readNormal`), with the caller's levels kept; nothing where
+||| the call gives none, or its type has no closed part there.
 indexForms : {auto c : Ref Ctxt Defs} -> List PKind -> ArgValues -> Front (List (Maybe ClosedTerm))
 indexForms [] _ = pure []
 indexForms (IndexParam _ :: ks) vals = do
   let (given, vals') = nextStatic vals
   here <- traverse (.scoped) given
   (here ::) <$> indexForms ks vals'
+indexForms (TypeParam _ erased@(_ :: _) :: ks) vals = do
+  let (given, vals') = nextStatic vals
+  here <- case given of
+            Just v => do
+              form <- (\t => (contractedBy EveryRedex t).etaForm) <$> normaliseClosed !(v.scoped)
+              pure (map (\i => closedAt i.path form) erased)
+            Nothing => pure (map (const Nothing) erased)
+  (here ++) <$> indexForms ks vals'
 indexForms (_ :: ks) vals = indexForms ks (snd (nextStatic vals))
 
 ||| The index terms a call passes its callee, one per index parameter, in

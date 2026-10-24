@@ -1187,12 +1187,16 @@ givingOf ByInstance result = giving <$> holdingAt result
 
 ||| Arguments as a callee's type takes them: a static one is walked as a
 ||| static value, a runtime one as code, and an erased one not at all, since
-||| the translation passes it nowhere.
+||| the translation passes it nowhere. A runtime value whose shape keys the
+||| instance is both, as the problem has it: its shape a static value, and
+||| the value passed at run time, which the translation computes where it
+||| stands (`Translate.Instances.ValueParam`), so a call in it is a call.
 walked : List (Given vs) -> Front (List Made)
 walked [] = pure []
 walked (g :: gs) = (++) <$> one g.taking <*> walked gs
   where
     one : Taking -> Front (List Made)
+    one (AsStatic AShape) = (++) <$> Force g.offer.arg.asStatic <*> Force g.offer.arg.asCode
     one (AsStatic _) = Force g.offer.arg.asStatic
     one AsCode = Force g.offer.arg.asCode
     one Nowhere = pure []
@@ -1716,31 +1720,36 @@ mutual
   -- A lambda: its binders and body as code. Where it is a member, the
   -- place it stands says so (`atMember`, `resultMember`).
   term ph w acc at ps env (Bind fc x (Lam _ rig _ ty) sc) = lambdaBinder ph w acc at ps env x rig ty sc
-  -- An erased `let` binds a compile-time value, and its value is no code.
-  -- One that binds an implementation or a polymorphic function
+  -- A `let` of a type or a type family binds a type parameter whatever its
+  -- quantity, its value as written, as the translation binds it
+  -- (`Translate.Terms.letIn`), and that value is no code. Any other erased
+  -- `let` binds a compile-time value, and its value is no code. One that
+  -- binds an implementation or a polymorphic function
   -- (`compileTimeBinder`) binds the value as written, as the translation
   -- binds it, settled where it is applied, what it closes over held as one
   -- at the place it is bound at (`heldBy`); a polymorphic function so
   -- bound may be applied at a use (`implementationAt`), so its use's walk
   -- is made here, where it is a subterm (`useOf`).
-  term ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = case use rig of
-    Erased => term ph w acc at (entering BinderScope ps) ((Erased, x, Nothing) :: env) sc
-    Used _ => do
-      let typed = close env ty
-      vty <- normaliseClosed typed
-      if !(compileTimeBinder rig vty)
-        then do
-          known <- knownAt at ps env val
-          here <- static ph w acc at (entering (BinderValue StaticWalk) ps) env val
-          used <- whereApplied !(choiceHeadOf vty) (useOf ph w acc at (entering (BinderValue UseWalk) ps) env vty val)
-          held <- heldBy at ps (getLoc val) known
-          body <- term ph w acc at (entering BinderScope ps) ((Holds known, x, Just typed) :: env) sc
-          pure (here ++ used ++ held ++ body)
-        else do
-          value <- term ph w acc at (entering (BinderValue CodeWalk) ps) env val
-          here <- readType ph w acc at (entering BinderType ps) env ty
-          body <- term ph w acc at (entering BinderScope ps) ((Runtime, x, Just typed) :: env) sc
-          pure (value ++ here ++ body)
+  term ph w acc at ps env (Bind _ x (Let _ rig val ty) sc) = do
+    let typed = close env ty
+    vty <- normaliseClosed typed
+    if isTypeLike vty then term ph w acc at (entering BinderScope ps) ((Fixed (close env val), x, Nothing) :: env) sc else
+      case use rig of
+        Erased => term ph w acc at (entering BinderScope ps) ((Erased, x, Nothing) :: env) sc
+        Used _ =>
+          if !(compileTimeBinder rig vty)
+            then do
+              known <- knownAt at ps env val
+              here <- static ph w acc at (entering (BinderValue StaticWalk) ps) env val
+              used <- whereApplied !(choiceHeadOf vty) (useOf ph w acc at (entering (BinderValue UseWalk) ps) env vty val)
+              held <- heldBy at ps (getLoc val) known
+              body <- term ph w acc at (entering BinderScope ps) ((Holds known, x, Just typed) :: env) sc
+              pure (here ++ used ++ held ++ body)
+            else do
+              value <- term ph w acc at (entering (BinderValue CodeWalk) ps) env val
+              here <- readType ph w acc at (entering BinderType ps) env ty
+              body <- term ph w acc at (entering BinderScope ps) ((Runtime, x, Just typed) :: env) sc
+              pure (value ++ here ++ body)
   term ph w acc at ps env (Meta fc _ i margs) = entered ph w acc at ps env fc i margs []
   term ph w acc at ps env (As _ _ _ pat) = term ph w acc at (entering PatternOfAs ps) env pat
   term ph w acc at ps env (TDelay _ _ _ arg) = term ph w acc at (entering DelayValue ps) env arg
@@ -1855,9 +1864,12 @@ mutual
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           At -> Pats -> Env vs -> (ty : ClosedTerm) -> TT vs -> Front (List Made)
   useOf ph w acc at ps env ty (TDelay _ _ _ t) = useOf ph w acc at (entering DelayValue ps) env ty t
-  useOf ph w acc at ps env ty (Bind _ x (Let _ rig _ vty) sc) = case use rig of
-    Erased => useOf ph w acc at (entering BinderScope ps) ((Erased, x, Nothing) :: env) ty sc
-    Used _ => useOf ph w acc at (entering BinderScope ps) ((Runtime, x, Just (close env vty)) :: env) ty sc
+  useOf ph w acc at ps env ty (Bind _ x (Let _ rig val vty) sc) = do
+    typeLike <- isTypeLike <$> normaliseClosed (close env vty)
+    let stand : Standing = if typeLike then (Fixed (close env val), x, Nothing) else case use rig of
+                  Erased => (Erased, x, Nothing)
+                  Used _ => (Runtime, x, Just (close env vty))
+    useOf ph w acc at (entering BinderScope ps) (stand :: env) ty sc
   useOf ph w acc at ps env ty t = do
     args <- useArguments at ty t
     spine ph w acc ({ params := UseFrom at.arity } at) ps env t args
@@ -2034,9 +2046,12 @@ resultMember at ps env tm = case at.giving of
   where
     under : {ws : Scope} -> Env ws -> TT ws -> Front (List Made)
     under env' lam@(Bind fc _ (Lam {}) _) = lambdaAt at ps env' fc lam
-    under env' (Bind _ x (Let _ rig _ ty) sc) = case use rig of
-      Erased => under ((Erased, x, Nothing) :: env') sc
-      Used _ => under ((Runtime, x, Just (close env' ty)) :: env') sc
+    under env' (Bind _ x (Let _ rig val ty) sc) = do
+      typeLike <- isTypeLike <$> normaliseClosed (close env' ty)
+      let stand : Standing = if typeLike then (Fixed (close env' val), x, Nothing) else case use rig of
+                    Erased => (Erased, x, Nothing)
+                    Used _ => (Runtime, x, Just (close env' ty))
+      under (stand :: env') sc
     under _ _ = pure []
 
 ||| A closed type: what it writes, and the types it builds.

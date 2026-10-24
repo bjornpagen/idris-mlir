@@ -20,6 +20,7 @@ import IdrisMLIR.Dialect.Idr
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Choices
+import IdrisMLIR.Frontend.Translate.Contraction
 import IdrisMLIR.Frontend.Translate.Errors
 import IdrisMLIR.Frontend.Translate.Instances
 import IdrisMLIR.Frontend.Translate.Primitives
@@ -361,7 +362,7 @@ calledThenApplied {g} loc callee is same given past adds result ts =
 ||| The compile-time value a parameter's kind gives, where a projection
 ||| reads its arguments: a type, an implementation, or nothing known.
 compileTimeArg : PKind -> ClosedTerm
-compileTimeArg (TypeParam t) = t
+compileTimeArg (TypeParam t _) = t
 compileTimeArg (DictParam d _) = d.form
 compileTimeArg (FormParam f) = f
 compileTimeArg _ = Erased EmptyFC Placeholder
@@ -539,60 +540,6 @@ formHead t = case headName t of
       Ref _ _ n => Just n
       _ => Nothing
 
-||| The type of a compile-time form (`Static`), closed but for the markers
-||| of the values it closes over, whose types `held` gives, by marker: each
-||| lambda the form starts with a binder of a function type, around the
-||| type of what its body applies (a definition, a constructor, a value the
-||| form closes over, one of its own lambdas' variables) applied to the
-||| body's arguments, its `let`s put in. Each lambda's variable stands in
-||| what follows as the probe of a lambda's argument, and is bound again
-||| around the result. Nothing for a body that applies nothing whose type
-||| a binder or a definition gives.
-formType : {auto c : Ref Ctxt Defs} -> List ClosedTerm -> ClosedTerm -> Front (Maybe ClosedTerm)
-formType held t = lambdas 0 [] [] !(lambdasApplied t)
-  where
-    formal : Nat -> ClosedTerm
-    formal k = probeTerm (ProbeFormal k 0)
-
-    -- The type of what a body applies, given its arguments.
-    applied : Maybe ClosedTerm -> List ClosedTerm -> Front (Maybe ClosedTerm)
-    applied Nothing _ = pure Nothing
-    applied (Just ty) [] = pure (Just ty)
-    applied (Just ty) (a :: as) = do
-      Bind _ _ (Pi {}) sc <- showingBinder ty
-        | _ => pure Nothing
-      applied (Just (subst a sc)) as
-
-    -- The type of a closed body under the lambdas met, the outermost
-    -- first.
-    bodyType : List (Name, RigCount, PiInfo ClosedTerm, ClosedTerm) -> ClosedTerm -> Front (Maybe ClosedTerm)
-    bodyType ls body = case getFnArgs body of
-      (Ref _ Bound n, args) => case probeOf n of
-        Just (ProbeFormal k _) => applied ((\(_, _, _, ty) => ty) <$> getAt k ls) args
-        Just (ProbeHole k) => applied (getAt k held) args
-        _ => pure Nothing
-      (Ref _ _ n, args) => do
-        Just d <- defined n
-          | Nothing => pure Nothing
-        applied (Just d.type) args
-      _ => pure Nothing
-
-    -- The lambdas, the outermost first, bound around a type as a function
-    -- type's binders, each variable's probe made that binder's variable.
-    bound : Nat -> List (Name, RigCount, PiInfo ClosedTerm, ClosedTerm) -> ClosedTerm -> ClosedTerm
-    bound k [] r = r
-    bound k ((x, rig, p, ty) :: ls) r =
-      Bind EmptyFC x (Pi EmptyFC rig p ty) (refToLocal (probeName (ProbeFormal k 0)) x (bound (S k) ls r))
-
-    -- Down the lambdas, each variable standing for its probe (`env`, the
-    -- innermost first), then the body, closed with its `let`s put in.
-    lambdas : {vs : Scope} -> Nat -> List (Name, RigCount, PiInfo ClosedTerm, ClosedTerm) ->
-              StandsFor 0 OfTerm vs Nat -> TT vs -> Front (Maybe ClosedTerm)
-    lambdas k ls env (Bind _ x (Lam _ rig p ty) sc) =
-      lambdas (S k) (ls ++ [(x, rig, map (closeWritten EmptyFC env) p, closeWritten EmptyFC env ty)])
-              (TypeValue (formal k) :: env) sc
-    lambdas k ls env body = map (bound 0 ls) <$> bodyType ls (closeWritten EmptyFC env body)
-
 ||| What a marker of a settled term stands for.
 data Stand : Nat -> Nat -> Type where
   ||| A variable in scope: the marker is bound as it is, with no `let`.
@@ -623,7 +570,7 @@ argValueIn env fc x = Just (MkArgValue (unmarked <$> closeNormalise fc env x.wri
     offered : TT vars -> Offer
     offered (Local _ _ idx p) = case lookupVar idx p env of
       Static _ _ _ => AnImplementation
-      BoundHere _ _ => AnImplementation
+      BoundHere _ _ _ => AnImplementation
       _ => AValue
     offered _ = AValue
 
@@ -833,10 +780,12 @@ mutual
   delayed ph w acc ctx env ex tm = ([],) <$> term ph w acc ctx env ex tm
 
   ||| A `let`, its body translated by `body` in the scope it binds, told what
-  ||| the `let` binds in Core (`LetBinds`). A `let` of quantity 0 binds a
-  ||| compile-time value, nothing at runtime, and so does one of a type or a
-  ||| type family whatever its quantity, as a lambda applied to it binds it
-  ||| (`applyHead`): a type parameter, never a value at run time. Its type
+  ||| the `let` binds in Core (`LetBinds`). A `let` of a type or a type
+  ||| family binds a type parameter whatever its quantity, as a lambda
+  ||| applied to it binds it (`applyHead`), its value as written, never a
+  ||| value at run time: the motive `rewrite` binds at quantity 0 is one,
+  ||| which the program fixes and the types after it read. Any other `let`
+  ||| of quantity 0 binds a compile-time value, nothing at runtime. Its type
   ||| is the one Idris checked, which the TTC keeps: read once, here, into
   ||| its binder, at the quantity Idris gave it. A polymorphic function
   ||| (`polymorphicType`) the program fixes now (`fixing`) is a compile-time
@@ -847,13 +796,13 @@ mutual
           (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
           Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> (x : Name) -> RigCount -> TT vars -> TT vars ->
           ({0 m : Nat} -> LetBinds nv m -> StandsFor kc OfTerm (x :: vars) (Fin m) -> Front (r, Term m)) -> Front (r, Term nv)
-  letIn ph w acc ctx env fc x rig val ty body =
-    case use rig of
-      Erased => body NoCoreBinder (TypeValue (Erased fc Placeholder) :: env)
-      Used q => do
-        loc <- toLoc (bestFC ctx fc)
-        known <- closeNormalise fc env ty
-        if isTypeLike known then body NoCoreBinder (TypeValue (closeWritten fc env val) :: env) else do
+  letIn ph w acc ctx env fc x rig val ty body = do
+    known <- closeNormalise fc env ty
+    if isTypeLike known then body NoCoreBinder (TypeValue (closeWritten fc env val) :: env) else
+      case use rig of
+        Erased => body NoCoreBinder (TypeValue (Erased fc Placeholder) :: env)
+        Used q => do
+          loc <- toLoc (bestFC ctx fc)
           True <- polymorphicType known
             | False => runtimeLet q loc known
           impl <- solved (closeWritten fc env val)
@@ -861,7 +810,7 @@ mutual
             then do
               FixedNow _ <- fixing known impl
                 | ChosenAtRunTime _ => runtimeLet q loc known
-              body NoCoreBinder (BoundHere impl Nothing :: env)
+              body NoCoreBinder (BoundHere impl known Nothing :: env)
             else do
               Just (shape, values) <- holed ph w acc ctx env fc val
                 | Nothing => runtimeLet q loc known
@@ -870,7 +819,7 @@ mutual
               held <- coreType fc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
               v <- pack fc ctx.owner loc !(valuesOf values)
               (r', inner) <- body OneCoreBinder
-                                  (under {k = 1} [BoundHere shape (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
+                                  (under {k = 1} [BoundHere shape known (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
               pure (r', Let loc (binderName x) (Checked (MkBinder Many held)) v inner)
     where
       -- The value computed and bound by a `let`, a runtime value used as
@@ -1001,7 +950,7 @@ mutual
           then do
             FixedNow _ <- fixing known impl
               | ChosenAtRunTime _ => asValue q loc known
-            spine ph w acc ctx (BoundHere impl Nothing :: env) ex afc sc (map overBinder rest)
+            spine ph w acc ctx (BoundHere impl known Nothing :: env) ex afc sc (map overBinder rest)
           else do
             Just (shape, values) <- a.held
               | Nothing => asValue q loc known
@@ -1010,7 +959,7 @@ mutual
             held <- coreType bfc ctx.owner ValueType !(normaliseClosed !(packedType (map fst values)))
             v <- pack bfc ctx.owner loc !(valuesOf values)
             body <- spine ph w acc ctx
-                          (under {k = 1} [BoundHere shape (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
+                          (under {k = 1} [BoundHere shape known (Just (FZ, MkHoles (map fst values) (MkBinder Many held)))] env)
                           ex afc sc (map underLet rest)
             pure (Let loc (binderName x) (Checked (MkBinder Many held)) v body)
   applyHead ph w acc ctx env ex afc (Meta mfc n i margs) args = entered ph w acc ctx env ex afc mfc n i margs args
@@ -1057,8 +1006,8 @@ mutual
     -- TT's variable does not carry it: one that fails it is refused, as
     -- the compiled module it is.
     TypeValue _ => reject (bestFC ctx fc) ctx.owner CompiledModule "a compile-time variable in a runtime position"
-    Static d held _ => implementationAt ph w acc ctx env ex fc d.form held args
-    BoundHere t held => implementationAt ph w acc ctx env ex fc t held args
+    Static d held _ => implementationAt ph w acc ctx env ex fc d.form d.type held args
+    BoundHere t ty held => implementationAt ph w acc ctx env ex fc t ty held args
     where
       -- The variable, of the Core and Idris types its entry gives.
       applied : Fin nv -> Ty -> ClosedTerm -> Front (Term nv)
@@ -1079,15 +1028,15 @@ mutual
   ||| variable (a value it closes over, one of its own lambdas'), which no
   ||| path enters, and one whose definition the path has entered already,
   ||| which would be settled inside its own settled form, are the member at
-  ||| this use's types (`applyAtUse`), an instance the worklist translates
-  ||| on a path of its own and bounds by the growth check: so the
-  ||| translation still ends, and a value at the head is applied as its
-  ||| type's choice is, dispatched on.
+  ||| this use's types (`applyAtUse`) at the type its entry holds it at
+  ||| (`ty`), an instance the worklist translates on a path of its own and
+  ||| bounds by the growth check: so the translation still ends, and a value
+  ||| at the head is applied as its type's choice is, dispatched on.
   implementationAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                      Phase -> (w : Walked) -> (0 acc : SizeAccessible w) ->
-                     Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> FC -> ClosedTerm -> Maybe (Fin nv, Holes) ->
-                     List (Arg vars nv) -> Front (Term nv)
-  implementationAt ph@Settled w acc@(Access rec) ctx env ex fc t held args = do
+                     Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> Expected -> FC -> (t, ty : ClosedTerm) ->
+                     Maybe (Fin nv, Holes) -> List (Arg vars nv) -> Front (Term nv)
+  implementationAt ph@Settled w acc@(Access rec) ctx env ex fc t ty held args = do
     place <- formHead t
     case place >>= (\p => enter p w) of
       Just (Element w' less) => do
@@ -1096,17 +1045,10 @@ mutual
       Nothing => do
         let at = bestFC ctx fc
         loc <- toLoc at
-        -- The form is one function the program fixes; what is refused is
-        -- reading its type off a body that applies nothing a binder or a
-        -- definition types, at this site.
-        Just ty <- formType (maybe [] (\(_, hs) => forget hs.types) held) t
-          | Nothing => reject at ctx.owner RuntimeClosure
-                              ("the type of " ++ !(showTT t) ++ ", applied inside a settled term, which its body " ++
-                               "does not give")
         let form = MkArgValue (pure t) (pure t) AnImplementation
                               (pure ((\(_, hs) => (t, hs.types)) <$> held)) (pure t)
         applyAtUse ctx env at loc ty form ((\(x, _) => Var loc x) <$> held) args
-  implementationAt (Written next) w acc ctx env ex fc t held args = do
+  implementationAt (Written next) w acc ctx env ex fc t _ held args = do
     (form, pre) <- standingFor t held
     settle next start (sizeAccessible start) ctx env ex fc form pre args
 
@@ -1247,7 +1189,7 @@ mutual
       marking k (e@(Runtime {}) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
       marking k (e@(Shaped {}) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
       marking k (e@(Static _ (Just _) _) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
-      marking k (e@(BoundHere _ (Just _)) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
+      marking k (e@(BoundHere _ _ (Just _)) :: es) = let (es', ss) = marking (S k) es in (TypeValue (holeMarker k) :: es', e :: ss)
       marking k (e :: es) = let (es', ss) = marking k es in (e :: es', ss)
 
       marked : (StandsFor kc OfTerm vars (Fin nv), List (VarInfo kc OfTerm (Fin nv)))
@@ -1266,7 +1208,7 @@ mutual
       writtenAs : VarInfo kc OfTerm (Fin nv) -> ClosedTerm
       writtenAs (Shaped _ _ _ s) = shapeWritten s
       writtenAs (Static d _ _) = d.form
-      writtenAs (BoundHere t _) = t
+      writtenAs (BoundHere t _ _) = t
       writtenAs (TypeValue t) = t
       writtenAs (Runtime {}) = probeTerm ProbeRuntime
 
@@ -1425,7 +1367,7 @@ mutual
 
           holders : Nat -> List (VarInfo kc OfTerm (Fin nv)) -> List (Nat, (Fin nv, Holes, ClosedTerm))
           holders k (Static d (Just (v, hs)) _ :: rest) = (k, (v, hs, d.form)) :: holders (S k) rest
-          holders k (BoundHere t (Just (v, hs)) :: rest) = (k, (v, hs, t)) :: holders (S k) rest
+          holders k (BoundHere t _ (Just (v, hs)) :: rest) = (k, (v, hs, t)) :: holders (S k) rest
           holders k (_ :: rest) = holders (S k) rest
           holders _ [] = []
 
@@ -1515,28 +1457,42 @@ mutual
   ||| An implementation or a polymorphic function the program fixes, written
   ||| in a runtime position, as the member of its type's choice it is
   ||| (`Choices`), the type as `holds` read it a choice's: its form, with
-  ||| the runtime values it closes over as its field. Nothing for one the
-  ||| running program chooses (stuck on a runtime value), or one a
-  ||| definition Idris does not prove ends computes, which no compile-time
-  ||| reduction runs, as the choice's registration decides
-  ||| (`Choices.memberBare`): it is translated as the computation it is,
-  ||| whose value is the choice among the members its own body fixes.
+  ||| the runtime values it closes over as its field. One written as a
+  ||| function that is, up to eta, a runtime value of the scope (`\x => f
+  ||| x`, `f` a value of the choice a match took out of a field) is that
+  ||| value: the member the running program chose, which the choice's
+  ||| members already hold. Nothing for one the running program chooses
+  ||| otherwise (stuck on a runtime value), or one a definition Idris does
+  ||| not prove ends computes, which no compile-time reduction runs, as the
+  ||| choice's registration decides (`Choices.memberBare`): it is translated
+  ||| as the computation it is, whose value is the choice among the members
+  ||| its own body fixes.
   member : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
            (ph : Phase) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
            Ctx kc -> StandsFor kc OfTerm vars (Fin nv) -> FC -> Loc -> ChoiceType -> TT vars -> Front (Maybe (Term nv))
-  member ph w acc ctx env fc loc ct written = do
-    impl <- solved (closeWritten fc env written)
-    if not !(runtimeDependent impl)
-      then do
-        found <- memberBare fc ctx.owner ct !(implementationOf impl)
-        pure (map (\con => ConApp loc con [] []) found)
-      else do
-        Just (shape, values) <- holed ph w acc ctx env fc written
-          | Nothing => pure Nothing
-        Just con <- memberHolding fc ctx.owner ct !(implementationOf shape) (map fst values)
-          | Nothing => pure Nothing
-        v <- pack fc ctx.owner loc !(valuesOf values)
-        pure (Just (ConApp loc con [] [v]))
+  member ph w acc ctx env fc loc ct written = case runtimeValue (contracted written).etaForm of
+    Just x => pure (Just (Var loc x))
+    Nothing => do
+      impl <- solved (closeWritten fc env written)
+      if not !(runtimeDependent impl)
+        then do
+          found <- memberBare fc ctx.owner ct !(implementationOf impl)
+          pure (map (\con => ConApp loc con [] []) found)
+        else do
+          Just (shape, values) <- holed ph w acc ctx env fc written
+            | Nothing => pure Nothing
+          Just con <- memberHolding fc ctx.owner ct !(implementationOf shape) (map fst values)
+            | Nothing => pure Nothing
+          v <- pack fc ctx.owner loc !(valuesOf values)
+          pure (Just (ConApp loc con [] [v]))
+    where
+      -- The runtime variable of the scope a term is, if it is one.
+      runtimeValue : TT vars -> Maybe (Fin nv)
+      runtimeValue (Local _ _ idx p) = case lookupVar idx p env of
+        Runtime x _ => Just x
+        Shaped x _ _ _ => Just x
+        _ => Nothing
+      runtimeValue _ = Nothing
 
   ||| A runtime argument given at a parameter of Core type `pty`, its Idris
   ||| type (normalised) with what a value given there holds of the type's
@@ -1749,7 +1705,10 @@ mutual
       -- those the arguments given reach, as many as its type says:
       -- nothing for a type, an implementation or an argument of quantity
       -- 0. An implementation that closes over runtime values passes them,
-      -- as one value (`packedType`); a choice of one is its value.
+      -- as one value (`packedType`); a choice of one is its value, given as
+      -- a parameter that holds a member of the choice is (`parameterGiven`):
+      -- a function written there that is, up to eta, a choice it closes
+      -- over (`\x => f x`) is that choice (`member`).
       arguments : Loc -> MemberPlaces -> (ks : List PKind) -> (ys : List (Arg vars nv)) ->
                   Front (Vect (Runtimes (take (length ys) ks)) (Term nv))
       arguments loc places = from 0
@@ -1761,10 +1720,11 @@ mutual
           from j [] (_ :: _) = pure []
           from j (_ :: _) [] = pure []
           from j (ValueParam b _ t :: ks) (x :: xs) = (::) <$> valueAt loc places j b t x <*> from (S j) ks xs
-          from j (k@(ChoiceParam {}) :: ks) (x :: xs) = (::) <$> x.translated (expectedBy k) <*> from (S j) ks xs
+          from j (ChoiceParam b ct :: ks) (x :: xs) =
+            (::) <$> parameterGiven ph w acc ctx env afc loc (pure (AMember, ct.type)) b.type x <*> from (S j) ks xs
           from j (DictParam _ (Just _) :: ks) (x :: xs) = (::) <$> heldValue loc x <*> from (S j) ks xs
           from j (DictParam _ Nothing :: ks) (_ :: xs) = from (S j) ks xs
-          from j (TypeParam _ :: ks) (_ :: xs) = from (S j) ks xs
+          from j (TypeParam _ _ :: ks) (_ :: xs) = from (S j) ks xs
           from j (ErasedParam :: ks) (_ :: xs) = from (S j) ks xs
           from j (IndexParam _ :: ks) (_ :: xs) = from (S j) ks xs
           from j (FormParam _ :: ks) (_ :: xs) = from (S j) ks xs
@@ -1803,7 +1763,10 @@ mutual
       -- argument of the method, erased ones included, applying the
       -- method's own function, so once its lambdas have bound the
       -- arguments, that function is called at its own arity and no
-      -- instance of the projection exists. A projection that does not
+      -- instance of the projection exists. No key is made of what it
+      -- reads, so it reads its type and implementation arguments in this
+      -- scope, its levels kept (`inScope`): the field it takes is called
+      -- at the indices this scope names. A projection that does not
       -- reduce, or whose record is a runtime value (`fst` of a pair), is
       -- called as any definition is, and so is every projection of a
       -- settled term: the same value, one call further.
@@ -1816,7 +1779,7 @@ mutual
         let idx = pr.matched
         let True = length xs >= parity
           | False => pure Nothing
-        let statics = map compileTimeArg kinds
+        statics <- traverse (uncurry inScope) (zip kinds xs)
         case getAt idx kinds of
           Just (DictParam _ Nothing) => do
             Just field <- projected n statics
@@ -1841,6 +1804,19 @@ mutual
           replaceAt Z v (_ :: ys) = v :: ys
           replaceAt (S i) v (y :: ys) = y :: replaceAt i v ys
           replaceAt _ _ ys = ys
+
+          -- The compile-time value an argument gives at its kind, read in
+          -- this scope as the call's classification read it for its key
+          -- (`Instances.offeredAt`), but with this scope's levels kept: a
+          -- type normalised, an implementation as written (what it is,
+          -- where it is written as a function of a runtime value), a form
+          -- as its kind holds it; nothing known of any other.
+          inScope : PKind -> Arg vars nv -> Front ClosedTerm
+          inScope (TypeParam _ _) x = closeNormalise fc env x.written
+          inScope (DictParam _ _) x = do
+            written <- solved (closeWritten fc env x.written)
+            if !(runtimeDependent written) then implementationOf written else pure written
+          inScope k _ = pure (compileTimeArg k)
 
       -- A call of the instance whose signature is `sig`, read in this scope
       -- (`called`), on its runtime arguments; where its result is an array,
@@ -2292,7 +2268,7 @@ mutual
 
       -- The type arguments of a call, in order.
       typeParams : List PKind -> List ClosedTerm
-      typeParams (TypeParam t :: ks) = t :: typeParams ks
+      typeParams (TypeParam t _ :: ks) = t :: typeParams ks
       typeParams (_ :: ks) = typeParams ks
       typeParams [] = []
 
@@ -2810,11 +2786,11 @@ mutual
           systemFact BackendName = (Literal loc (LStr codegenName), StrT)
 
 ||| An implementation the environment binds (`Static`), computed at run
-||| time where the translation reaches it, as the term it is written as
-||| (`implementationAt`, applied to nothing), at the Core type its place
-||| holds it at (`ex`): a call of a definition Idris does not prove ends
-||| runs there, eagerly, its divergence its call's.
+||| time where the translation reaches it, as the term `t` it is written as,
+||| of Idris type `ty` (`implementationAt`, applied to nothing), at the Core
+||| type its place holds it at (`ex`): a call of a definition Idris does not
+||| prove ends runs there, eagerly, its divergence its call's.
 export
 computedAt : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
-             Ctx kc -> FC -> Expected -> ClosedTerm -> Maybe (Fin nv, Holes) -> Front (Term nv)
-computedAt ctx fc ex t held = implementationAt {vars = Scope.empty} asWritten start (sizeAccessible start) ctx [] ex fc t held []
+             Ctx kc -> FC -> Expected -> (t, ty : ClosedTerm) -> Maybe (Fin nv, Holes) -> Front (Term nv)
+computedAt ctx fc ex t ty held = implementationAt {vars = Scope.empty} asWritten start (sizeAccessible start) ctx [] ex fc t ty held []

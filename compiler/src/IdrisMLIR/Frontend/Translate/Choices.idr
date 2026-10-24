@@ -294,7 +294,7 @@ heldMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
              FC -> String -> (j : Nat) -> (holder : FixedDictionary) -> Holes -> ChoiceMember -> Front PKind
 heldMember fc owner j holder hs m = do
   let placing = heldPlaced j (length (forget hs.types)) m
-  fixed <- builtDictionary (placing holder.form) (mapValue placing holder.reducesTo)
+  fixed <- builtDictionary (placing holder.form) holder.type (mapValue placing holder.reducesTo)
   case heldTypes j (forget hs.types) m of
     [] => pure (DictParam fixed Nothing)
     (t :: ts) => do
@@ -462,7 +462,7 @@ fixedMember : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
 fixedMember ty form = do
   d <- dictionaryReading form
   pure (case fixedAt ty.type d.reduct of
-          FixedNow v => Just (MkFixedDictionary form d.asStatic d.ofDictionary v)
+          FixedNow v => Just (MkFixedDictionary form ty.type d.asStatic d.ofDictionary v)
           ChosenAtRunTime _ => Nothing)
 
 ||| The member of the choice of a type, as `choiceType` read it, for an

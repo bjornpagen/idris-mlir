@@ -2490,24 +2490,26 @@ dictionaryReading t = do
       pure here
 
 ||| An implementation built around one the program fixes, as a kind holds it
-||| (`State.FixedDictionary`): its reading, read once by its written key as
-||| every static argument is, and the value it reduces to at its head, which
-||| its builder built beside it (`Choices.heldMember`, `Cases.heldHere`), so
-||| nothing reduces it. A form read before keeps the reading it had; one read
-||| first here is kept with that value as what it reduces to.
+||| (`State.FixedDictionary`), at the type the one it was built around is
+||| fixed at: its reading, read once by its written key as every static
+||| argument is, and the value it reduces to at its head, which its builder
+||| built beside it (`Choices.heldMember`, `Cases.heldHere`), so nothing
+||| reduces it. A form read before keeps the reading it had; one read first
+||| here is kept with that value as what it reduces to.
 export
-builtDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> FixedValue -> Front FixedDictionary
-builtDictionary t v = do
+builtDictionary : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> ClosedTerm -> (type : ClosedTerm) -> FixedValue ->
+                  Front FixedDictionary
+builtDictionary t type v = do
   writer <- writerOf [t]
   let written = writtenOf writer t
   case lookupFact (.dictionaries) written !(getState) of
-    Just d => pure (MkFixedDictionary t d.asStatic d.ofDictionary v)
+    Just d => pure (MkFixedDictionary t type d.asStatic d.ofDictionary v)
     Nothing => do
       ctx <- frozenContext
       r <- readInstance ctx ADictionary t
       let here = MkDictionaryReading (keptReading r) Refl (ReducesTo v)
       updateState (derive { dictionaries $= insert written here })
-      pure (MkFixedDictionary t here.asStatic here.ofDictionary v)
+      pure (MkFixedDictionary t type here.asStatic here.ofDictionary v)
 
 ||| A request's static argument at its kind, as the translation keeps it:
 ||| the reading itself (`readInstance`), kept at quantity 0 beside what the
