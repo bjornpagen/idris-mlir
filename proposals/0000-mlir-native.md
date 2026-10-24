@@ -2001,6 +2001,12 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   comparisons, shifts, the evaluator's probes and bounds, the context's
   one entry per name) is carried as evidence a function returns or made
   unnecessary by the representation (C288).
+- **D134** (2026-10-24; §4's first question, the sources lane's finding
+  C13). The papers in `sources/` whose licences grant no redistribution
+  are kept as they are: "i recommend keeping papers as we are. i'll clear
+  git history before public release." No link replaces them, and
+  `sources/` stays in the tree; the history is cleared before the tree is
+  made public.
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
@@ -3329,6 +3335,59 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   ruled. Programs stay safe meanwhile: defunctionalization widens every
   memo cell at its construction, the frontend writes none, and L18ai's
   rule keeps a copy from rebuilding a cell its caller keeps.
+- **C327** (2026-10-24; L05aa's finding, under C37's "drops go at last
+  use", C269 and the frame-limited rule's never-line on holding a
+  structure past its last use). An op that may run a region again holds
+  across it only what a region that repeats reads; what only the region
+  it runs first and alone reads (a loop's body before its join point)
+  moves in, as into a region run once, whatever its uses. Placement held
+  a `many` value only the body read across the whole loop: a dup at the
+  entry, a drop after it, a count of 2 inside. L07x applied the rule to
+  values used once (c889c8d55); the cost of the rest is measured at
+  qualification.
+- **C328** (2026-10-24; L16fg's G1, the self-host audit). A growth-graph
+  node also holds what a type parameter's value gives the binders it
+  types: a universe head, and an interface's type constructor where a
+  binder typed by the parameter becomes a dictionary, split as families
+  are, so a definition whose kinds depend on that value is read once per
+  head (`put{label = Type}`, the checker's labelled `Ref` in `Core`).
+  Reason: the instance key rightly holds such a value (keyingOf keys a
+  binder whose type is a universe, whatever its quantity), and the model
+  never drew it, so the run-time re-check found a position with no bound.
+  Deciding kinds from the signature holds a type at run time and
+  contradicts keyingOf; refusing such binders or rewriting the checker's
+  `Ref` keeps our code worse to spare the compiler; reading every binder a
+  marker types as possibly static refuses valid programs.
+- **C329** (2026-10-24; PERF-8). Stock Idris's Chez support wraps an
+  `Int`'s fixnum with no mask for any width at least the fixnum's own
+  (`upstream/120-chez-int-wrap-fixnum`), carried as a patch to the
+  bootstrap host as AGENTS.md's upstream rule requires; it lands with
+  the stock Idris rebuilt with it (INT-29). Reason: every
+  `Int` operation of every program the stock host builds (the frontend,
+  the checker in it, specgen, the runner) paid the wrap's masks, 28 to 32
+  ns a step against about 2 ns with the patch, with identical results at
+  every width (measured).
+- **C330** (2026-10-24; PERF-7). The checker evaluates a case-tree leaf
+  at its own scope: eval's term index is `vars ++ ext` under an erased
+  `Outer free ext` (`Whole : Outer free free`, `Leaf : Outer free []`),
+  carried by closures, so each stored leaf is decoded once, into a slot
+  made when its body is frozen, and a live leaf needs no `embedTerm`.
+  Reason: it is the one form that keeps no believe_me in our code (the
+  owner, 2026-10-23) and makes an unfold O(1) after the first, which
+  upstream gets from believe_me; it evaluates the same terms, and holds
+  one term per leaf evaluation reaches. Measured ground: the checker in
+  the frontend 4.66 times stock idris2's elaboration time on the spec
+  package, unsampled, about two thirds of the gap decode-related.
+- **C331** (2026-10-24; L16fh's G3). base's primitive DecEqs (`decEq` on
+  `Int`, `String`, `Char` and the rest of `FromEq`'s instances) are
+  reached through a registry key that names an implementation's method by
+  its inner name, each with a Contract `(x1, x2 : T) -> Dec (x1 = x2)`
+  lowered to the type's primitive equality (`Yes` holding `Refl`, `No` a
+  closure whose body is unreachable); a user's `decEq @{FromEq}` on its
+  own type stays refused. Reason: a hook on `FromEq`'s method calling the
+  call's own `==`, or believe_me translated in trusted libraries, lets a
+  user `Eq` that is not equality forge `x = y`, which the frontend trusts
+  when matched, so user code would reach believe_me.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
@@ -5318,7 +5377,7 @@ C137.
   (one check of n bytes and a bump, `Allocate` on `heap` when it takes a
   chunk), its own op, never an implicit conversion at the call. Reason:
   a conversion at a call would hide an effect. Amended 2026-10-24 (K11,
-  in flight): `idr.lifetime.reserve` goes, since nothing writes it. The
+  landed in feab8de52): `idr.lifetime.reserve` goes, since nothing writes it. The
   decide step keeps a call in a cursor's or a home's lifetime only where
   the callee has a copy of that lifetime's own mode, and counts it
   otherwise, so a caller holding a `cursor` never calls a `room` copy and
@@ -5468,7 +5527,7 @@ C137.
   derived result is defined inside its operand's region, so none can
   outlive what it came from. D93's "the one op whose result is a
   lifetime" reads as "the one op whose result is its operand's view".
-  Amended 2026-10-24 (K11, in flight): `idr.lifetime.reserve` goes (C146
+  Amended 2026-10-24 (K11, landed in feab8de52): `idr.lifetime.reserve` goes (C146
   as amended), so `idr.lifetime.forget` is the one derived result.
 - **C161** (2026-10-21; L05's finding on D88). `count.dup` and
   `count.drop` take a `counted` operand only, by a generated constraint:
@@ -6229,12 +6288,7 @@ context (D11); then what is settled, each item naming its ruling in §2
 or its decision in §3.
 
 **Open**, in order:
-1. The papers stored in `sources/` whose licences grant no
-   redistribution (the sources lane's finding, C13): (A) each becomes a
-   link with its citation, (B) they are kept, or (C) `sources/` is kept
-   out of the public tree. Asked 2026-10-23.
-
-2. Where "a callee keeps nothing of parameter i" lives (L05y's question
+1. Where "a callee keeps nothing of parameter i" lives (L05y's question
    under C298; the rederivation audit's sharing 3): (A) a per-parameter
    fact in the signature, written once by idr-in-place and checked
    function by function (a lent parameter only handed on or lent to
@@ -6242,12 +6296,12 @@ or its decision in §3.
    then read instead of re-deriving; or (B) the borrowing representation
    already ruled, a parameter scoped under a `view` lifetime, decided
    earlier than idr-lifetimes decides lifetimes today. Until ruled, the
-   verifier checks C298's local half only. Waits on 1.
-3. D50's builders (the cull plan's QA): print builders only for ops with an
+   verifier checks C298's local half only.
+2. D50's builders (the cull plan's QA): print builders only for ops with an
    attribute, a region or a variadic group, the generic `specOp` building
    the rest (about 825 lines deleted, one way to build an op), or keep
-   D50 with a hand `writer` flag (582 lines, two ways). Waits on 2.
-4. Where the reindex's kind is chosen (L18ac's stop on C293, 2026-10-24).
+   D50 with a hand `writer` flag (582 lines, two ways). Waits on 1.
+3. Where the reindex's kind is chosen (L18ac's stop on C293, 2026-10-24).
    C293 makes the reindex three ops, one per meaning (a free change of
    type, a re-pack into another layout, a build), but the frontend hands
    over bytecode, which MLIR builds by op name and verifies at once, and
@@ -6259,8 +6313,8 @@ or its decision in §3.
    `builtin.unrealized_conversion_cast` where types differ, and the first
    pass resolves each into its op (readers before it accept the cast);
    (C) one reindex op stays (C275), its meaning read off its types by the
-   one classifier, and C293 is reversed. Waits on 3.
-5. Where a memo cell's constructor stands once its type is the family's
+   one classifier, and C293 is reversed. Waits on 2.
+4. Where a memo cell's constructor stands once its type is the family's
    (L04ac's stop on C309, 2026-10-24). A memo family has `running` and
    `forced` beside its labels, so a refined label type claims a state a
    force elsewhere can make false; today only defunctionalization's
@@ -6274,7 +6328,7 @@ or its decision in §3.
    only as a match region's binding of its scrutinee and as a con's result
    whose one use widens it, and C309 narrows to that. Scope: memo families
    alone (the specification's `MemoCell`), since an in-place family's
-   refinement cannot be falsified. Waits on 4.
+   refinement cannot be falsified. Waits on 3.
 
 The last settled, the two folders (L14u's finding, 2026-10-23), is D132
 ((A): the e-graph alone folds; idr-constants goes).
