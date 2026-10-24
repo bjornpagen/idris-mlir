@@ -330,11 +330,6 @@ data Hook : Kind -> Type where
   ||| `ArrayPrim` names, in their sequential meaning; its body is not
   ||| translated. Handler: `Frontend.Translate.Terms.application`.
   Generating : {auto 0 lowers : Lowers kd} -> ArrayPrim -> Hook kd
-  ||| Base's list. Its nil (its constructor of no field) and cons (its
-  ||| constructor of two), which the string builders take apart, are read
-  ||| off its family's declaration by the dialect (`ListShape`), never from
-  ||| this entry, which no handler reads.
-  ListType : {auto 0 lowers : Lowers kd} -> Hook kd
   ||| A data type whose cells every program is checked to rebuild in place
   ||| and hold exclusive, which only a type with exactly one constructor
   ||| that holds fields can keep. Handler:
@@ -413,11 +408,11 @@ data Hook : Kind -> Type where
   ||| escape hatch. Handler: `Frontend.Profile.checkReachable`.
   TotalityAssertion : Hook Stricter
 
-||| What sum a data type is, by the registry: base's list, a type whose
-||| cells are rebuilt in place, or Idris's equality. One field holds them,
-||| so a type cannot be two.
+||| What sum a data type is, by the registry: a type whose cells are
+||| rebuilt in place, or Idris's equality. One field holds them, so a type
+||| cannot be both.
 public export
-data SumHook = IsList | IsInPlace | IsEquality
+data SumHook = IsInPlace | IsEquality
 
 ||| What the registry says of one definition: one field per kind of hook,
 ||| each the hook of the first entry of that kind that names it. A reader
@@ -466,7 +461,6 @@ withHook hs h = case h of
   OrderedArrayType o e => { orderedArray $= keep (o, e) } hs
   ArrayValueType => { valueArray := True } hs
   Generating g => { generating $= keep g } hs
-  ListType => { sumShape $= keep IsList } hs
   InPlaceType => { sumShape $= keep IsInPlace } hs
   EqualityType => { sumShape $= keep IsEquality } hs
   PrimCall p ls => { primCall $= keep ((_ ** p), ls) } hs

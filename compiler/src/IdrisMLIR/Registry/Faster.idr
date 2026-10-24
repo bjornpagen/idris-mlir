@@ -105,16 +105,13 @@ arrays =
 -- Lists and strings
 ------------------------------------------------------------------------------
 
-||| Base's list, a sum whose nil and cons the string builders take apart:
-||| its kind is the registry's, never guessed from its shape; its nil and
-||| its cons are its constructors of no field and of two. The Prelude's
-||| `pack`, strCons by strCons, builds its string once (`idr.str.pack`);
-||| the string iterator's step past a character is the byte length of the
-||| character's own string, which the op gives without building it.
+||| The Prelude's `pack`, strCons by strCons, builds its string once
+||| (`idr.str.pack`); the string iterator's step past a character is the
+||| byte length of the character's own string, which the op gives without
+||| building it.
 listsAndStrings : List (Entry Faster)
 listsAndStrings =
-  [ MkEntry (Def (MkQName ["Prelude", "Basics"] "List")) (Typed (Pi Mw TypeOfTypes TypeOfTypes)) ListType
-  , MkEntry (Def (MkQName preludeTypes "pack")) (Typed (Pi Mw (list (Prim CharP)) (Prim StringP))) (Builds strPack)
+  [ MkEntry (Def (MkQName preludeTypes "pack")) (Typed (Pi Mw (list (Prim CharP)) (Prim StringP))) (Builds strPack)
   , MkEntry (Def (MkQName iteratorModule "scalarBytes")) (Typed (Pi Mw (Prim CharP) int)) (PureCall strScalarBytes []) ]
 
 ||| Every faster entry.

@@ -15,6 +15,7 @@ import IdrisMLIR.Ids
 import IdrisMLIR.MLIR
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Op as Spec
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Runtime.Clocks
@@ -69,12 +70,8 @@ width SInt32 = 32
 width UInt32 = 32
 width _ = 64
 
-||| How an Idris integer type reads its bits: which of an op's two
-||| members (`divs` or `divu`, `extsi` or `extui`) computes on it. A choice
-||| between two ops, never a `Bool`.
-public export
-data Signedness = Signed | Unsigned
-
+||| How an Idris integer type reads its bits: an unsigned one as the
+||| natural they are, any other with its top bit its sign.
 export
 signedness : IntTy -> Signedness
 signedness UInt8 = Unsigned

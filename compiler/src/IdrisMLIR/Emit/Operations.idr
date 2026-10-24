@@ -27,6 +27,7 @@ import IdrisMLIR.Spec.Core.Op as Spec
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.IO
+import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Platform
 import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Runtime.Clocks
