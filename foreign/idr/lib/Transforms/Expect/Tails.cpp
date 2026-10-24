@@ -44,8 +44,9 @@ SmallVector<CallOpInterface> callsOf(const Pair &pair, SymbolTable &symbols) {
 // interface. What the call gives is each of its results, and what an op
 // that gives one on freely makes of it; such an op gives on only its first
 // operand, so each value is met once. Null where no op does. What a
-// region's end gives its op is the way to the return, which the function's
-// tails read (lostToLayout).
+// region's end gives its op is the way to the return, where a re-pack is a
+// tail lost to a layout, which the tail verifier refuses once tail calls'
+// layouts agree with their callers', before any property reads the module.
 Operation *repackOfUse(CallOpInterface call) {
   SmallVector<Value, 4> given(call->result_begin(), call->result_end());
   while (!given.empty()) {
@@ -60,21 +61,6 @@ Operation *repackOfUse(CallOpInterface call) {
     }
   }
   return nullptr;
-}
-
-// The calls whose results reach their function's return through a re-pack,
-// in the functions @f names: the tails lost to a layout, read once per
-// function down from its body (tailsOf, the one reading of a tail lost to
-// a layout). A function of another dialect's, as lowering leaves, holds no
-// tail fact, so loses no tail to a layout.
-SmallVector<Operation *> lostToLayout(const Pair &pair) {
-  SmallVector<Operation *> lost;
-  for (FunctionOpInterface fn : pair.caller.functions)
-    if (auto own = dyn_cast<FuncOp>(fn.getOperation()))
-      for (const tail::Tail &each : tail::tailsOf(own))
-        if (each.repack && isa<CallOp>(each.source))
-          lost.push_back(each.source);
-  return lost;
 }
 
 } // namespace
@@ -102,15 +88,13 @@ LogicalResult tailCalls(const Request<Pair> &request) {
 }
 
 // Every call in a function of @f of @g or a copy of it gives each result
-// laid out as its callee returns it, and no op after it re-packs one:
-// where its function takes it, or on its way to the return (a tail lost to
-// a layout). Each result laid out otherwise is reported at its call, and a
-// call with a re-pack after it once, a re-pack on the way out in the call's
-// own block being one its function takes as well.
+// laid out as its callee returns it, and no op after it re-packs one where
+// its function takes it. Each result laid out otherwise is reported at its
+// call, and a call with a re-pack after it once, a re-pack on the way out
+// in the call's own block being one its function takes as well.
 LogicalResult resultsAsGiven(const Request<Pair> &request) {
   const Pair &pair = request.argument;
   SymbolTable &symbols = symbolsOf(request.module, request.analyses);
-  SmallVector<Operation *> lost = lostToLayout(pair);
   LogicalResult held = success();
   for (CallOpInterface call : callsOf(pair, symbols)) {
     // A callee the module holds as no function (an alias or an ifunc of
@@ -134,11 +118,6 @@ LogicalResult resultsAsGiven(const Request<Pair> &request) {
           << "the call of @" << pair.callee.name << ", as " << calleeOf(call) << ", in "
           << where(call) << " gives a result that a re-pack after it converts from "
           << repack->getOperand(0).getType() << " to " << repack->getResult(0).getType();
-      held = failure();
-    } else if (llvm::is_contained(lost, call.getOperation())) {
-      fail(call.getLoc(), request.property)
-          << "the call of @" << pair.callee.name << ", as " << calleeOf(call) << ", in "
-          << where(call) << " gives its results to its function's return through a re-pack";
       held = failure();
     }
   }

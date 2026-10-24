@@ -35,45 +35,44 @@ std::optional<std::string> allocation(Operation *op) {
 // In one function's scope, what it may call is in scope too: every
 // function its body names, by a call or a closure, each taken once.
 LogicalResult noHeapAllocation(const Request<Roots> &request) {
+  using Node = WalkNumbering::Node;
   ModuleOp module = request.module;
   const std::optional<Functions> &scope = request.argument.scope;
   SymbolTable *symbols = scope ? &symbolsOf(module, request.analyses) : nullptr;
-  return withNumbering(module, request.analyses, [&]<FunctionNumbering N>(const N &numbering) {
-    using Node = typename N::Node;
-    SmallVector<Node> roots;
-    if (scope)
-      roots = idsOf(numbering, scope->functions);
-    else
-      for (Node fn : numbering.functions())
-        roots.push_back(fn);
-    // After lowering a body calls the runtime, whose functions are
-    // declarations: the property is one of the idr functions.
-    auto edges = [&](Node id) {
-      FunctionOpInterface fn = numbering.op(id);
-      if (!symbols || fn.isExternal() || !isa<FuncOp>(fn.getOperation()))
-        return SmallVector<Node>();
-      return callees(numbering, *symbols, id);
-    };
-    bool held = true;
-    for (Node next : reachable(numbering, roots, edges)) {
-      FunctionOpInterface fn = numbering.op(next);
-      if (fn.isExternal()) {
-        if (symbols) {
-          fail(fn->getLoc(), request.property)
-              << where(fn) << " may be called, and its body is not in the module";
-          held = false;
-        }
-        continue;
+  const WalkNumbering &numbering = walkOf(module, request.analyses);
+  SmallVector<Node> roots;
+  if (scope)
+    roots = idsOf(numbering, scope->functions);
+  else
+    for (Node fn : numbering.functions())
+      roots.push_back(fn);
+  // After lowering a body calls the runtime, whose functions are
+  // declarations: the property is one of the idr functions.
+  auto edges = [&](Node id) {
+    FunctionOpInterface fn = numbering.op(id);
+    if (!symbols || fn.isExternal() || !isa<FuncOp>(fn.getOperation()))
+      return SmallVector<Node>();
+    return callees(numbering, *symbols, id);
+  };
+  bool held = true;
+  for (Node next : reachable(numbering, roots, edges)) {
+    FunctionOpInterface fn = numbering.op(next);
+    if (fn.isExternal()) {
+      if (symbols) {
+        fail(fn->getLoc(), request.property)
+            << where(fn) << " may be called, and its body is not in the module";
+        held = false;
       }
-      fn->walk([&](Operation *op) {
-        if (std::optional<std::string> found = allocation(op)) {
-          fail(op->getLoc(), request.property) << *found << " in " << where(op);
-          held = false;
-        }
-      });
+      continue;
     }
-    return success(held);
-  });
+    fn->walk([&](Operation *op) {
+      if (std::optional<std::string> found = allocation(op)) {
+        fail(op->getLoc(), request.property) << *found << " in " << where(op);
+        held = false;
+      }
+    });
+  }
+  return success(held);
 }
 
 } // namespace idr::expect

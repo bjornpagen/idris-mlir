@@ -28,15 +28,12 @@ const Property properties[] = {
 #undef IDR_EXPECT_PROPERTY
 };
 
-// The argument of the whole program, for a shape that has one: no
-// argument, every function, the whole module. A universal row of another
-// shape has no overload here and does not compile, as its record cannot be
-// written.
-Nothing wholeProgram(std::type_identity<Nothing>, ModuleOp) { return Nothing{}; }
+// The argument of the whole program, for the shape that has one: every
+// function. A universal row of another shape has no overload here and does
+// not compile, as its record cannot be written.
 Functions wholeProgram(std::type_identity<Functions>, ModuleOp module) {
   return Functions{"", functionsOf(module)};
 }
-Roots wholeProgram(std::type_identity<Roots>, ModuleOp) { return Roots{std::nullopt}; }
 
 // One universal property, of the whole program.
 template <typename A, LogicalResult (*Check)(const Request<A> &)>

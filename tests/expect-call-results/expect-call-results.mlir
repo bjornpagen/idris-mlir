@@ -1,5 +1,5 @@
 // RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr-pipeline{from=higher to=higher},idr-expect{holds=tail-calls=@jumps:@next,results-as-given=@given:@g})' -o /dev/null
-// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr-pipeline{from=higher to=higher},idr-expect{holds=tail-calls=@adds:@next,tail-calls=@use:@next,results-as-given=@unspecialized:@g,results-as-given=@repacks:@g,results-as-given=@rejoins:@g})' -verify-diagnostics -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr-pipeline{from=higher to=higher},idr-expect{holds=tail-calls=@adds:@next,tail-calls=@use:@next,results-as-given=@unspecialized:@g,results-as-given=@repacks:@g})' -verify-diagnostics -o /dev/null
 // What follows a call. @jumps calls @next as its last act, a tail call;
 // @adds adds to what @next gives, so its call is none, and @use calls no
 // @next at all. @g returns a vector of a length its caller gives, laid out
@@ -8,14 +8,9 @@
 // as @g_4 lays it out. @unspecialized calls @g itself at four: the call's
 // type has the result in place, but @g returns a cell. @repacks calls @g
 // at its own length, where that length is known to be four, and re-packs
-// the cell in place before it hands it on. In @rejoins the cell leaves the
-// region the call is in and is re-packed after it, on its way to the
-// return.
-// The program is at stage higher, where a call's tail fact is a promise
-// and a call's results may still reach the return through a re-pack, as
-// in @rejoins: at a later stage that is a jump the compiler failed to
-// make, which the verifier refuses before any property reads it. The
-// slice at higher runs no pass, so each property reads the module as
+// the cell in place before it hands it on.
+// The program is at stage higher, where a call's tail fact is a promise.
+// The slice at higher runs no pass, so each property reads the module as
 // written.
 #Vect = #idr.family<"Vect" [nat] {
     @Nil where 0 ()
@@ -74,17 +69,5 @@ idr.program @calls root(@main) stage(higher) {
       idr.yield %u : i64
     }
     idr.return %t : i64
-  }
-  idr.func <{binders = #idr.index_binders<[nat]>}> @rejoins(%xs: !Vn) -> !V4 {
-    %out = idr.index.assume #idr.equation<v0 = 4> () -> (!V4) {
-      %m = idr.index.assume #idr.equation<v0 = 4> () -> (!Vn) {
-        // expected-error @below {{expected results-as-given: }}
-        %r = idr.call @g(%xs) <{index_args = #idr.index_args<[v0]>, tail_kind = nontail}> : (!Vn) -> !Vn
-        idr.yield %r : !Vn
-      }
-      %p = idr.data.reindex %m : !Vn to !V4
-      idr.yield %p : !V4
-    }
-    idr.return %out : !V4
   }
 }

@@ -92,13 +92,11 @@ shapeType OfSymbol = "Symbol"
 shapeType OfPair = "Pair"
 
 ||| A shape whose argument has a value for the whole program, which the
-||| contracts pass when they check a property of every compilation: no
-||| argument, every function, or the whole module.
+||| contracts pass when they check a property of every compilation: every
+||| function.
 public export
 data Whole : Shape -> Type where
-  WholeOfNothing : Whole NoArgument
   EveryFunction : Whole OfFunctions
-  WholeModule : Whole OfScope
 
 ||| Who states a property, and what makes it fail.
 public export
@@ -195,9 +193,8 @@ properties =
       , "its caller's place: a fact of the program's calls, before lowering." ]
   , property "results-as-given" OfPair Stated
       [ "Every call in @f of @g or a copy of it gives each result laid out as"
-      , "its callee returns it, and no op after the call re-packs one, where"
-      , "@f takes it or on its way to @f's return: none converts it between"
-      , "two layouts." ]
+      , "its callee returns it, and no op after the call re-packs one where"
+      , "@f takes it: none converts it between two layouts." ]
   , property "folded" OfFunctions Stated
       [ "No op left in a copy of @f is one a fold would replace: one with"
       , "results, no memory effect, no call and no constant of its own, whose"
