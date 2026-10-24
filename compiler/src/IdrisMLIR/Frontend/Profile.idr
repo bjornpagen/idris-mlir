@@ -95,35 +95,104 @@ assertion n = do
 -- Imports and pragmas, as the checked module keeps them
 ------------------------------------------------------------------------------
 
-||| Pragmas the pinned elaborator has already discharged before this
-||| backend sees the term. `%default` is the totality it requires.
-||| `%hide` and `%unhide` resolve names. `%logging` is the driver's log.
-||| `%search`, written as a term, is elaborated away: the checked term
-||| holds the implementation or proof the search found, and nothing of the
-||| search reaches run time (quoted, `(%search)` is base's `ISearch`, a
-||| value of the quoted syntax like any other). `%syntactic`, a flag of
-||| `with`, is elaborated away as `%search` is: it changes how `with`
-||| abstracts its scrutinee over the goal, by the scrutinee's syntax
-||| rather than its value, and the checked term holds the with block that
-||| abstraction made; nothing of the flag reaches run time.
-||| The use is not a second copy of any of those.
-discharged : KwPragma -> Bool
-discharged KwDefault = True
-discharged KwHide = True
-discharged KwUnhide = True
-discharged KwLogging = True
-discharged KwSearch = True
-discharged KwSyntactic = True
-discharged _ = False
+||| Where past the checker's elaboration a pragma's meaning reaches.
+data Beyond
+  = ||| How code is compiled: inlining, specialisation, a rewrite of
+    ||| compiled code, a representation or an identity a back end takes on
+    ||| trust. This compiler decides those from the program.
+    CompiledCode
+  | ||| Code outside the program: a definition whose body is the runtime's
+    ||| or a C library's, or a symbol exported to C.
+    ForeignCode
+  | ||| A construct outside the language this compiler implements: the
+    ||| world token, an escape hatch declared, a script the checker runs at
+    ||| compile time, a REPL session.
+    OutsideLanguage
+
+||| Where a pragma's meaning ends, as upstream defines it and our checker
+||| implements it.
+data PragmaMeaning
+  = ||| In the checker's elaboration: the checked module holds what the
+    ||| pragma made (a name resolved or hidden, a projection named, an
+    ||| implementation or proof searched for, a literal desugared, a
+    ||| totality required, a warning given), and nothing of the pragma
+    ||| reaches run time. A user module may write it, with upstream's
+    ||| meaning.
+    Elaboration
+  | ||| Past it, where only a trusted library may write it.
+    Past Beyond
+
+||| Each pragma the language reserves, by where its meaning ends.
+meaning : KwPragma -> PragmaMeaning
+-- Name resolution; the totality required, and a definition the
+-- termination checker sees through; a deprecation's warning; the driver's
+-- log.
+meaning KwAllowOverloads = Elaboration
+meaning KwDefault = Elaboration
+meaning KwHide = Elaboration
+meaning KwUnhide = Elaboration
+meaning KwLogging = Elaboration
+meaning KwDeprecate = Elaboration
+meaning KwTCInline = Elaboration
+-- How the elaborator reads what the source writes: implicit arguments,
+-- laziness, the names of a record's projections, of a type's variables, of
+-- the functions literals and quotations are elaborated through, and of the
+-- types `rewrite` and search over pairs use. Quoted syntax is a value of
+-- base's like any other.
+meaning KwAutoLazy = Elaboration
+meaning KwUnboundImplicits = Elaboration
+meaning KwPrefixRecordProjections = Elaboration
+meaning KwName = Elaboration
+meaning KwCharLit = Elaboration
+meaning KwDoubleLit = Elaboration
+meaning KwIntegerLit = Elaboration
+meaning KwStringLit = Elaboration
+meaning KwDeclsLit = Elaboration
+meaning KwNameLit = Elaboration
+meaning KwTTImpLit = Elaboration
+meaning KwRewrite = Elaboration
+meaning KwPair = Elaboration
+meaning KwNfMetavarThreshold = Elaboration
+-- Search: the checked term holds the implementation or proof found, and
+-- `%syntactic`, a flag of `with`, the with block its abstraction made.
+meaning KwSearch = Elaboration
+meaning KwHint = Elaboration
+meaning KwGlobalHint = Elaboration
+meaning KwDefaultHint = Elaboration
+meaning KwSyntactic = Elaboration
+meaning KwInline = Past CompiledCode
+meaning KwNoInline = Past CompiledCode
+meaning KwSpec = Past CompiledCode
+meaning KwTransform = Past CompiledCode
+meaning KwBuiltin = Past CompiledCode
+meaning KwExtern = Past ForeignCode
+meaning KwForeign = Past ForeignCode
+meaning KwExport = Past ForeignCode
+meaning KwNoMangle = Past ForeignCode
+meaning KwMkWorld = Past OutsideLanguage
+meaning KwWorld = Past OutsideLanguage
+meaning KwUnsafe = Past OutsideLanguage
+meaning KwLanguage = Past OutsideLanguage
+meaning KwRunElab = Past OutsideLanguage
+meaning KwMacro = Past OutsideLanguage
+meaning KwStart = Past OutsideLanguage
+
+||| Why a pragma whose meaning reaches past the checker is refused, for the
+||| refusal's message.
+reason : Beyond -> String
+reason CompiledCode = "which directs how code is compiled, as this compiler decides from the program"
+reason ForeignCode = "which reaches code outside the program"
+reason OutsideLanguage = "which is outside the language this compiler implements"
 
 ||| A user module's imports, as the session read them (`importsRead`), and
 ||| its pragmas, as its checked module (`checked`, its TTC) keeps them, each
 ||| where the source writes it: an import of a module that is neither one
 ||| of the project's with source nor a trusted library's is refused at the
-||| import, and a pragma the elaborator has not discharged where it is
-||| written. Each is noted on its own, so every one is reported. The
-||| session hands over each import with the module it read for it, so the
-||| imported module is never looked up by the name the import writes.
+||| import, and a pragma whose meaning reaches past the checker's
+||| elaboration (`meaning`) where it is written. Each is noted on its own,
+||| so every one is reported. The session hands over each import with the
+||| module it read for it, so the imported module is never looked up by
+||| the name the import writes.
 export
 checkModule : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} ->
               (ident : ModuleIdent) -> (checked : String) -> Core ()
@@ -138,8 +207,10 @@ checkModule ident checked = do
   for_ (reverse readImports) $ \r => when (r.importer.ident == ident) $ do
     importee <- loadedModule st.modules r.importee
     noted (imported importee r.written)
-  for_ mf.pragmas $ \u => unless (discharged u.kind) $ noted $
-    reject u.loc (show ident) UserPragma ("the pragma %" ++ spelling u.kind)
+  for_ mf.pragmas $ \u => case meaning u.kind of
+    Elaboration => pure ()
+    Past beyond => noted $
+      reject u.loc (show ident) UserPragma ("the pragma %" ++ spelling u.kind ++ ", " ++ reason beyond)
   where
     acceptable : Origin -> Maybe String -> Bool
     acceptable User source = isJust source
@@ -244,9 +315,6 @@ mutual
   altsMentionWorld (ConstCase _ t :: alts) = treeMentionsWorld t || altsMentionWorld alts
   altsMentionWorld (DefaultCase t :: alts) = treeMentionsWorld t || altsMentionWorld alts
 
-||| What a definition refers to, with the metavariables its body mentions:
-||| the translation follows a solved one to its solution. Of a definition
-||| whose hook answers for its body, only the type.
 ||| Whether a name is a definition of quantity 0, which exists for the
 ||| type checker alone and never runs.
 proofOnly : {auto c : Ref Ctxt Defs} -> Name -> Core Bool
@@ -256,6 +324,9 @@ proofOnly n = do
     | Nothing => pure False
   pure (isErased (multiplicity def))
 
+||| What a definition refers to, with the metavariables its body mentions:
+||| the translation follows a solved one to its solution. Of a definition
+||| whose hook answers for its body, only the type.
 refsOf : Hooks lib -> GlobalDef -> Core (List Name)
 refsOf hs def = do
   fromType <- keys . Core.TT.getRefs (UN Underscore) <$> typeOfDefinition def
@@ -266,6 +337,74 @@ refsOf hs def = do
         pure (fromType ++ keys (Core.Case.CaseTree.getRefs (UN Underscore) tree) ++ keys (Core.Case.CaseTree.getMetas tree))
     TCon _ _ _ _ _ cons _ => pure (fromType ++ fromMaybe [] cons)
     _ => pure fromType
+
+||| What the walk follows of the definitions a definition names. A
+||| definition of quantity 0 never runs: what it reaches is a bound the
+||| compiler trusts, not code. A proof the user wrote is walked as the
+||| user's code, since one it forges is such a bound; a trusted library's
+||| is the library's wherever it is reached from; and an erased
+||| metavariable the checker solved (an implicit argument or a proof that
+||| unification or search found) is the checker's, made of the program's
+||| types, the definitions it unfolded and the hints it applied, whatever
+||| location Idris gives it.
+data Follows
+  = ||| User code's: each, but a trusted library's proof.
+    UserCode
+  | ||| A trusted library's code: each, but its proofs and its totality
+    ||| assertions, which it is trusted for. A library names nothing of
+    ||| the program, which is compiled after it.
+    LibraryCode
+  | ||| A solution's: the user's own definitions it names (a hint the
+    ||| search applied, a constructor) and the other solutions, each
+    ||| walked as what it is. The rest the checker unfolded or applied
+    ||| from a library, and is the library's proof: so the believe_me of
+    ||| base's Fin literal lemma, which the checker unfolds into the
+    ||| solution of an implicit argument whose type holds a Fin literal.
+    Solution
+
+||| How the walk follows a definition from where it comes.
+follows : Origin -> GlobalDef -> Follows
+follows origin def = case definition def of
+    PMDef (MkPMDefInfo (SolvedHole _) _ _) _ _ =>
+      if isErased (multiplicity def) then Solution else written
+    _ => written
+  where
+    written : Follows
+    written = if covers Trusted origin then LibraryCode else UserCode
+
+||| A name's definition as it was read, with where it comes from; nothing
+||| for a name the context defines as nothing, which the walk passes over
+||| (`checkReachable`).
+placed : {auto s : Ref TState TS} -> Name -> Front (Maybe (Origin, GlobalDef))
+placed n = do
+  Just d <- defined n
+    | Nothing => pure Nothing
+  loc <- toLoc (location d.def)
+  pure (Just (loc.origin, d.def))
+
+||| Does the walk follow a definition's reference of this name, the
+||| definition followed so?
+followed : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Follows -> Name -> Front Bool
+followed UserCode r = maybe True notLibraryProof <$> placed r
+  where
+    notLibraryProof : (Origin, GlobalDef) -> Bool
+    notLibraryProof (origin, def) = case follows origin def of
+      UserCode => True
+      LibraryCode => not (isErased (multiplicity def))
+      Solution => True
+followed LibraryCode r = if !(assertion r) then pure False else not <$> core (proofOnly r)
+followed Solution r = maybe True usersOrSolved <$> placed r
+  where
+    users : Origin -> Bool
+    users User = True
+    users (Library _) = False
+    users Untrusted = False
+    users Generated = False
+    usersOrSolved : (Origin, GlobalDef) -> Bool
+    usersOrSolved (origin, def) = case follows origin def of
+      UserCode => users origin
+      LibraryCode => False
+      Solution => True
 
 ||| What refers to a definition the walk reaches: a user definition, or the
 ||| program's root; or a trusted definition, by its placement, which the
@@ -326,7 +465,7 @@ queued (Queued _ next) = next
 ||| to: whatever that reaches is reached through the rejection, and is
 ||| reported once it is fixed, so that every rejection found is
 ||| independent of the others. An escape hatch the source of the user
-||| definition's module spells was reported there, by `checkPragmas`, and
+||| definition's module spells was reported there, by `checkSpelled`, and
 ||| is not reported again. The definitions rejected, the user definitions
 ||| an error names and those that refer to them are `refused`: the
 ||| translation leaves them out.
@@ -432,25 +571,25 @@ checkReachable fc roots = do
       when (trusted && not (admits origin (namedHooks root.registered))) $
         reject (userFC here) owner TrustedLibrary (key ++ " is not admitted from its trusted module" ++ via here)
       refs <- traverse fullNames !(core (refsOf nameHooks def))
+      -- What it names, as far as the walk follows it (`Follows`).
+      let following = follows origin def
+      refs' <- keepIf (followed following) refs
       -- User code may not use what the registry forbids, nor forge a world.
-      unless trusted $ do
-        forbidden <- firstForbidden refs
-        case forbidden of
-          Just (r, rule) => refuse (location def) key rule ("uses " ++ show r)
-          Nothing => pure ()
-        case definition def of
-          PMDef _ _ body => do
-            tree <- (.fst) <$> caseTreeOf body
-            when (treeMentionsWorld tree) $ reject (location def) key TrustedLibrary "uses %MkWorld"
-          _ => pure ()
-      -- A library's own totality assertions are trusted, and so are its
-      -- proofs: a definition of quantity 0 (the `0 lemma` of a where block,
-      -- which base's Fin literals prove their bound by) never runs, so
-      -- nothing it reaches is the program's. A user's is walked, since a
-      -- proof it forges is a bound the compiler would trust.
-      refs' <- if trusted
-                 then keepIf (\r => if !(assertion r) then pure False else not <$> core (proofOnly r)) refs
-                 else pure refs
+      -- A trusted library may; and what a solution holds of a library is
+      -- the library's.
+      case following of
+        UserCode => do
+          forbidden <- firstForbidden refs
+          case forbidden of
+            Just (r, rule) => refuse (location def) key rule ("uses " ++ show r)
+            Nothing => pure ()
+          case definition def of
+            PMDef _ _ body => do
+              tree <- (.fst) <$> caseTreeOf body
+              when (treeMentionsWorld tree) $ reject (location def) key TrustedLibrary "uses %MkWorld"
+            _ => pure ()
+        LibraryCode => pure ()
+        Solution => pure ()
       pure (map (\r => MkReach r here (if trusted then Library placement else User)) refs')
 
     -- The definitions to visit, breadth first, so that a path in a message

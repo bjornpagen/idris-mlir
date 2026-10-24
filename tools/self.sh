@@ -8,8 +8,8 @@
 #     tools/self.sh [STAGE]
 #
 # A stage is two programs, run one after the other, each alone: the
-# frontend, which compiles compiler/src to a module and its Core, and then
-# idris-mlir, which compiles that module to an executable, idris-mlir-front.
+# frontend, which compiles compiler/src to a module, and then idris-mlir,
+# which compiles that module to an executable, idris-mlir-front.
 # Each half has its own time, its own peak memory and its own limit, and
 # the module stays when the pipeline fails: idris-mlir never writes or
 # removes a module it is given, so the pipeline half can be run again on
@@ -24,8 +24,8 @@
 # build/self/src, against the same prefix, so that nothing differs between
 # two stages but the frontend, and no TTC one stage wrote is loaded by the
 # next. Stage N keeps, in build/self/stageN/:
-#   idris-mlir-front.mlirbc, idris-mlir-front.core
-#                        the frontend's module and Core
+#   idris-mlir-front.mlirbc
+#                        the frontend's module
 #   frontend-timing      the frontend's phases (its --timing)
 #   frontend-stdout, frontend-stderr
 #   frontend-kib         the most memory the frontend held resident, in KiB
@@ -38,8 +38,8 @@
 #   idris-mlir-front     the executable
 #
 # STAGE (default 3) is the last stage made. At 3, stages 2 and 3 must be
-# the same, byte for byte: the executable, its module, its Core and every
-# TTC. Stage 1 is compared with nothing: its frontend runs on Chez.
+# the same, byte for byte: the executable, its module and every TTC.
+# Stage 1 is compared with nothing: its frontend runs on Chez.
 #
 # `tools/self.sh 1` is the frontend's record on the self compile and then
 # the pipeline's on its module, in build/self/stage1 (self-hosting's S1
@@ -116,9 +116,15 @@ stage() {
     cp -R "$root/compiler/src" "$self/src" &&
     rm -rf "$self/src/build" &&
     cd "$self/src" || exit 1
+  # The frontend as the driver runs it on a program: its prefix, a -p for
+  # each package the program reads and its main file. The packages are
+  # compiler/idris-mlir.ipkg's depends and the checker's own (its ipkg's
+  # mlir-linear and mlir-array), since -p loads the one package it names,
+  # as upstream's does, and only a package build reads an installed
+  # package's ipkg for what that package depends on.
   half frontend "$frontend_limit" "$front" --prefix "$checkout_prefix" \
-    -p idris-mlir-checker -p idris-mlir-spec -p mlir-hash \
-    --timing "$out/frontend-timing" --core "$out/idris-mlir-front.core" \
+    -p idris-mlir-checker -p mlir-linear -p mlir-array -p idris-mlir-spec -p mlir-hash \
+    --timing "$out/frontend-timing" \
     -o "$out/idris-mlir-front.mlirbc" IdrisMLIR/Frontend/Driver.idr
   cp -R "$self/src/build" "$out/ttc" || exit 1
   half pipeline "$limit" "$self_idris_mlir" --num-threads="$ncpu" -mlir-timing \
@@ -132,7 +138,7 @@ while [ "$n" -le "$last" ]; do
 done
 
 if [ "$last" -ge 3 ]; then
-  for artifact in idris-mlir-front idris-mlir-front.mlirbc idris-mlir-front.core; do
+  for artifact in idris-mlir-front idris-mlir-front.mlirbc; do
     cmp "$self/stage2/$artifact" "$self/stage3/$artifact" ||
       { echo "error: stage 2 and stage 3 differ in $artifact" >&2; exit 1; }
   done

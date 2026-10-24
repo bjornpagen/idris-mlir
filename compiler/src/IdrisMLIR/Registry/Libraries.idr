@@ -12,9 +12,11 @@ module IdrisMLIR.Registry.Libraries
 ||| The libraries the compiler knows: `Builtin` and `PrimIO`, the rest of
 ||| the prelude, base, the packages this compiler ships itself (`libs/`:
 ||| `mlir-linear` and `mlir-array`), which it implements in full, and
-||| `Compiler`, its own type checker (`compiler/checker`, the package
-||| `idris-mlir-checker`), which the frontend is written over, so that the
-||| frontend compiles as a program. The compiler implements Idris 2 for
+||| `Compiler`, the compiler's own Idris that the frontend is written over
+||| (its type checker, `compiler/checker`, the package `idris-mlir-checker`,
+||| and the dialect's specification, `compiler/spec`, the package
+||| `idris-mlir-spec`), so that the frontend, and every program of ours
+||| over them, compiles as a program. The compiler implements Idris 2 for
 ||| programs over the upstream prelude and base; the other packages
 ||| shipped with Idris (contrib, linear, network, test) are no commitment,
 ||| and what they covered comes from `libs/`. A module of prelude or base
@@ -84,9 +86,10 @@ covers _ _ = False
 ||| keep the rows that admit them differently, and the rest of that package
 ||| is the Prelude. Every module of base is base. Every module of a package
 ||| this compiler ships is its own, and every module of its type checker
-||| is the checker's: the frontend's own modules (`IdrisMLIR.*`) are
-||| the project's, user code like any program's. A module of any other
-||| installed package is untrusted, whatever it is named.
+||| or of its specification is the compiler's: the frontend's own modules
+||| (`IdrisMLIR.*` of `compiler/src`) are the project's, user code like any
+||| program's. A module of any other installed package is untrusted,
+||| whatever it is named.
 export
 moduleOrigin : Home -> List String -> Origin
 moduleOrigin Project _ = User
@@ -99,6 +102,7 @@ moduleOrigin (Installed "mlir-array") _ = Library InHouse
 moduleOrigin (Installed "mlir-relational") _ = Library InHouse
 moduleOrigin (Installed "mlir-hash") _ = Library InHouse
 moduleOrigin (Installed "idris-mlir-checker") _ = Library Compiler
+moduleOrigin (Installed "idris-mlir-spec") _ = Library Compiler
 moduleOrigin _ _ = Untrusted
 
 ||| The packages every program sees, whether it asks for them or not, as
