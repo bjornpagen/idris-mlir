@@ -475,10 +475,12 @@ bigFromInt sign = MkOp
 ||| writes it where values it proved small meet a big. A small is a word
 ||| with no cell: it holds no reference and acquires nothing, so its type
 ||| is static data's, which nothing frees and no count writes, and a use
-||| that asks for a value its count frees is given it by a share. A word
-||| outside the range has no big here, as an overflowing nsw add has no
-||| sum: the pass that writes the op is the proof, so its fold, the
-||| runtime's function of a word it holds, meets only words that fit.
+||| that asks for a value its count frees is given it by a share. Its one
+||| builder takes the carrier, the big or the natural, and gives it that
+||| grade, so no writer states the type. A word outside the range has no
+||| big here, as an overflowing nsw add has no sum: the pass that writes
+||| the op is the proof, so its fold, the runtime's function of a word it
+||| holds, meets only words that fit.
 public export
 bigSmall : Op 1 1 0 0
 bigSmall = MkOp
@@ -496,8 +498,8 @@ bigSmall = MkOp
   , meaning = ComputedByRuntime (MkRuntimeCall "small_word" [TakesInt64] (Returns GivesBig))
   , verify = DeclarationOnly
   , format = plain 1
-  , builders = []
-  , defaultBuilders = WithDefaults
+  , builders = [MkBuilder [param "::mlir::Type" "carrier", param "::mlir::Value" "value"]]
+  , defaultBuilders = DeclaredOnly
   , members = []
   , guards = []
   , specializations = [bigOfInteger Signed]

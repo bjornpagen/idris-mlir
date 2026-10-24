@@ -202,9 +202,7 @@ struct ExtentModel : BufferizableOpInterface::ExternalModel<ExtentModel, idr::Ar
         memref::DimOp::create(rewriter, loc, *buffer, static_cast<int64_t>(extent.getAxis()));
     Value word = arith::IndexCastUIOp::create(rewriter, loc, rewriter.getI64Type(), size);
     Type type = extent.getExtent().getType();
-    Type held =
-        idr::graded(idr::Grade{idr::Uses::Many, idr::Hold::staticData()}, idr::unrestricted(type));
-    Value small = idr::BigSmallOp::create(rewriter, loc, held, word);
+    Value small = idr::BigSmallOp::create(rewriter, loc, idr::unrestricted(type), word);
     replaceOpWithBufferizedValues(rewriter, op, {idr::heldAs(rewriter, loc, small, type), *buffer});
     return success();
   }

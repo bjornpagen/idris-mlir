@@ -134,8 +134,7 @@ Value word(OpBuilder &b, Location loc, Value value) {
 }
 
 Value small(OpBuilder &b, Location loc, Type type, Value word) {
-  Type held = graded(Grade{Uses::Many, Hold::staticData()}, unrestricted(type));
-  return BigSmallOp::create(b, loc, held, word);
+  return BigSmallOp::create(b, loc, unrestricted(type), word);
 }
 
 Value WordRewriter::standIn(Location loc, Type type, Value word) {

@@ -9,6 +9,7 @@
 module IdrisMLIR.Spec.Generator.Manifest
 
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Generator.Package
 import IdrisMLIR.Spec.Generator.Render
 
 import Data.Bits
@@ -45,15 +46,11 @@ manifestPath : Path
 manifestPath = "foreign" ::: ["idr", "generated.manifest"]
 
 ||| The generator's modules, each by its source under the root, in the order
-||| the manifest fingerprints their texts: the specification names its own
-||| generator, so specgen reads no package file to find it.
+||| the manifest fingerprints their texts: the package's generator area, so
+||| specgen reads no package file to find them.
 export
 generatorSources : List1 Path
-generatorSources =
-  map source ("Bytecode" ::: ["Cpp", "Idris", "Main", "Manifest", "Ods", "Outputs", "Render", "Wire"])
-  where
-    source : String -> Path
-    source m = "compiler" ::: ["spec", "IdrisMLIR", "Spec", "Generator", m ++ ".idr"]
+generatorSources = map moduleSource (inArea generator)
 
 -- A check's verdict on a file is a line a person reads and a test of the
 -- check reads back, so its wording is said here once: the test reads a

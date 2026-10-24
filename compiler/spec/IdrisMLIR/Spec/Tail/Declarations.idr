@@ -162,7 +162,7 @@ destAnswer = MkOp
   , format = Declared
       [ OptionalGroup [Lit "in", Lit "("] (ValueOf (OperandRef 0))
           [Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit ")"]
-      , AttrDictWithKeyword, Lit "->", Lit "(", TypeOf (OfGroup (ResultRef 0)), Lit ")"
+      , AttrDictWithKeyword, OptionalGroup [Lit "->"] (TypeOf (OfGroup (ResultRef 0))) []
       , ValueOf (RegionRef 0) ]
   , builders = []
   , defaultBuilders = WithDefaults

@@ -118,9 +118,10 @@ types =
   , Idr (LifetimeType (LifetimeKindOfCursor MkLifetimeKindCursor))
   , Idr (LifetimeType (LifetimeKindOfHome (MkLifetimeKindHome 3)))
     -- A package of each per-level lifetime, a stack's and a chain's, with
-    -- the values held in it.
+    -- the values held in it, and one holding none.
   , Idr (LifetimePackageType FromStack [vecAny])
   , Idr (LifetimePackageType FromChain [vecAny, str])
+  , Idr (LifetimePackageType FromStack [])
     -- A cons's memory, and a token that may be the cell of a cons of any
     -- length or of three, whose length leaves no other constructor.
   , Idr (CellType consCell)
@@ -302,9 +303,10 @@ sample =
   in stmt (Idr.funcOp {binders' = Just (Idr (IndexBindersAttr [SortOfNatSort]))} (StringAttr "sample")
             (TypeAttr (FunctionType (MkSignature [vecAny, nat, i64, str] [i64])))
             (block [v, n, x, s]
-               [ -- A constructor, its value refined to it, then reindexed.
-                 binding 4 (Idr.dataConOp [] [] (Idr (DataType natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])) [] ByIndices)))
-               , binding 5 (Idr.dataReindexOp (bound 4 (Idr (DataType natLists 0 [TermNodeNatural 0] (Just (DenseI32ArrayAttr [0])) [] ByIndices))) [] vecAny)
+               [ -- A constructor, its value of the length that leaves it the
+                 -- one constructor, so unrefined, then reindexed.
+                 binding 4 (Idr.dataConOp [] [] (vecOf 0))
+               , binding 5 (Idr.dataReindexOp (bound 4 (vecOf 0)) [] vecAny)
                , binding 6 (Idr.linCastOp x [] (Idr (GradedType Once Nothing i64)))
                , binding 7 (Idr.linCastOp (bound 6 (Idr (GradedType Once Nothing i64))) [] i64)
                , binding 8 (Idr.checkNonzeroOp DivisionByZero (Idr (SiteAttr "Main.idr" 1 1 "Main.sample")) x)

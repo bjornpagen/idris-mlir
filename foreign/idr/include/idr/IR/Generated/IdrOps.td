@@ -1465,6 +1465,10 @@ def Idr_BigSmallOp : Idr_Op<"big.small", [
   let arguments = (ins I64:$value);
   let results = (outs Type<CPred<"::idr::isBigOrNatStatic($_self)">, "an Integer or a natural held static, used any number of times", "::mlir::Type">:$result);
   let assemblyFormat = [{ $value attr-dict `:` functional-type(operands, results) }];
+  let skipDefaultBuilders = 1;
+  let builders = [
+    OpBuilder<(ins "::mlir::Type":$carrier, "::mlir::Value":$value)>,
+  ];
 }
 
 def Idr_BigToIntOp : Idr_Op<"big.to_int", [
@@ -2946,7 +2950,7 @@ def Idr_DestAnswerOp : Idr_Op<"dest.answer", [
   let arguments = (ins Variadic<Idr_LifetimeType>:$outers);
   let results = (outs Variadic<AnyType>:$results);
   let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = [{ (`in` `(` $outers^ `:` type($outers) `)`)? attr-dict-with-keyword `->` `(` type($results) `)` $body }];
+  let assemblyFormat = [{ (`in` `(` $outers^ `:` type($outers) `)`)? attr-dict-with-keyword (`->` type($results)^)? $body }];
   let hasRegionVerifier = 1;
 }
 

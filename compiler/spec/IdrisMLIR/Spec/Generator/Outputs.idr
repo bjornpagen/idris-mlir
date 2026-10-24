@@ -16,6 +16,7 @@ import IdrisMLIR.Spec.Generator.Ods
 import IdrisMLIR.Spec.Generator.Cpp
 import IdrisMLIR.Spec.Generator.Bytecode
 import IdrisMLIR.Spec.Generator.Idris
+import IdrisMLIR.Spec.Generator.Package
 import IdrisMLIR.Spec.Generator.Wire
 import IdrisMLIR.Spec.Ops.Checks
 
@@ -386,4 +387,5 @@ generate =
   ++ map areaHeader declarations.headers
   ++ [ ("compiler" ::: ["src", "IdrisMLIR", "Dialect", "Idr.idr"], render (buildersModule ourOps))
      , ("compiler" ::: ["src", "IdrisMLIR", "Encoding", "Wire.idr"], render (wireModule (compositesOf declarations.types declarations.attributes)))
-     , ("compiler" ::: ["src", "IdrisMLIR", "Encoding", "Idr.idr"], render (encodersModule declarations.types declarations.attributes)) ]
+     , ("compiler" ::: ["src", "IdrisMLIR", "Encoding", "Idr.idr"], render (encodersModule declarations.types declarations.attributes))
+     , (packagePath, packageText) ]

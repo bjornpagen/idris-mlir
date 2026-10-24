@@ -7,7 +7,8 @@
 // natural is); and the fold of the one op with no runtime form, a natural
 // as an Integer. Every other op folds through its runtime function
 // (Fold.h). How a natural's predecessor and successor are built of their
-// operands. And the natural's type, linked to its index term.
+// operands, and a small of its carrier. And the natural's type, linked to
+// its index term.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Terms.h"
@@ -141,6 +142,15 @@ void BigFromSintOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
 void BigFromUintOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
                                       SetIntRangeFn setResultRange) {
   fromInteger(*this, ranges, setResultRange);
+}
+
+// A small is its carrier used any number of times and held static: a word
+// with no cell, which nothing frees and no count writes. The one place its
+// type is made.
+void BigSmallOp::build(OpBuilder &, OperationState &state, Type carrier, Value value) {
+  assert(unrestricted(carrier) == carrier && "a small is built of its carrier, at no grade");
+  state.addOperands(value);
+  state.addTypes(graded(Grade{Uses::Many, Hold::staticData()}, carrier));
 }
 
 // A small is its word, which the op's writer proved inside the small range.
