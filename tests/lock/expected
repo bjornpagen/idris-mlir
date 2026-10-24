@@ -1,5 +1,4 @@
 schema_version: 4
 every tool is pinned by revision, repository, version, and tag or describe
-every accepted release series holds its tool's pinned version
 witness: each planted file is found
 near miss: nothing found

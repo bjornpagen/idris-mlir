@@ -4,22 +4,19 @@
     "repository": "https://github.com/llvm/llvm-project.git",
     "revision": "416f328b939fe1373ddc9060f6773ad4c5039f59",
     "describe": "llvmorg-24-init-15655-g416f328b939f",
-    "version": "24.0.0git",
-    "accept": "24"
+    "version": "24.0.0git"
   },
   "cmake": {
     "repository": "https://github.com/Kitware/CMake.git",
     "revision": "2e0b3aec14fe2e3e555faac4698e281749aae4b5",
     "tag": "v4.4.4",
-    "version": "4.4.4",
-    "accept": "4.4"
+    "version": "4.4.4"
   },
   "ninja": {
     "repository": "https://github.com/ninja-build/ninja.git",
     "revision": "3441b633c2fe2c494e958780ba0f4227b1327634",
     "tag": "v1.13.2",
-    "version": "1.13.2",
-    "accept": "1.13"
+    "version": "1.13.2"
   },
   "gmp": {
     "path": "third_party/gmp",

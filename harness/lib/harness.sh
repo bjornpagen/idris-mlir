@@ -77,7 +77,7 @@ serve() {
     idris_mlir=$idris_mlir idris_mlir_opt=$idris_mlir_opt idris2=$idris2 idris_prefix=$idris_prefix \
     host_prefix=$host_prefix \
     compile_sh=$compile_sh checked_prepared=$checked_prepared dev_prefix=$dev_prefix \
-    runtests=$runtests parameter=$parameter "$runtests" --serve "$serve_dir" "$@" &
+    runtests=$runtests "$runtests" --serve "$serve_dir" "$@" &
   serve_runner=$!
   while IFS='	' read -r serve_cwd serve_in serve_out serve_err; do
     serve_command "$serve_dir" "$serve_cwd" "$serve_in" "$serve_out" "$serve_err"

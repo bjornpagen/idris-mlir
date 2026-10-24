@@ -4,8 +4,8 @@
 ||| script names, read once from its environment; a test's output; the
 ||| files a fixture holds and a build leaves; and the tools started through
 ||| the glue (Serve.idr): a command bounded, a program compiled with the
-||| compiler under test and its time recorded, a program linked, a C++
-||| program built over the pinned MLIR.
+||| compiler under test, a program linked, a C++ program built over the
+||| pinned MLIR.
 module Harness
 
 import Data.Fin
@@ -15,7 +15,6 @@ import Data.Maybe
 import Data.Nat
 import Data.String
 import System
-import System.Clock
 import System.Directory
 import System.File
 
@@ -50,7 +49,6 @@ record Tools where
   checkedPrepared : String
   devPrefix : String
   runtests : String
-  parameter : String
 
 ||| A variable the glue passes, or the runner's death naming it: the glue
 ||| passes every one, so a missing one is a harness that does not match.
@@ -69,7 +67,7 @@ toolsOf = do
   [| MkTools (given "root") (given "work") (pure here) (given "llvm_prefix") (given "llvm_bin")
              (given "pinned_cc") (given "idris_mlir") (given "idris_mlir_opt") (given "idris2")
              (given "idris_prefix") (given "host_prefix") (given "compile_sh") (given "checked_prepared") (given "dev_prefix")
-             (given "runtests") (fromMaybe "" <$> getEnv "parameter") |]
+             (given "runtests") |]
 
 ||| A check's place to run: the tools, the session with the glue that
 ||| starts them, and what each line of its output starts with (nothing, or
@@ -484,86 +482,15 @@ noArtifactsLine dir = do
 -- Compiling with the compiler under test
 ------------------------------------------------------------------------------
 
-||| What a compilation was asked, as the timing record names it: by the
-||| options that change what is compiled, and there are none: not the
-||| packages, nor the threads, nor what is printed where.
-recordedWhat : List String -> String
-recordedWhat = go "compile"
-  where
-    go : String -> List String -> String
-    go acc [] = acc
-    go acc ("-p" :: _ :: rest) = go acc rest
-    go acc ("-p" :: []) = acc
-    go acc (o :: rest) =
-      if isPrefixOf "--num-threads=" o || isPrefixOf "--mlir-print-" o || isPrefixOf "--report=" o
-         then go acc rest else go (acc ++ " " ++ o) rest
-
-||| The timing record of the test: harness/build/timing/<the test's
-||| directory under tests/, or its path outside it, each / as __, then
-||| @<parameter> for one run of a parameterized test>.tsv.
-timingId : Tools -> String
-timingId t =
-  let testsDir = t.root ++ "/tests/"
-      path = if isPrefixOf testsDir t.here then pack (drop (length testsDir) (unpack t.here))
-             else pack (dropWhile (== '/') (unpack t.here))
-      stem = joinBy "__" (forget (split (== '/') path))
-  in if t.parameter == "" then stem else stem ++ "@" ++ t.parameter
-
-||| One line of the timing record, `<ms> TAB <exit> TAB <what> TAB
-||| <module>`, where <module> is a copy of the module the frontend handed
-||| the driver, kept beside the record (or -), so tools/compile-times.sh
-||| can compile it again under --mlir-timing. The first compilation of a
-||| work directory starts the record over; the record gates nothing.
-recordTime : Env -> (ms : Integer) -> Status -> (options : List String) -> (source, output : String) -> IO ()
-recordTime e ms status options source output = do
-  let dir = e.tools.root ++ "/harness/build/timing"
-  let stem = timingId e.tools
-  let tsv = dir ++ "/" ++ stem ++ ".tsv"
-  let counted = inWork e "timing.count"
-  made e dir
-  countText <- readIfThere counted
-  let previous : Nat = fromMaybe 0 (countText >>= \t => parsePositive (trim t))
-  when (previous == 0) $ do
-    ignore (writeFile tsv "")
-    old <- filter (keptBefore stem) <$> namesIn dir
-    for_ old $ \n => removeFile (dir ++ "/" ++ n)
-  let count = S previous
-  ignore (writeFile counted (show count ++ "\n"))
-  copied <- if raw status /= 0 then pure "-" else do
-    found <- artifactFile (dirName source) (Named (baseName output)) Module
-    case found of
-      Nothing => pure "-"
-      Just path => do
-        let copy = dir ++ "/" ++ stem ++ "." ++ show count ++ "." ++ extension path
-        st <- bounded e ["cp", path, copy] (ToFile "/dev/null") (Apart (ToFile "/dev/null"))
-        pure (if succeeded st then copy else "-")
-  ignore (appendFile tsv (joinBy "\t" [show ms, show (raw status), recordedWhat options, copied] ++ "\n"))
-  where
-    extension : String -> String
-    extension p = last (split (== '.') p)
-
-    -- A module an earlier run of the test kept: <stem>.<count>.<extension>.
-    keptBefore : String -> String -> Bool
-    keptBefore stem n =
-      let lead = stem ++ "." in
-      if not (isPrefixOf lead n) then False
-      else case drop (length lead) (unpack n) of
-        (d :: rest) => isDigit d && elem '.' rest
-        [] => False
-
 ||| `compile_program [OPTION]... SOURCE OUTPUT`: SOURCE, an IO program,
 ||| compiled with idris-mlir's OPTIONs through tools/compile.sh, the one
 ||| copy of how idris-mlir runs; its output in the work directory's
-||| compile.out and compile.err; its wall time recorded.
+||| compile.out and compile.err.
 export
 compileProgram : Env -> (options : List String) -> (source, output : String) -> IO Status
-compileProgram e options source output = do
-  started <- clockTime Monotonic
-  status <- bounded e (e.tools.compileSh :: options ++ [source, output])
-                    (ToFile (inWork e "compile.out")) (Apart (ToFile (inWork e "compile.err")))
-  ended <- clockTime Monotonic
-  recordTime e (div (toNano ended - toNano started) 1000000) status options source output
-  pure status
+compileProgram e options source output =
+  bounded e (e.tools.compileSh :: options ++ [source, output])
+          (ToFile (inWork e "compile.out")) (Apart (ToFile (inWork e "compile.err")))
 
 ||| The checked runtime, which every program a test runs links: a cell that
 ||| dies keeps its memory marked and is never reused, so a release of a

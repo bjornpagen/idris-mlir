@@ -3,7 +3,6 @@
   "ninja": {
     "repository": "https://github.com/ninja-build/ninja.git",
     "revision": "3441b633c2fe2c494e958780ba0f4227b1327634",
-    "version": "1.13.2",
-    "accept": "1.13"
+    "version": "1.13.2"
   }
 }

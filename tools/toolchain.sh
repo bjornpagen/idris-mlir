@@ -1,15 +1,13 @@
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# Where the pinned tools are, in one place: sourced, with $root
-# set to the repository, by the Makefile, tools/compile.sh, tools/bisect.sh,
-# tools/verify-pins.sh, tools/doctor.sh, bench/run.sh, harness/testutils.sh and
-# tools/upstream-idris/as-idris.
+# Where the pinned tools are, in one place: sourced, with $root set to the
+# repository, by the Makefile and by every script that runs a pinned tool.
 # IDRIS_MLIR_TOOLCHAIN stands for .toolchain (the spec tests use it).
 
 # The toolchain by its physical path: what was built there records the
 # paths it was built at (a step's inputs, a compiler's own directory), so a
-# checkout whose .toolchain is a link to another's (tools/lanes) names it
-# as the checkout that built it did. One not built yet is named as given.
+# checkout whose .toolchain is a link to another's names it as the checkout
+# that built it did. One not built yet is named as given.
 toolchain=${IDRIS_MLIR_TOOLCHAIN:-$root/.toolchain}
 if [ -d "$toolchain" ]; then toolchain=$(cd "$toolchain" && pwd -P); fi
 # The runtime's snmalloc and simdutf, each exported with its patches

@@ -2,8 +2,8 @@
 # Copyright (c) 2026 Bjorn Pagen
 /.toolchain
 /build/
-# What a build makes, the runner's among it (harness/build: its outputs,
-# timings and the runner itself).
+# What a build makes, the runner's among it (harness/build: its outputs
+# and the runner itself).
 build/
 # A user's own presets, such as a build for one family of a target's
 # machines (README.md).

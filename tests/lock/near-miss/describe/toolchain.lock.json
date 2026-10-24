@@ -4,7 +4,6 @@
     "repository": "https://github.com/llvm/llvm-project.git",
     "revision": "7208ba24ca2894729cd394475a00d2a7b605e642",
     "describe": "llvmorg-24-init-13225-g7208ba24ca28",
-    "version": "24.0.0git",
-    "accept": "24"
+    "version": "24.0.0git"
   }
 }

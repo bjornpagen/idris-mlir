@@ -22,7 +22,7 @@
     },
     {
       "name": "release",
-      "displayName": "Optimized production build: full LTO, unused sections dropped, no sanitizer traps",
+      "displayName": "Optimized production build: full LTO and the target entry's release link flags",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"

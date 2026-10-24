@@ -2,32 +2,6 @@
 # Copyright (c) 2026 Bjorn Pagen
 cmake_minimum_required(VERSION 4.0)
 
-# The configure gate. The accepted toolchain series live in
-# toolchain.lock.json only.
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/toolchain.lock.json" IDRIS_MLIR_LOCK)
-string(JSON IDRIS_MLIR_NINJA_SERIES GET "${IDRIS_MLIR_LOCK}" ninja accept)
-string(JSON IDRIS_MLIR_CMAKE_SERIES GET "${IDRIS_MLIR_LOCK}" cmake accept)
-string(JSON IDRIS_MLIR_LLVM_SERIES GET "${IDRIS_MLIR_LOCK}" llvm accept)
-
-if(NOT CMAKE_GENERATOR STREQUAL "Ninja")
-	message(FATAL_ERROR "Ninja is the only supported generator (got ${CMAKE_GENERATOR})")
-endif()
-
-execute_process(
-	COMMAND "${CMAKE_MAKE_PROGRAM}" --version
-	RESULT_VARIABLE IDRIS_MLIR_NINJA_STATUS
-	OUTPUT_VARIABLE IDRIS_MLIR_NINJA_VERSION
-	OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-if(NOT IDRIS_MLIR_NINJA_STATUS EQUAL 0
-		OR NOT IDRIS_MLIR_NINJA_VERSION MATCHES "^${IDRIS_MLIR_NINJA_SERIES}\\.")
-	message(FATAL_ERROR "Ninja ${IDRIS_MLIR_NINJA_SERIES}.x is required (got ${IDRIS_MLIR_NINJA_VERSION})")
-endif()
-
-if(NOT CMAKE_VERSION MATCHES "^${IDRIS_MLIR_CMAKE_SERIES}\\.")
-	message(FATAL_ERROR "CMake ${IDRIS_MLIR_CMAKE_SERIES}.x is required (got ${CMAKE_VERSION})")
-endif()
-
 # ccache (on PATH, or MacPorts') launches every C and C++ compile, on the
 # cache tools/bootstrap.sh configures (.toolchain/ccache): a rebuild
 # recompiles only what changed, in every preset and every checkout, as in
@@ -67,9 +41,9 @@ add_compile_options("-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=.")
 # file.
 option(IDRIS_MLIR_TYPECHECK "Compile foreign/idr with the host's clang against the TableGen-only LLVM/MLIR, and link nothing but idris-mlir-tblgen" OFF)
 
-# PIN(platform-gate): the build runs on the machines whose targets the
-# compiler has, Linux x86_64 and aarch64 and Darwin arm64, the same
-# machines tools/bootstrap.sh builds a toolchain on.
+# The build runs on the machines whose targets the compiler has, Linux
+# x86_64 and aarch64 and Darwin arm64, the same machines tools/bootstrap.sh
+# builds a toolchain on.
 if(NOT (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|aarch64)$")
 		AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64"))
 	message(FATAL_ERROR "the machine boundary is Linux x86_64 and aarch64 and Darwin arm64 (got ${CMAKE_SYSTEM_NAME} ${CMAKE_SYSTEM_PROCESSOR})")
@@ -78,15 +52,11 @@ endif()
 # The production compiler is the stage-2 clang of the pinned
 # llvm-project, with the pinned libc++, for the target its toolchain file
 # names (tools/bootstrap.sh writes it; every preset reads it).
-# PIN(clang-libcxx) — see PINS.md
 # The typecheck build's compiler is the host's, by design.
 if(NOT IDRIS_MLIR_TYPECHECK)
 	foreach(lang C CXX)
 		if(NOT CMAKE_${lang}_COMPILER_ID STREQUAL "Clang")
 			message(FATAL_ERROR "production builds require the pinned clang (got ${CMAKE_${lang}_COMPILER_ID} for ${lang}); build it with tools/bootstrap.sh stage2")
-		endif()
-		if(NOT CMAKE_${lang}_COMPILER_VERSION MATCHES "^${IDRIS_MLIR_LLVM_SERIES}\\.")
-			message(FATAL_ERROR "production builds require clang ${IDRIS_MLIR_LLVM_SERIES}.x (got ${CMAKE_${lang}_COMPILER_VERSION} for ${lang})")
 		endif()
 	endforeach()
 endif()
@@ -249,7 +219,6 @@ if(CMAKE_CXX_COMPILER_TARGET MATCHES "^x86_64-[^-]+-linux-gnu$" AND IDRIS_MLIR_P
 	# x86-64-v3 (AVX2, BMI2, FMA) runs on every x86-64 CPU since Haswell
 	# (2013) and AMD's Zen, and an executable names what an older one lacks.
 	# snmalloc needs CMPXCHG16B, which the baseline lacks.
-	# PIN(runtime-cx16) — see PINS.md
 	set(IDRIS_MLIR_PROGRAM_CPU -march=x86-64-v3)
 	set(IDRIS_MLIR_BASELINE_CPU -march=x86-64 -mcx16)
 	set(IDRIS_MLIR_RUNTIME_CPU_TEST Platform/X86_64/Cpu.cpp)
@@ -329,8 +298,7 @@ elseif(CMAKE_CXX_COMPILER_TARGET MATCHES "^arm64-apple-macosx" AND IDRIS_MLIR_PA
 	set(IDRIS_MLIR_RED_ZONE_BYTES 128)
 	idris_mlir_unmeasured_stacks()
 	# Our tools: Darwin's PIE executables need nothing beyond the profile.
-	# PIN(darwin-inert-mitigations): branch protection executes as NOP in a
-	# plain arm64 Darwin process — see PINS.md.
+	# Branch protection executes as NOP in a plain arm64 Darwin process.
 	set(IDRIS_MLIR_TOOL_COMPILE_FLAGS "")
 	set(IDRIS_MLIR_TOOL_LINK_FLAGS "")
 	set(IDRIS_MLIR_TOOL_RELEASE_LINK_FLAGS "")
@@ -379,7 +347,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # Every C++ unit of the build, ours and the runtime's, is compiled as LLVM
 # and MLIR are, without exceptions or RTTI, and against libc++'s extensive
-# hardening. PIN(clang-no-reflection): no -freflection — see PINS.md
+# hardening.
 string(APPEND CMAKE_CXX_FLAGS " -fno-exceptions -fno-rtti -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
 
 include(CheckCXXSourceCompiles)
@@ -397,7 +365,6 @@ endif()
 # Warnings are errors, for every target with our own C++ (the runtime too),
 # in the typecheck build as in every preset: a slice that only printed
 # them let through what the first real build then refused.
-# PIN(clang-libcxx): a warning only GCC spells is left out; see PINS.md.
 add_library(idris_mlir_warnings INTERFACE)
 target_compile_options(idris_mlir_warnings INTERFACE
 	-Werror
@@ -451,8 +418,7 @@ target_link_options(idris_mlir_language_profile INTERFACE
 )
 
 # The target's own flags for our tools, from its entry above. FORTIFY is
-# the Linux entries': it is inert in Apple's SDK for C++
-# (PIN(darwin-inert-mitigations) — see PINS.md).
+# the Linux entries': it is inert in Apple's SDK for C++.
 target_compile_options(idris_mlir_language_profile INTERFACE ${IDRIS_MLIR_TOOL_COMPILE_FLAGS})
 target_link_options(idris_mlir_language_profile INTERFACE
 	${IDRIS_MLIR_TOOL_LINK_FLAGS}

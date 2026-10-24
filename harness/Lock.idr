@@ -2,8 +2,7 @@
 -- Copyright (c) 2026 Bjorn Pagen
 ||| toolchain.lock.json pins every tool the build uses:
 ||| each entry records the exact version, the source repository, the commit,
-||| and a tag or a `git describe`; where the configure gate accepts a release
-||| series (`accept`), the pinned version is in it.
+||| and a tag or a `git describe`.
 |||
 |||     runtests --lock
 module Lock
@@ -26,7 +25,6 @@ record Pin where
   constructor MkPin
   revision, repository, version : String
   ref : PinRef
-  accept : Maybe String
 
 hexRevision : String -> Bool
 hexRevision s = length s == 40 && all (\c => isDigit c || (c >= 'a' && c <= 'f')) (unpack s)
@@ -42,8 +40,7 @@ both (Right _) (Left q) = Left q
 pin : (String, JSON) -> Either (List String) Pin
 pin (name, JObject fields) =
   either (\problems => Left [name ++ ": " ++ joinBy "; " problems]) Right $
-    both (both (both (both (MkPin <$> revision) (given "repository")) (given "version")) ref)
-         (Right (textAt "accept"))
+    both (both (both (MkPin <$> revision) (given "repository")) (given "version")) ref
   where
     byKey : SortedMap String JSON
     byKey = fromList fields
@@ -67,12 +64,6 @@ pin (name, JObject fields) =
       (Just _, Just _) => Left ["both tag and describe"]
 pin (name, _) = Left [name ++ ": not an object"]
 
-||| Whether the accepted series, if any, holds the version: the version
-||| continues the series after a dot, as the configure gate matches it
-||| (CMakeLists.txt), so 1 and 1.13 hold 1.13.2 and 1.1 does not.
-accepted : Pin -> Bool
-accepted p = maybe True (\series => (series ++ ".") `isPrefixOf` p.version) p.accept
-
 report : String -> List String -> IO ()
 report verdict [] = putStrLn verdict
 report _ bad = traverse_ putStrLn bad
@@ -92,7 +83,3 @@ check root = do
   let tools = map (\entry => (fst entry, pin entry)) (filter ((/= "schema_version") . fst) fields)
   report "every tool is pinned by revision, repository, version, and tag or describe"
     (tools >>= \(_, read) => either id (const []) read)
-  report "every accepted release series holds its tool's pinned version"
-    (tools >>= \(name, read) => case read of
-       Right p => if accepted p then [] else [name ++ ": version outside the accepted series"]
-       Left _ => [])
