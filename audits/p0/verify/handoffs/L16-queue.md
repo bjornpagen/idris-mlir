@@ -785,3 +785,11 @@ askers in callersOf, Settle's removed proof). Waiting:
   4.2 s, 35 s at 20, 24, 28 components) and an untyped `let` of a deep
   pair then `printLn` too: the instance search, not the tuple syntax
   (L17, measured with the checker alone at 3f7cd509).
+- From L04y (its obligations 1 and 2 already met by 21f19207 and
+  653608e8, 3 by c497d41d): after L16en releases `Spec/Families/Ops.idr`
+  and the manifest, `builds` becomes the reindex op's member
+  (`MkMember OnObject "bool" "builds" []` beside `isFree`, about :253),
+  defined in `Families/Refinement.cpp` as `families::builds` of its
+  value's and result's types, asked by the verifier there and the flow
+  (`FlowOps.cpp:152`); the lowering's `repack` keeps asking the function
+  on types (L04).
