@@ -230,11 +230,16 @@ private:
           readInto(flow.from, into.value, edges);
         },
         // Into a part of a value: the value holds what moves in, a memo
-        // label's field the label.
+        // label's field the label. What fills every slot of the part (an
+        // array's fill) is reached once per slot, so the value reaches it
+        // more than once and is shared in every context, as the local rule
+        // bounds it.
         [&](const FlowPlace::Part &part) {
           std::optional<FlowAnchor::Field> field = ownership::fieldOf(part.anchor);
           if (field && memoFamily(part.of.getType()))
             return intoAnchor(flow.from, anchors.of(*field));
+          if (flow.fills == FlowEdges::Fills::EverySlot)
+            return seed(part.of);
           readInto(flow.from, part.of, edges);
         },
         // A parameter or a result: the call's and the return's own reading.
