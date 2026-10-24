@@ -34,15 +34,24 @@ using namespace idr;
 namespace {
 
 // The value a cast into or out of a linear position moved: the operand of
-// an op that keeps its operand's value (Idr_SameValue) at other uses.
+// an op that keeps its operand's value (Idr_SameValue) at other uses. The
+// one op of the trait is idr.lin.cast, whose verifier holds that its uses
+// and its operand's differ, so every such op is a step.
 std::optional<Value> linearPositionOf(Value value) {
   Operation *def = value.getDefiningOp();
   if (!def || !def->hasTrait<SameValue>())
     return std::nullopt;
-  Value moved = def->getOperand(0);
-  if (usesOf(moved.getType()) == usesOf(value.getType()))
+  return def->getOperand(0);
+}
+
+// The value a change of grade was given: the operand an op that only
+// changes its operand's grade (Idr_ResultCarriesOperand) carries, its
+// first, the use regradedBy steps forward from.
+std::optional<Value> regradeOf(Value value) {
+  Operation *def = value.getDefiningOp();
+  if (!def || !def->hasTrait<ResultCarriesOperand>())
     return std::nullopt;
-  return moved;
+  return def->getOperand(0);
 }
 
 } // namespace
@@ -52,6 +61,8 @@ SmallVector<Value, 4> idr::linearPositions(Value value) {
 }
 
 Value idr::throughLinear(Value value) { return linearPositions(value).back(); }
+
+Value idr::throughGrades(Value value) { return definitionChain(value, regradeOf).back(); }
 
 std::optional<Value> idr::regradedBy(OpOperand &use) {
   Operation *user = use.getOwner();

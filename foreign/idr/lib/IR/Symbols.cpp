@@ -17,16 +17,20 @@ using namespace idr;
 
 DataType idr::dataTypeOf(Type type) { return dyn_cast<DataType>(unrestricted(type)); }
 
-// A force of the cell at any grade is a force of it: the cell's uses are
-// read at every grade (walkUsesThroughGrades), as fieldReadOnce counts a
-// field's reads, the first force outside `reader` ending the walk.
+// A cast into or out of a linear position is the cell it was given, built
+// as that was: the value is read through each such cast (throughLinear),
+// as every reader of what a value is reads it. A force of the cell at any
+// grade is a force of it: the cell's uses are read at every grade
+// (walkUsesThroughGrades), as fieldReadOnce counts a field's reads, the
+// first force outside `reader` ending the walk.
 bool idr::builtStateHolds(Value value, Operation *reader) {
   DataType data = dataTypeOf(value.getType());
   if (!data || !data.memo())
     return true;
-  if (!value.getDefiningOp<DataConOp>())
+  Value cell = throughLinear(value);
+  if (!cell.getDefiningOp<DataConOp>())
     return false;
-  WalkResult walked = walkUsesThroughGrades(value, [&](OpOperand &use) {
+  WalkResult walked = walkUsesThroughGrades(cell, [&](OpOperand &use) {
     Operation *user = use.getOwner();
     if (isa<MemoRunOp>(user) && !reader->isAncestor(user))
       return WalkResult::interrupt();

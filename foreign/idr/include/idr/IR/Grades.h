@@ -315,18 +315,20 @@ llvm::SmallVector<mlir::Value, 4> definitionChain(mlir::Value start, Step &&step
   return chain;
 }
 
-// The two walks through a value's changes of grade, each step an op that
-// gives its operand on as its result with no run-time work. Back from a
-// value to the one it was made from (linearPositions) a step keeps its
-// operand's identity and sharing too (Idr_SameValue), as a value's source
-// (sourceOf) and the e-graph's reading of a value cast steps, so a rewrite
-// on the input finds the op the e-graph's decision found. Forward from a
-// value to its uses (walkUsesThroughGrades) a step is any op that only
-// changes the grade (Idr_ResultCarriesOperand), a share among them: what a
-// share gives forgets what its operand claimed of its sharing, which a
-// source does not follow, but it is the same cell, so a force or a read of
-// it is one of the value's. The two traits name two sets of ops for that
-// reason, and each walk reads its own.
+// The walks through a value's changes of grade, each step an op that gives
+// its operand on as its result with no run-time work. Back from a value to
+// the one it was made from (linearPositions) a step keeps its operand's
+// identity and sharing too (Idr_SameValue), as a value's source (sourceOf)
+// and the e-graph's reading of a value cast steps, so a rewrite on the
+// input finds the op the e-graph's decision found. Forward from a value to
+// its uses (walkUsesThroughGrades), and back to the value it is at any
+// grade (throughGrades), a step is any op that only changes the grade
+// (Idr_ResultCarriesOperand), a share among them: what a share gives
+// forgets what its operand claimed of its sharing, which a source does not
+// follow, but it is the same cell, so a force or a read of it is one of
+// the value's, and the value it was given is that value at another grade.
+// The two traits name two sets of ops for that reason, and each walk reads
+// its own.
 
 // The linear positions `value` passed, `value` first and the value it was
 // made from last: each step is an op that keeps its operand's value
@@ -339,6 +341,13 @@ llvm::SmallVector<mlir::Value, 4> linearPositions(mlir::Value value);
 
 // The last of linearPositions: the value `value` was made from.
 mlir::Value throughLinear(mlir::Value value);
+
+// The value `value` is at any grade: back along each op that only changes
+// its operand's grade (Idr_ResultCarriesOperand), the operand it carries,
+// to the first value no such op gave. A chain of such ops closing on
+// itself, in an unreachable block, ends where it would come back
+// (definitionChain), at a value such an op gave.
+mlir::Value throughGrades(mlir::Value value);
 
 // The value `use` gives on at another grade: the result of an op that only
 // changes its operand's grade (Idr_ResultCarriesOperand), where `use` is

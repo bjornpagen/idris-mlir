@@ -10,7 +10,6 @@
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/IR/Traits.h"
 #include "idr/Transforms/Narrow.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -73,16 +72,13 @@ namespace {
 
 // The small `value` is given as, where it is one (heldAs): a small cast
 // into a linear position or shared as a value its count frees, each an op
-// whose result carries its operand.
+// whose result carries its operand, so the small is the value `value` is
+// at any grade (throughGrades).
 std::optional<Value> givenSmall(Value value) {
-  for (Operation *def = value.getDefiningOp(); def; def = value.getDefiningOp()) {
-    if (isa<BigSmallOp>(def))
-      return value;
-    if (!def->hasTrait<ResultCarriesOperand>())
-      return std::nullopt;
-    value = def->getOperand(0);
-  }
-  return std::nullopt;
+  Value given = throughGrades(value);
+  if (!given.getDefiningOp<BigSmallOp>())
+    return std::nullopt;
+  return given;
 }
 
 } // namespace
