@@ -73,7 +73,10 @@ std::optional<Elimination> eliminationAt(mlir::OpOperand &use);
 // process: what its dialect's bytecode writes of it, each attribute or
 // type it holds written as that one's own digest, so no address, TypeID or
 // printing flag reaches it. A name made of it (a specialized copy's, a
-// deduplicated function's) is the same however the module was built.
+// deduplicated function's) is the same however the module was built. The
+// deep parts of ours (a family, a data type, a constant constructor) keep
+// their digest in their storage once it is made, so asking again, or
+// asking of a part that holds one, reads it.
 llvm::XXH128_hash_t stableDigest(mlir::Attribute attr);
 llvm::XXH128_hash_t stableDigest(mlir::Type type);
 

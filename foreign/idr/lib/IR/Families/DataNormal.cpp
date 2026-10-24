@@ -5,7 +5,10 @@
 // constructor the indices allow is none unless it keeps a constructor's
 // binders' terms, binders the indices determine are not kept), its verifier
 // refuses any other, and the parser's and the
-// bytecode's builder makes what it read in that form. Refining keeps the
+// bytecode's builder makes what it read in that form. A builder refines an
+// application it holds, so what it makes is checked against what that
+// application's storage keeps; only parts that arrive whole are checked by
+// unifying again. Refining keeps the
 // layout mark: the indices decide what is possible, and the mark how the
 // value is laid out, which a case's refined value shares with what it
 // refines. Then the binders and
@@ -14,6 +17,7 @@
 // are defined.
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/FamilyStorage.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Families/Unify.h"
 #include "idr/IR/IdrDialect.h"
@@ -21,7 +25,9 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <algorithm>
 #include <cassert>
+#include <functional>
 #include <optional>
 
 using namespace mlir;
@@ -85,17 +91,18 @@ DataType DataType::refined(ArrayRef<Tag> tags) const {
       kept.push_back(tag);
   if (kept.size() == base.possibleTags().size())
     return base;
-  return get(getContext(), getGroup(), getMember(), getIndices(), tagsAttr(getContext(), kept),
-             ArrayRef<TermNode>(), getMark());
+  return idr::detail::refinementOf(base, tagsAttr(getContext(), kept), ArrayRef<TermNode>());
 }
 
+// The type refined to constructor `tag` alone, keeping `binders`, its
+// binders' terms, where `tag` is possible and the indices leave them
+// undetermined: the one decision of a refinement that unifies, which its
+// verifier leaves to it.
 DataType DataType::refinedTo(Tag tag, ArrayRef<TermNode> binders) const {
-  DataType one = refined({tag});
-  if (binders.empty() || !one.singleTag() ||
+  if (binders.empty() || !possibleTags().contains(tag) ||
       determined(getGroup(), getMember(), getIndices(), tag))
-    return one;
-  return get(getContext(), getGroup(), getMember(), getIndices(), tagsAttr(getContext(), {tag}),
-             binders, getMark());
+    return refined({tag});
+  return idr::detail::refinementOf(unrefined(), tagsAttr(getContext(), {tag}), binders);
 }
 
 namespace {
@@ -133,13 +140,14 @@ checkParts(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group, uint3
 
 } // namespace
 
-// A type as its builders make it, its one spelling: what it was checked
-// for, and its refinement in normal form, ascending, to constructors its
-// indices leave possible and fewer than all of them, its binders kept only
-// where the indices leave them undetermined. A refinement to one
-// constructor that keeps its binders' terms says what the unrefined type
-// cannot, so it stands where that constructor is the only one possible
-// (refinedTo makes it so).
+// A type built from its parts (an application, or a type whose parts a
+// replacement gives whole), its one spelling: what it was checked for, and
+// its refinement in normal form, ascending, to constructors its indices
+// leave possible and fewer than all of them, its binders kept only where
+// the indices leave them undetermined. A refinement to one constructor
+// that keeps its binders' terms says what the unrefined type cannot, so it
+// stands where that constructor is the only one possible (refinedTo makes
+// it so).
 LogicalResult DataType::verify(function_ref<InFlightDiagnostic()> emitError, FamilyAttr group,
                                uint32_t at, ArrayRef<TermNode> indices,
                                DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders,
@@ -159,6 +167,34 @@ LogicalResult DataType::verify(function_ref<InFlightDiagnostic()> emitError, Fam
                        << "unless it keeps one constructor's binders' terms";
   if (!binders.empty() && determined(group, at, indices, (*tags)->front()))
     return emitError() << "keeps binders' terms its indices determine";
+  return success();
+}
+
+// A refinement a builder makes of `base`, an unrefined application it
+// holds: the same normal form, checked against the constructors the
+// application's storage keeps as possible, with no unification. Whether
+// the binders' terms are ones the indices leave undetermined is refinedTo's
+// decision, made once where they are given.
+LogicalResult DataType::verifyInvariants(function_ref<InFlightDiagnostic()> emitError,
+                                         DataType base, DenseI32ArrayAttr refinement,
+                                         ArrayRef<TermNode> binders) {
+  if (!base || base.unrefined() != base || !refinement)
+    return emitError() << "refines what is no unrefined application, or names no refinement";
+  ArrayRef<int32_t> tags = refinement.asArrayRef();
+  const TagSet &possible = base.possibleTags();
+  auto isPossible = [&](int32_t tag) {
+    return tag >= 0 && possible.contains(Tag{static_cast<uint32_t>(tag)});
+  };
+  if (!llvm::all_of(tags, isPossible) ||
+      std::adjacent_find(tags.begin(), tags.end(), std::greater_equal<int32_t>()) != tags.end() ||
+      (tags.size() == possible.size() && binders.empty()))
+    return emitError() << "is refined to constructors not in normal form: ascending, once each, "
+                       << "each one its indices leave possible, and fewer than all of them "
+                       << "unless it keeps one constructor's binders' terms";
+  if (!binders.empty() &&
+      (tags.size() != 1 ||
+       countTerms(binders) != base.ctor(Tag{static_cast<uint32_t>(tags.front())}).binders.size()))
+    return emitError() << "gives binders' terms to no one constructor, or not one per binder";
   return success();
 }
 

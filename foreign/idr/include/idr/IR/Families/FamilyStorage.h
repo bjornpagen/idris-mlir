@@ -5,7 +5,9 @@
 // parameters, copied into the context once, and #idr.family keeping beside
 // its key what is derived of its members when it is made: whether it holds
 // itself, whether its values can reach a closure or a suspension, and each
-// member's facts.
+// member's facts. A family, a constant constructor and a data type (whose
+// storage Types.cpp completes) keep the digest of their content too, the
+// deep parts of ours a digest of content meets.
 #ifndef IDR_IR_FAMILIES_FAMILYSTORAGE_H
 #define IDR_IR_FAMILIES_FAMILYSTORAGE_H
 
@@ -14,8 +16,12 @@
 
 #include "mlir/IR/AttributeSupport.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/xxhash.h"
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <tuple>
 
 namespace idr::families::storage {
@@ -55,6 +61,32 @@ using families::Sort;
 using families::TermNode;
 using mlir::ArrayRef;
 
+// The digest of a part's content (stableDigest), kept in its storage once
+// it is first asked, never computed again. Not in the storage's
+// constructor: MLIR gives a storage its kind only after constructing it,
+// and the digest is what the kind's dialect writes of it, so no digest can
+// be made there; and most parts are never digested. Two workers that ask
+// at once each compute the one digest and keep it; a reader that sees it
+// marked kept sees it whole.
+class KeptDigest {
+public:
+  std::optional<llvm::XXH128_hash_t> read() const {
+    if (!kept.test(std::memory_order_acquire))
+      return std::nullopt;
+    return llvm::XXH128_hash_t{low.load(std::memory_order_relaxed),
+                               high.load(std::memory_order_relaxed)};
+  }
+  void keep(llvm::XXH128_hash_t digest) const {
+    low.store(digest.low64, std::memory_order_relaxed);
+    high.store(digest.high64, std::memory_order_relaxed);
+    kept.test_and_set(std::memory_order_release);
+  }
+
+private:
+  mutable std::atomic<uint64_t> low{0}, high{0};
+  mutable std::atomic_flag kept;
+};
+
 // What the storage derives of one member.
 struct MemberFacts {
   Shape shape = Shape::Plain;
@@ -93,6 +125,7 @@ struct FamilyAttrStorage : mlir::AttributeStorage {
   families::Containment containment = families::Containment::Acyclic;
   ClosureReach closureReach = ClosureReach::NoClosure;
   ArrayRef<MemberFacts> facts;
+  KeptDigest digest;
 };
 
 // The sorts a scope binds.
@@ -177,7 +210,23 @@ struct ConAttrStorage : mlir::AttributeStorage {
   DataType data;
   ArrayRef<mlir::Attribute> cells;
   uint64_t spine;
+  KeptDigest digest;
 };
+
+// A refinement of `base`, an unrefined application, as the data type's
+// builders that refine one make it (refined, refinedTo, marked): upstream's
+// builder given the application they hold, so its key and its verifier
+// read that application's storage. Defined where the data type's storage is
+// complete, Types.cpp, as upstream's builder needs.
+DataType refinementOf(DataType base, mlir::DenseI32ArrayAttr refinement,
+                      ArrayRef<TermNode> binders);
+
+// Where a part keeps its digest: one overload per kind whose storage keeps
+// one, which a digest of content finds by the overload, never by a list of
+// kinds. A data type's storage is complete in Types.cpp alone.
+const KeptDigest &keptDigest(DataType type);
+inline const KeptDigest &keptDigest(FamilyAttr family) { return family.getImpl()->digest; }
+inline const KeptDigest &keptDigest(ConAttr con) { return con.getImpl()->digest; }
 
 } // namespace idr::detail
 

@@ -13,6 +13,7 @@
 // generated types are defined and registered.
 
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Families/FamilyStorage.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "mlir/IR/DialectImplementation.h"
@@ -32,9 +33,9 @@ namespace idr::detail {
 // value has it), the terms of the binders of its one constructor that its
 // indices leave undetermined (none otherwise), and how its values are laid
 // out. A refined key carries its unrefined application too, at the same
-// mark, made before the type is: a function of the rest, so no part of the
-// identity, kept so a reader asks it of the storage and never of the type
-// table.
+// mark: a function of the rest, so no part of the identity, kept so a
+// reader asks it of the storage and never of the type table, and given by
+// the builder that refines it, which holds it already.
 struct DataKey {
   FamilyAttr group;
   uint32_t member;
@@ -58,15 +59,22 @@ struct DataTypeStorage : TypeStorage {
         binders(key.binders), mark(key.mark), base(key.base), possible(possible), facts(facts),
         freeLevels(freeLevels) {}
 
-  // The key of the parameters as the builders give them: a refined one's
-  // unrefined application is made here, before the type, never while it
-  // is being made.
+  // The key of the parameters as they arrive whole (an application, or a
+  // replacement of a type's parts): a refined one's unrefined application
+  // is made here, before the type, never while it is being made.
   static KeyTy getKey(FamilyAttr group, uint32_t member, ArrayRef<TermNode> indices,
                       DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders, LayoutMark mark) {
     DataType base = refinement || !binders.empty()
                         ? DataType::get(group.getContext(), group, member, indices).marked(mark)
                         : DataType();
     return DataKey{group, member, indices, refinement, binders, mark, base};
+  }
+  // The key of a refinement of `base`, an unrefined application, as the
+  // builders that refine one give it: its group, member, indices and mark
+  // are the application's.
+  static KeyTy getKey(DataType base, DenseI32ArrayAttr refinement, ArrayRef<TermNode> binders) {
+    return DataKey{base.getGroup(), base.getMember(), base.getIndices(), refinement, binders,
+                   base.getMark(), base};
   }
 
   bool operator==(const KeyTy &other) const { return other.identity() == getAsKey(); }
@@ -96,6 +104,7 @@ struct DataTypeStorage : TypeStorage {
   TagSet possible;
   LayoutFacts facts;
   uint32_t freeLevels;
+  KeptDigest digest;
 };
 
 // A member of the group being declared, and its indices over the
@@ -183,6 +192,15 @@ LayoutMark DataType::getMark() const { return getImpl()->mark; }
 uint32_t SelfType::getMember() const { return getImpl()->member; }
 ArrayRef<TermNode> SelfType::getIndices() const { return getImpl()->indices; }
 
+DataType idr::detail::refinementOf(DataType base, DenseI32ArrayAttr refinement,
+                                   ArrayRef<TermNode> binders) {
+  return DataType::Base::get(base.getContext(), base, refinement, binders);
+}
+
+const idr::detail::KeptDigest &idr::detail::keptDigest(DataType type) {
+  return type.getImpl()->digest;
+}
+
 //===----------------------------------------------------------------------===//
 // What a reader asks of a data type
 //===----------------------------------------------------------------------===//
@@ -196,10 +214,15 @@ DataType DataType::get(MLIRContext *context, FamilyAttr group, uint32_t member,
                    LayoutMark::ByIndices);
 }
 
-// The same type, its refinement and binders kept, laid out as `mark` says.
+// The same type, its refinement and binders kept, laid out as `mark` says:
+// a refined one is the same refinement of its application so laid out, the
+// mark deciding no constructor's possibility.
 DataType DataType::marked(LayoutMark mark) const {
-  return Base::get(getContext(), getGroup(), getMember(), getIndices(), getRefinement(),
-                   getBinders(), mark);
+  DataType base = getImpl()->base;
+  if (!base)
+    return Base::get(getContext(), getGroup(), getMember(), getIndices(), DenseI32ArrayAttr(),
+                     ArrayRef<TermNode>(), mark);
+  return idr::detail::refinementOf(base.marked(mark), getRefinement(), getBinders());
 }
 
 DataType DataType::unrefined() const {

@@ -26,6 +26,7 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Declare
   let extraClassDeclaration = [{
     static ::idr::DataType get(::mlir::MLIRContext * context, ::idr::FamilyAttr group, uint32_t member, ::llvm::ArrayRef<::idr::families::TermNode> indices);
     static ::idr::DataType getNormalized(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, ::idr::FamilyAttr group, uint32_t member, ::llvm::ArrayRef<::idr::families::TermNode> indices, ::mlir::DenseI32ArrayAttr refinement, ::llvm::ArrayRef<::idr::families::TermNode> binders, ::idr::LayoutMark mark);
+    static ::llvm::LogicalResult verifyInvariants(::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, ::idr::DataType base, ::mlir::DenseI32ArrayAttr refinement, ::llvm::ArrayRef<::idr::families::TermNode> binders);
     ::idr::DataType marked(::idr::LayoutMark mark) const;
     ::idr::DataType refined(::llvm::ArrayRef<::idr::Tag> tags) const;
     ::idr::DataType refinedTo(::idr::Tag tag, ::llvm::ArrayRef<::idr::families::TermNode> binders) const;

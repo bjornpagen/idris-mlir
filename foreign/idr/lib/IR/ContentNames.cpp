@@ -9,8 +9,12 @@
 // specification generates); a TypeID or a storage address differs from run
 // to run, and a printed form is what a printing flag changes. A hashing
 // writer stands where the bytecode writer would: it writes nothing, so a
-// digest costs one pass over the content.
+// digest costs one pass over the content. A part whose storage keeps its
+// digest (a family, a data type, a constant constructor: the deep parts of
+// ours) is encoded the first time it is asked and read from its storage
+// ever after, so a digest passes only over what no storage keeps.
 
+#include "idr/IR/Families/FamilyStorage.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
 
@@ -21,6 +25,9 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ErrorHandling.h"
+
+#include <concepts>
+#include <optional>
 
 using namespace mlir;
 using namespace idr;
@@ -37,10 +44,59 @@ struct Entry {
   const void *impl;
 };
 
-// Essential, a table by address: a uniqued attribute or type has no number
-// of its own, and a part several holders share is digested once. It is one
-// digest's scratch, gone when the digest returns.
+// Essential, a table by address, for the parts whose storage keeps no
+// digest (builtin's, and ours whose storage is generated): a uniqued
+// attribute or type has no number of its own, and a part several holders
+// share is digested once. It is one digest's scratch, gone when the digest
+// returns.
 using Digests = llvm::DenseMap<const void *, llvm::XXH128_hash_t>;
+
+// A class of ours whose storage keeps its digest: one an overload of
+// keptDigest answers.
+template <typename Class>
+concept KeepsDigest = requires(Class part) {
+  { idr::detail::keptDigest(part) } -> std::same_as<const idr::detail::KeptDigest &>;
+};
+
+// Where `part` keeps its digest, among the dialect's classes as generated:
+// one whose storage keeps none is no case at all.
+template <typename Part, typename... Classes>
+const idr::detail::KeptDigest *keptAmong(Part part) {
+  const idr::detail::KeptDigest *kept = nullptr;
+  auto asClass = [&]<typename Class>() {
+    if constexpr (KeepsDigest<Class>)
+      if (auto of = dyn_cast<Class>(part))
+        kept = &idr::detail::keptDigest(of);
+  };
+  (asClass.template operator()<Classes>(), ...);
+  return kept;
+}
+
+const idr::detail::KeptDigest *keptBy(Entry entry) {
+  switch (entry.kind) {
+  case Kind::Attribute:
+    return keptAmong<Attribute,
+#define GET_ATTRDEF_LIST
+#include "idr/IR/IdrAttrs.cpp.inc"
+                     >(Attribute::getFromOpaquePointer(entry.impl));
+  case Kind::Type:
+    return keptAmong<Type,
+#define GET_TYPEDEF_LIST
+#include "idr/IR/IdrTypes.cpp.inc"
+                     >(Type::getFromOpaquePointer(entry.impl));
+  }
+  llvm_unreachable("an entry is an attribute or a type");
+}
+
+// The digest of `entry` where it is made already: in this digest's
+// scratch, or kept by its storage.
+std::optional<llvm::XXH128_hash_t> known(const Digests &done, Entry entry) {
+  if (auto it = done.find(entry.impl); it != done.end())
+    return it->second;
+  if (const idr::detail::KeptDigest *kept = keptBy(entry))
+    return kept->read();
+  return std::nullopt;
+}
 
 // What precedes each part in the stream, so no two different contents
 // write the same bytes: a string's bytes and an entry's digest are told
@@ -49,8 +105,8 @@ enum class Mark : uint8_t { Word, Bytes, Entry, Absent, Dialect };
 
 // A writer that keeps what the bytecode would write as bytes to digest: a
 // word in eight little-endian bytes, whatever the host. An entry it holds
-// is written as its digest, found among those already made; one not yet
-// made is noted, and the digest of what holds it waits for it.
+// is written as its digest, found among those already made or kept; one
+// not yet made is noted, and the digest of what holds it waits for it.
 class Hasher final : public DialectBytecodeWriter {
 public:
   Hasher(const Digests &done, SmallVectorImpl<Entry> &missing) : done(done), missing(missing) {}
@@ -153,13 +209,13 @@ private:
   }
   void entry(Entry e) {
     mark(Mark::Entry);
-    auto it = done.find(e.impl);
-    if (it == done.end()) {
+    std::optional<llvm::XXH128_hash_t> digest = known(done, e);
+    if (!digest) {
       missing.push_back(e);
       return;
     }
-    word(it->second.low64);
-    word(it->second.high64);
+    word(digest->low64);
+    word(digest->high64);
   }
 
   const Digests &done;
@@ -169,14 +225,16 @@ private:
 
 // The digest of `root`, every entry it holds digested first. No step
 // recurses on the nesting: an entry whose parts are not yet digested goes
-// back on the stack beneath them, so each is encoded at most twice.
+// back on the stack beneath them, so each is encoded at most twice. A
+// digest made is kept by the entry's storage where it keeps one, else in
+// the scratch.
 llvm::XXH128_hash_t digestOf(Entry root) {
   Digests done;
   SmallVector<Entry> stack{root};
   SmallVector<Entry> missing;
   while (!stack.empty()) {
     Entry top = stack.back();
-    if (done.contains(top.impl)) {
+    if (known(done, top)) {
       stack.pop_back();
       continue;
     }
@@ -187,10 +245,13 @@ llvm::XXH128_hash_t digestOf(Entry root) {
       stack.append(missing);
       continue;
     }
-    done[top.impl] = hasher.finish();
+    if (const idr::detail::KeptDigest *kept = keptBy(top))
+      kept->keep(hasher.finish());
+    else
+      done[top.impl] = hasher.finish();
     stack.pop_back();
   }
-  return done.lookup(root.impl);
+  return *known(done, root);
 }
 
 } // namespace

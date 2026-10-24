@@ -156,7 +156,11 @@ familyAttr = MkAttrDef
 ||| on that layout, so its value facts are a hand unit's answers, read from
 ||| what was computed, and it declares no constant answers. The frontend
 ||| writes every type laid out as its indices say; only the specializer
-||| opens one, for a tail call whose caller lays its result out so.
+||| opens one, for a tail call whose caller lays its result out so. A
+||| refinement is built from the unrefined application it refines, which
+||| its builder holds, and checked against the constructors that
+||| application keeps as possible (`verifyInvariants` on those parts, which
+||| upstream's builder asks), never by unifying again.
 export
 dataType : TypeDef 6
 dataType = MkTypeDef
@@ -182,6 +186,7 @@ dataType = MkTypeDef
   , members =
       [ MkMember OnClass "::idr::DataType" "get" [param "::mlir::MLIRContext *" "context", param "::idr::FamilyAttr" "group", param "uint32_t" "member", param termsCode "indices"]
       , MkMember OnClass "::idr::DataType" "getNormalized" [param "::llvm::function_ref<::mlir::InFlightDiagnostic()>" "emitError", param "::idr::FamilyAttr" "group", param "uint32_t" "member", param termsCode "indices", param "::mlir::DenseI32ArrayAttr" "refinement", param termsCode "binders", param "::idr::LayoutMark" "mark"]
+      , MkMember OnClass "::llvm::LogicalResult" "verifyInvariants" [param "::llvm::function_ref<::mlir::InFlightDiagnostic()>" "emitError", param "::idr::DataType" "base", param "::mlir::DenseI32ArrayAttr" "refinement", param termsCode "binders"]
       , MkMember OnObjectConst "::idr::DataType" "marked" [param "::idr::LayoutMark" "mark"]
       , MkMember OnObjectConst "::idr::DataType" "refined" [param "::llvm::ArrayRef<::idr::Tag>" "tags"]
       , MkMember OnObjectConst "::idr::DataType" "refinedTo" [param "::idr::Tag" "tag", param termsCode "binders"]
