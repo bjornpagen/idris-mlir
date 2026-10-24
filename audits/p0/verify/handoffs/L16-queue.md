@@ -1217,3 +1217,21 @@ to L16ev. Waiting:
   mlir-layout and no-fuel (L15z, L14ae's two loops done), rules-covered
   (5ced12298); ccache-shared and upstream-patches need the C++ build and
   the submodules (INT on the owner's machine).
+- From L16fa (38158163b, F-R4 fixed): `every-types-export` now stops at
+  Emit's mismatch (`Prelude.Types:282:35`, `viaEquivalence`), as HEAD does
+  on `/tmp/l16fa/repro/ViaEquivalence` and L17bg's meta-front repro: a
+  closure type keeps a caller's indices as `_` (C272's seam; sent to
+  L16ey with C228). Nested instances of one implementation share its node
+  and field positions, so a finite nesting reads as a growing cycle:
+  `Ord ((Int, Int), String)`, `Ord (List (List Int))`, StateT over StateT
+  are refused, wrongly (`/tmp/l16fa/repro/{OrdNested,OrdListNested,StateNested}`;
+  L16, with C281's fold: an implementation's field that is one of its own
+  arguments, read from the record's roots). `Core.TT.Stored`'s refusals
+  (type-level recursions stuck on a marker) did not reproduce in two
+  reductions; if the stuck computation is the erased `p`, it is a wrong
+  refusal (L16, rerun on the frontend's self-compile). Seams:
+  `Shapes.sizedTelescope:265` reads `TypeParam t` as the form;
+  `Instances.idr:860`'s `inScope` re-reads `ValueParam` beside
+  `argValueIn`; a pair inside a pair still reads as `Field`;
+  `FieldRead.OfPair` does not state the pair's identity; `PartField`
+  assumes the search built the pair with MkPair.
