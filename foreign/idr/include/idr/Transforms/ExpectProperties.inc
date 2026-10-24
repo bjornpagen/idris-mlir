@@ -159,8 +159,9 @@ IDR_CONTRACT_RELATION("quantities-kept", QuantitiesKept, quantitiesKept, breakQu
 // uses, none only where the pass dropped one used many times.
 IDR_CONTRACT_RELATION("linear-kept", LinearKept, linearKept, breakLinearKept, "drop each result used many times and give each linear result back unrestricted")
 
-// A function the pass kept whose row could not crash before it has
-// no place that may crash after it.
+// A function the pass kept whose row could not crash before it cannot
+// crash after it: its row, which covers each place of its body that may
+// crash and each call of a function that may, still holds no crash.
 IDR_CONTRACT_RELATION("crash-sites-not-added", CrashSitesNotAdded, crashSitesNotAdded, breakCrashSitesNotAdded, "make every function that could not crash crash")
 
 // Every member of a cycle of calls Idris did not prove holds the

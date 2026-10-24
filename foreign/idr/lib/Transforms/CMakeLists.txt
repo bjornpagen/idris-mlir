@@ -611,7 +611,6 @@ add_mlir_library(IdrExpect
 	Expect/ConstantStack.cpp
 	Expect/Continuations.cpp
 	Expect/CountsNothing.cpp
-	Expect/CrashSites.cpp
 	Expect/Cycles.cpp
 	Expect/Expect.cpp
 	Expect/Folded.cpp

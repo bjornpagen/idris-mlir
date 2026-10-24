@@ -97,11 +97,16 @@ std::string nameOf(Pass *pass) {
   return name;
 }
 
+// Whether a run of `fn` may end by a crash, as its row says.
+MayCrash mayCrash(FuncOp fn) {
+  return fn.getRow().contains(effects::Atom::crash) ? MayCrash::Yes : MayCrash::No;
+}
+
 // The facts of one function the relations compare.
 FunctionRecord recordOf(FuncOp fn) {
   auto uses = [](TypeRange types) { return llvm::map_to_vector(types, [](Type t) { return usesOf(t); }); };
   return {fn.getSymNameAttr(), uses(fn.getArgumentTypes()), uses(fn.getResultTypes()),
-          fn.getRow().contains(effects::Atom::crash) ? MayCrash::Yes : MayCrash::No};
+          mayCrash(fn)};
 }
 
 // The record of every idr.func of the module's program. Once lowered, the
@@ -280,12 +285,14 @@ LogicalResult linearKept(const After &after) {
 }
 
 // crash-sites-not-added: a function the pass kept whose row could not
-// crash before it has no place that may crash after it, counted as
-// idr-expect's crash-sites counts them, of that function alone.
+// crash before it cannot crash after it, as its row says. The verifier,
+// which runs before the contracts, holds every row to cover its body, so a
+// row that cannot crash leaves no place in the body that may crash, and no
+// call of a function that may.
 LogicalResult crashSitesNotAdded(const After &after) {
   bool held = true;
   for (Kept k : after.kept) {
-    if (k.before->crash == MayCrash::Yes || expect::crashSitesOf(k.now, after.symbols) == 0)
+    if (k.before->crash == MayCrash::Yes || mayCrash(k.now) == MayCrash::No)
       continue;
     broken(k.now.getLoc(), Relation::CrashSitesNotAdded, after.pass) << ": @" << k.now.getSymName();
     held = false;
@@ -363,7 +370,7 @@ void breakLinearKept(ProgramOp program, AnalysisManager) {
 void breakCrashSitesNotAdded(ProgramOp program, AnalysisManager analyses) {
   const auto &graph = analyses.getAnalysis<solver::ProgramGraph>();
   for (FuncOp fn : program.getOps<FuncOp>()) {
-    if (fn.getRow().contains(effects::Atom::crash))
+    if (mayCrash(fn) == MayCrash::Yes)
       continue;
     fn.walk([&](ReturnOp ret) {
       OpBuilder builder(ret);

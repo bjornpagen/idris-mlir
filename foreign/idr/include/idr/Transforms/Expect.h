@@ -317,11 +317,6 @@ mlir::SymbolRefAttr calleeOf(mlir::CallOpInterface call);
 // function of `symbols` made from the code written as g (`names`).
 bool callsNamed(mlir::CallOpInterface call, const Symbol &g, mlir::SymbolTable &symbols);
 
-// How many places of `fn` may crash: an idr op that never returns, a
-// guard, or a call of the LLVM dialect that never returns (the call says
-// so, or its callee in `symbols`).
-unsigned crashSitesOf(mlir::FunctionOpInterface fn, mlir::SymbolTable &symbols);
-
 // The identity a binder's location carries, the `#idr.binder<definition,
 // index>` Emit fuses into it, however passes nested it in names, call sites
 // and fusions; none for a binder a pass made.

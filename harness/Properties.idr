@@ -281,8 +281,9 @@ relations =
       , "uses, none only where the pass dropped one used many times." ]
       "drop each result used many times and give each linear result back unrestricted"
   , MkRelation "crash-sites-not-added"
-      [ "A function the pass kept whose row could not crash before it has"
-      , "no place that may crash after it." ]
+      [ "A function the pass kept whose row could not crash before it cannot"
+      , "crash after it: its row, which covers each place of its body that may"
+      , "crash and each call of a function that may, still holds no crash." ]
       "make every function that could not crash crash"
   , MkRelation "cycle-divergence-kept"
       [ "Every member of a cycle of calls Idris did not prove holds the"
