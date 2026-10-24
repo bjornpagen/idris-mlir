@@ -982,3 +982,13 @@ touching the frontend or the checker reruns the five on its export.
   `Shapes.sizedTelescope` reads a type parameter as the form with `_`;
   `resolveMethod.inScope` reads arguments beside `argValueIn`'s key reading
   (L16, with the fold).
+- From L17be (fa57f8c60): ten checker internal errors remain, each needing a
+  representation change: `Core/Case/Util.idr:27` (a type-constructor
+  reference names one in the context: a type stating it), `Core/TTC.idr:133`
+  (a full-name type the serialiser works over), `Idris/Elab/Implementation.idr:221`
+  (two passes over one mutual block made one value), `Parser/Source.idr:53, 55`
+  (parse-tree node ids surviving backtracking), `TTImp/Elab/Local.idr:198`
+  (names produced in `TTImp/Elab/Case.idr`), `TTImp/Reflect.idr:638`
+  (escape-lifting covering every node, an escape-free quote type),
+  `Core/Unify.idr:646, 1787`, `TTImp/Elab/Check.idr:231` (L17). A record
+  parameter whose type is an unsolved `%search` writes back as `_`.
