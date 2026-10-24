@@ -2813,6 +2813,12 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   construction), and a partial primitive is reached through a total
   function returning its refusal. Where neither is possible the case goes
   to the owner with its evidence; nothing is asserted meanwhile.
+  *Sharpened* (2026-10-23, the owner: "we can just refactor the frontend,
+  and improve all of our code and actually prove stuff or improve the
+  representation, not just doing believe me"): for each fact the first
+  question is whether a refactor of our code (the frontend, its proofs,
+  the checker, C281's fold) makes it unneeded; then evidence a function
+  returns; then a proof. Our code is reshaped as far as that takes.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
