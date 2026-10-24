@@ -3269,8 +3269,13 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   carry it (a `unique deep` token speaks of the emptied cell, not of the
   fields moved out, and pairing a token with a buffer is a pairing the
   representation lets anyone break), and a moved `many` field claims
-  nothing before counting. Until it is built every in-place write to a
-  linear array copies the array.
+  nothing before counting. Corrected 2026-10-24 (L12ae, as built): only
+  a recursive in-place family is laid out in cells and taken at a
+  rebuild, so the gap was a recursive family's cell holding an array;
+  `LArray`, `Vec` and `Array` are laid out in place and opened by
+  `idr.array.open`. The take opens its cell's arrays
+  (`idr.count.take_open`) only where the cell holds one; a cell with none
+  is taken plainly.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
