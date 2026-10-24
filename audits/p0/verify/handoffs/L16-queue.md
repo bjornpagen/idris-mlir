@@ -1037,9 +1037,9 @@ the root rule's tests), L14ad (C264(c)'s e-graph half), R7 (this queue
 rechecked against HEAD), INT-26 (the landed batch built and swept). R-META
 (the as-pattern's name side at the boundary, and the Emit error beneath)
 to L16ev. Waiting:
-- K16 releases the checker: C127, the ten checker internal errors, the
-  `%builtin` internal errors, D133 steps 3 and 5 (L17bh), and the
-  exponential `Show` on deep pairs (L17).
+- K16 releases the checker: the ten checker internal errors, D133 steps
+  3 and 5 (L17bh), and the exponential `Show` on deep pairs (L17); C127
+  and the `%builtin` internal errors are done (050d2d7f6, fa57f8c60).
 - L16et releases `Growth/` and `Translate/`: F-R4, D133 steps 4 and 7,
   `Term.Termination` and `ITerm` read from the specification (L16).
 - K17 (the harness's specification modules into `compiler/spec`) after
