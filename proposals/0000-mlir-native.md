@@ -2860,6 +2860,39 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   from the graph (it makes attributes while the graph is built) and
   folding only at the write-back (the graph does not know the value until
   its next run) are refused.
+- **C291** (2026-10-23; the rederivation plan's Q1, `audits/p0/rederive/plan.md`,
+  under C286 and the owner's word of 2026-10-23 on not rederiving data;
+  for the owner's review). A function's fresh result is graded `once` in
+  its signature with the claim its body gives it, the uses of the one
+  consumer a call result has (the caller's binding then grades it as it
+  is used), so the claim a callee knows is never dropped at the call and
+  re-derived after counting or tested at run time. Dead-result elimination
+  states its rule for a linear result.
+- **C292** (2026-10-23; the plan's Q2, amends C74; for the owner's review).
+  Divergence is the transitive verdict the checker already gives and the
+  frontend reads (`Defined.ends`), carried with the code by `idr.may_loop`
+  (C65), and the frontend's own second termination search goes; it lands
+  after a program test under both hosts shows C74's example (`data D = MkD
+  (D -> Nat)`) is refused by positivity or marked diverging, and if it is
+  not, C74's per-component verdict stays and comes back to the owner.
+- **C293** (2026-10-23; the plan's Q3, under AGENTS.md's "an operand,
+  attribute or enum that changes what an op means or may do is a flag,
+  and the op is two"; reverses C275's one classifier and amends C206). The
+  reindex is one op per meaning (three, as the plan's C4 names them), each
+  stating its own typing and flow, and the classifier every reader asked
+  goes.
+- **C294** (2026-10-23; the plan's Q4, under the same rule and D30's "one
+  fact on the call, decided once"; amends C203; for the owner's review). A
+  tail call is its own terminator op, built as `idr.jump` is, so whether a
+  call is in tail position is the op's kind, which no pass can drop; the
+  `tail_kind` enum and every pass's writing of it go. Built directly, with
+  no step through the enum.
+- **C295** (2026-10-23; the plan's Q6, under AGENTS.md's "a choice is a type
+  or an enum case, never a bool" and the lossless rule). A cell's held
+  buffer is opened as a tensor by an op that takes the cell, so the claim
+  reaches the op that opens it; no `writable` flag is written where claims
+  are raised. The plan's Q5 (solved metavariables) waits on its unit W04
+  and a new measure of R-META.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
