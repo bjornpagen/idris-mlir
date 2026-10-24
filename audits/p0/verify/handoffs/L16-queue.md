@@ -898,3 +898,13 @@ askers in callersOf, Settle's removed proof). Waiting:
   builtin's meaning field), so the typed `InlineMeaning` is lost there and
   readers can only compare text; the field holds the typed meaning, printed
   only where it is written out (L03).
+- From L12z (688f6b90): bufferizing `tensor.concat` and `tensor.pad`
+  writes `memref.subview`, `affine.apply` and `linalg.map`, which no
+  admitted list names (`memref.subview` is written today by
+  `insert_slice` the same way); whether the admitted lists' stage bounds
+  cover what bufferization writes, and a reader of them (L12 with L03);
+  `idr-columns` has no pattern for `tensor.concat`, `tensor.pad` or
+  `linalg.transpose`, needed if an array of records of words is split
+  into columns before them (L12); a program test of `++`, `pad` and
+  `grow` on word arrays goes with the frontend's `ArrayMeaning` reading
+  (L16).
