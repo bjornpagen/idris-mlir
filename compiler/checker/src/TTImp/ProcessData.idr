@@ -5,8 +5,6 @@ module TTImp.ProcessData
 import Core.CompileExpr
 import Core.Context.Data
 import Core.Env
-import Core.Hash
-import Core.Metadata
 import Core.UnifyState
 import Core.Value
 
@@ -84,7 +82,6 @@ updateNS orig ns tm = updateNSApp tm
 
 checkCon : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto s : Ref Syn SyntaxInfo} ->
@@ -120,11 +117,6 @@ checkCon {vars} opts nest env vis tn_in tn ty_raw
          addToSave cn
          log "declare.data.constructor" 10 $ "Saving from " ++ show cn ++ ": " ++ show (keys (getMetas ty))
 
-         case vis of
-              Public => do addHashWithNames cn
-                           addHashWithNames fullty
-                           log "module.hash" 15 "Adding hash for data constructor: \{show cn}"
-              _ => pure ()
          pure (MkWithFCNameArity fc (NoFC cn) !(getArity defs Env.empty fullty) fullty)
 
 -- Get the indices of the constructor type (with non-constructor parts erased)
@@ -399,7 +391,6 @@ calcConInfo fc type cons
 export
 processDataLater : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
-                   {auto m : Ref MD Metadata} ->
                    {auto u : Ref UST UState} ->
                    {auto dl : Ref DLY DelayedElabs} ->
                    {auto s : Ref Syn SyntaxInfo} ->
@@ -440,12 +431,6 @@ processDataLater {vars} eopts nest env fc def_vis mbtot dfc n_in ty_raw
          addToSave n
          log "declare.data" 10 $ "Saving from " ++ show n ++ ": " ++ show (keys (getMetas ty))
 
-         case collapseDefault def_vis of
-              Private => pure ()
-              _ => do addHashWithNames n
-                      addHashWithNames fullty
-                      log "module.hash" 15 "Adding hash for data declaration with name \{show n}"
-
          whenJust mbtot $ \ tot => do
              log "declare.data" 5 $ "setting totality flag for data declaration with name \{show n}"
              setFlag fc n (SetTotal tot)
@@ -456,7 +441,6 @@ processDataLater {vars} eopts nest env fc def_vis mbtot dfc n_in ty_raw
 export
 processDataDef : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto s : Ref Syn SyntaxInfo} ->
@@ -540,12 +524,6 @@ processDataDef {vars} eopts nest env fc def_vis mbtot dfc n_in mty_raw opts cons
          -- data constructors
          tidx <- addDef n (newDef fc n linear vars fullty (specified vis)
                           (TCon arity NatSet.empty NatSet.empty defaultFlags [] Nothing Nothing))
-         case vis of
-              Private => pure ()
-              _ => do addHashWithNames n
-                      addHashWithNames fullty
-                      log "module.hash" 15 "Adding hash for data declaration with name \{show n}"
-
          -- Constructors are private if the data type as a whole is
          -- export
          let cvis = if vis == Export then Private else vis
@@ -595,7 +573,6 @@ processDataDef {vars} eopts nest env fc def_vis mbtot dfc n_in mty_raw opts cons
 export
 processData : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->

@@ -4,7 +4,6 @@ module Idris.Error
 
 import Core.Env
 
-import Idris.Doc.String
 import Idris.REPL.Opts
 import Idris.Resugar
 import Idris.Syntax
@@ -107,8 +106,6 @@ mutual
   eqError (MatchTooSpecific fc1 rho1 s1) (MatchTooSpecific fc2 rho2 s2) = fc1 == fc2
   eqError (BadDotPattern fc1 rho1 x1 s1 t1) (BadDotPattern fc2 rho2 x2 s2 t2) = fc1 == fc2
   eqError (BadImplicit fc1 x1) (BadImplicit fc2 x2) = fc1 == fc2 && x1 == x2
-  eqError (BadRunElab fc1 rho1 s1 d1) (BadRunElab fc2 rho2 s2 d2) = fc1 == fc2 && d1 == d2
-  eqError (RunElabFail e1) (RunElabFail e2) = eqError e1 e2
   eqError (GenericMsg fc1 x1) (GenericMsg fc2 x2) = fc1 == fc2 && x1 == x2
   eqError (GenericMsgSol fc1 x1 y1 z1) (GenericMsgSol fc2 x2 y2 z2) = fc1 == fc2 && x1 == x2 && y1 == y2 && z1 == z2
   eqError (TTCError x1) (TTCError x2) = x1 == x2
@@ -122,7 +119,6 @@ mutual
   eqError ForceNeeded ForceNeeded = True
   eqError (InternalError x1) (InternalError x2) = x1 == x2
   eqError (UserError x1) (UserError x2) = x1 == x2
-  eqError (NoForeignCC fc1 xs1) (NoForeignCC fc2 xs2) = fc1 == fc2 && xs1 == xs2
   eqError (BadMultiline fc1 x1) (BadMultiline fc2 x2) = fc1 == fc2 && x1 == x2
   eqError (FailingDidNotFail fc1) (FailingDidNotFail fc2) = fc1 == fc2
   eqError (FailingWrongError fc1 x1 err1) (FailingWrongError fc2 x2 err2)
@@ -309,10 +305,7 @@ pwarningRaw (ShadowingLocalBindings fc ns)
     ]
 
 pwarningRaw (Deprecated fc s fcAndName)
-    = do docs <- traverseOpt (\(fc, name) => getDocsForName fc name justUserDoc) fcAndName
-         pure . vsep $ catMaybes [ Just $ "Deprecation warning:" <++> pretty0 s
-                                 , reAnnotate (const Pretty.UserDocString) <$> docs
-                                 ]
+    = pure $ "Deprecation warning:" <++> pretty0 s
 pwarningRaw (GenericWarn fc s)
     = pure $ vcat [pretty0 s, !(ploc fc)]
 
@@ -641,16 +634,6 @@ perrorRaw (MatchTooSpecific fc env tm)
 perrorRaw (BadImplicit fc str)
     = pure $ errorDesc (reflow "Can't infer type for unbound implicit name" <++> code (pretty0 str) <+> dot)
         <+> line <+> !(ploc fc) <+> line <+> reflow "Suggestion: try making it a bound implicit."
-perrorRaw (BadRunElab fc env script desc)
-    = pure $ errorDesc (reflow "Bad elaborator script" <++> code !(pshow env script)
-       <++> parens (pretty0 desc) <+> dot)
-        <+> line <+> !(ploc fc)
-        <+> !(let scriptFC = getLoc script in
-          if isJust (isNonEmptyFC scriptFC)
-            then pure $ line <+> reflow "Stuck place in the script:" <+> line <+> !(ploc scriptFC)
-            else pure emptyDoc)
-perrorRaw (RunElabFail e)
-    = pure $ reflow "Error during reflection" <+> colon <++> !(perrorRaw e)
 perrorRaw (GenericMsg fc str) = pure $ pretty0 str <+> line <+> !(ploc fc)
 perrorRaw (GenericMsgSol fc header solutionHeader solutions)
     = pure $ pretty0 header <+> line <+> !(ploc fc)
@@ -767,9 +750,9 @@ perrorRaw (ParseFail errs)
                <+> line <+> !(ploc fc)
                <+> !(prettyErrors showCount k hs)
 
+    -- The first alternative's error is shown, and how many others failed.
     listErrors : Core (Doc IdrisAnn)
-    listErrors = do showCount <- logErrorCount . session . options <$> get Ctxt
-                    prettyErrors showCount showCount . nub . reverse $ forget errs
+    listErrors = prettyErrors 1 1 . nub . reverse $ forget errs
 perrorRaw (ModuleNotFound fc ns)
     = pure $ errorDesc ("Module" <++> annotate FileCtxt (pretty0 ns) <++> reflow "not found")
         <+> line <+> !(ploc fc)
@@ -779,13 +762,6 @@ perrorRaw (CyclicImports ns)
 perrorRaw ForceNeeded = pure $ errorDesc (reflow "Internal error when resolving implicit laziness")
 perrorRaw (InternalError str) = pure $ errorDesc (reflow "INTERNAL ERROR" <+> colon) <++> pretty0 str
 perrorRaw (UserError str) = pure . errorDesc $ pretty0 str
-perrorRaw (NoForeignCC fc specs) = do
-    let cgs = fst <$> availableCGs (options !(get Ctxt))
-    let res = vsep [ errorDesc (reflow ("The given specifier '" ++ show specs ++ "' was not accepted by any backend. Available backends") <+> colon)
-                   , indent 2 (concatWith (\ x, y => x <+> ", " <+> y) (map reflow cgs))
-                   , reflow "Some backends have additional specifier rules, refer to their documentation."
-                   ] <+> line <+> !(ploc fc)
-    pure res
 perrorRaw (BadMultiline fc str)
   = pure $ errorDesc (reflow "While processing multi-line string" <+> dot <++> pretty0 str <+> dot)
       <+> line <+> !(ploc fc)
@@ -831,8 +807,21 @@ perror : {auto c : Ref Ctxt Defs} ->
          Error -> Core (Doc IdrisAnn)
 perror err = perrorRaw !(toFullNames err)
 
+||| An error as text, by the one renderer of an error (`perror`): its
+||| locations removed, so that no source excerpt is printed, and rendered
+||| unannotated at an unbounded width. It is the text a `failing` block's
+||| message is matched against, and the message of a refusal, which holds
+||| the error's location apart.
+export
+errorText :
+  {auto c : Ref Ctxt Defs} ->
+  {auto s : Ref Syn SyntaxInfo} ->
+  {auto o : Ref ROpts REPLOpts} ->
+  Error -> Core String
+errorText err = render <$> perror (killErrorLoc err)
+
 ||| Check (in a whitespace-insensitive manner) that the msg is
-||| contained in the error.
+||| contained in the error's text (`errorText`).
 export
 checkError :
   {auto c : Ref Ctxt Defs} ->
@@ -840,19 +829,12 @@ checkError :
   {auto o : Ref ROpts REPLOpts} ->
   (msg : String) -> Error -> Core Bool
 checkError msg err = do
-  -- Kill the locations so that we don't get source code excerpts
-  let err = killErrorLoc err
-  -- Show the error as a string
-  str <- show <$> perror err
-  -- Normalise the two strings. This ensures comparison is whitespace
-  -- insentitive (error messages' layout depend on terminal width)
+  str <- errorText err
+  -- Normalise the two strings, so that the comparison does not depend on
+  -- where the text breaks its lines.
   let msg = unwords (words msg)
   let str = unwords (words str)
   pure (msg `isInfixOf` str)
-
-prettyMaybeLoc : Maybe FC -> Doc IdrisAnn
-prettyMaybeLoc Nothing = emptyDoc
-prettyMaybeLoc (Just fc) = annotate FileCtxt (pretty0 fc) <+> colon
 
 export
 display : {auto c : Ref Ctxt Defs} ->

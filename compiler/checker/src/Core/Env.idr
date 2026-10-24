@@ -40,24 +40,6 @@ length [] = 0
 length (_ :: xs) = S (length xs)
 
 export
-lengthNoLet : Env tm xs -> Nat
-lengthNoLet [] = 0
-lengthNoLet (Let _ _ _ _ :: xs) = lengthNoLet xs
-lengthNoLet (_ :: xs) = S (lengthNoLet xs)
-
-export
-lengthExplicitPi : Env tm xs -> Nat
-lengthExplicitPi [] = 0
-lengthExplicitPi (Pi _ _ Explicit _ :: rho) = S (lengthExplicitPi rho)
-lengthExplicitPi (_ :: rho) = lengthExplicitPi rho
-
-export
-namesNoLet : {xs : _} -> Env tm xs -> List Name
-namesNoLet [] = []
-namesNoLet (Let _ _ _ _ :: xs) = namesNoLet xs
-namesNoLet {xs = x :: _} (_ :: env) = x :: namesNoLet env
-
-export
 eraseLinear : Env tm vs -> Env tm vs
 eraseLinear [] = Env.empty
 eraseLinear (b :: bs)
@@ -93,17 +75,6 @@ defined {vars = x :: xs} n (b :: env)
          then Just (MkIsDefined (multiplicity b) First)
          else do MkIsDefined rig prf <- defined n env
                  pure (MkIsDefined rig (Later prf))
-
--- Bind additional pattern variables in an LHS, when checking an LHS in an
--- outer environment
-export
-bindEnv : {vars : _} -> FC -> Env Term vars -> (tm : Term vars) -> ClosedTerm
-bindEnv loc [] tm = tm
-bindEnv loc (b :: env) tm
-    = bindEnv loc env (Bind loc _ (PVar (binderLoc b)
-                                        (multiplicity b)
-                                        Explicit
-                                        (binderType b)) tm)
 
 revOnto : (xs, vs : List a) -> reverseOnto xs vs = reverse vs ++ xs
 revOnto xs [] = Refl
@@ -154,17 +125,6 @@ abstractEnvType fc (Pi fc' c e ty :: env) tm
 abstractEnvType fc (b :: env) tm
     = let bnd = Pi (binderLoc b) (multiplicity b) Explicit (binderType b)
        in abstractEnvType fc env (Bind fc _ bnd tm)
-
--- As above, for the corresponding term
-export
-abstractEnv : {vars : _} ->
-              FC -> Env Term vars -> (tm : Term vars) -> ClosedTerm
-abstractEnv fc [] tm = tm
-abstractEnv fc (Let fc' c val ty :: env) tm
-    = abstractEnv fc env (Bind fc _ (Let fc' c val ty) tm)
-abstractEnv fc (b :: env) tm
-    = let bnd = Lam (binderLoc b) (multiplicity b) Explicit (binderType b)
-      in abstractEnv fc env (Bind fc _ bnd tm)
 
 -- As above, but abstract over all binders including lets
 export
@@ -219,24 +179,6 @@ mutual
   usedIn used (TForce fc r tm) = usedIn used tm
   usedIn used (Erased fc (Dotted tm)) = usedIn used tm
   usedIn used _ = used
-
--- Adds to a set of the environment's locals what each local in it mentions
--- through its binder, and so on. A binder of the environment mentions only
--- locals bound before it, further out, so one walk outward from the
--- innermost local adds them all, reading each binder of the set once.
-closeUsed : Env Term vars -> VarSet vars -> VarSet vars
-closeUsed [] used = used
-closeUsed (b :: env) used
-    = let rest = VarSet.dropFirst used in
-      if first `VarSet.elem` used
-         then VarSet.insert first
-                (weaken {tm = VarSet} (closeUsed env (usedInBinder rest b)))
-         else weaken {tm = VarSet} (closeUsed env rest)
-
-export
-findUsedLocs : {vars : _} ->
-               Env Term vars -> Term vars -> VarSet vars
-findUsedLocs env tm = closeUsed env (usedIn VarSet.empty tm)
 
 ------------------------------------------------------------------------------
 -- What a term needs of its scope
@@ -374,30 +316,6 @@ export
 mkEnv : FC -> (vs : Scope) -> Env Term vs
 mkEnv fc [] = []
 mkEnv fc (n :: ns) = PVar fc top Explicit (Erased fc Placeholder) :: mkEnv fc ns
-
--- Update an environment so that all names are guaranteed unique. In the
--- case of a clash, the most recently bound is left unchanged.
---
--- TODO replace list of `used` names with a proper set
-export
-uniqifyEnv : {vars : _} ->
-             Env Term vars ->
-             (vars' ** (Env Term vars', CompatibleVars vars vars'))
-uniqifyEnv env = uenv [] env
-  where
-    uenv : {vars : _} ->
-           List Name -> Env Term vars ->
-           (vars' ** (Env Term vars', CompatibleVars vars vars'))
-    uenv used [] = ([] ** ([], Pre))
-    uenv used {vars = v :: vs} (b :: bs)
-        = if v `elem` used
-             then let v' = mkFresh used v
-                      (vs' ** (env', compat)) = uenv (v' :: used) bs
-                      b' = map (compatNs compat) b in
-                  (v' :: vs' ** (b' :: env', Ext compat))
-             else let (vs' ** (env', compat)) = uenv (v :: used) bs
-                      b' = map (compatNs compat) b in
-                  (v :: vs' ** (b' :: env', Ext compat))
 
 export
 allVars : {0 vars : _} -> Env Term vars -> List (Var vars)

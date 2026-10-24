@@ -5,7 +5,6 @@ module Parser.Rule.Source
 import public Parser.Lexer.Source
 import public Parser.Support
 
-import Core.Metadata
 import Data.List1
 import Data.String
 import Idris.Syntax
@@ -17,57 +16,44 @@ import Libraries.Text.Bounded
 
 %default total
 
-||| What parsing a source has made so far: its semantic decorations and the
-||| pragmas it writes, each where it is written, and its parse tree's nodes.
-||| The parse holds it once, so each is written in place; a branch that
-||| fails cuts what it wrote back off, so only what the parse kept is here.
+||| What parsing a source has made so far: the pragmas it writes, each where
+||| it is written, and its parse tree's nodes. The parse holds it once, so
+||| each is written in place; a branch that fails cuts what it wrote back
+||| off, so only what the parse kept is here.
 export
 data ParsingState : Type where
-  MkParsing : (1 decorated : Trail ASemanticDecoration) ->
-              (1 pragmasWritten : Trail PragmaUse) ->
+  MkParsing : (1 pragmasWritten : Trail PragmaUse) ->
               (1 tree : Builder) -> ParsingState
 
 ||| Nothing parsed yet.
 export
 parsing : ParsingState
-parsing = MkParsing blank blank noNodes
+parsing = MkParsing blank noNodes
 
 ||| Where a parse's state stands: how far each of its parts is written.
 export
 record Marks where
   constructor MkMarks
-  decorationsAt : Nat
   pragmasAt : Nat
   nodesAt : Nat
 
 -- The state given back, with where each of its parts stands.
-standing : (1 decorated : Stepped (Trail ASemanticDecoration) Nat) ->
-           (1 pragmasWritten : Stepped (Trail PragmaUse) Nat) ->
+standing : (1 pragmasWritten : Stepped (Trail PragmaUse) Nat) ->
            (1 tree : Stepped Builder Nat) -> Stepped ParsingState Marks
-standing (MkStepped ds d) (MkStepped ps p) (MkStepped t n) = MkStepped (MkParsing ds ps t) (MkMarks d p n)
+standing (MkStepped ps p) (MkStepped t n) = MkStepped (MkParsing ps t) (MkMarks p n)
 
 ||| A state stands where its parts do, and goes back by taking each back.
 export
 Backtrack Marks ParsingState where
-  here (MkParsing ds ps t) = standing (here ds) (here ps) (here t)
-  backTo m (MkParsing ds ps t)
-      = MkParsing (backTo m.decorationsAt ds) (backTo m.pragmasAt ps) (backTo m.nodesAt t)
+  here (MkParsing ps t) = standing (here ps) (here t)
+  backTo m (MkParsing ps t)
+      = MkParsing (backTo m.pragmasAt ps) (backTo m.nodesAt t)
 
-||| What a parse made, once it is done: its decorations and the pragmas it
-||| writes, each in the order written, and its tree's nodes.
+||| What a parse made, once it is done: the pragmas it writes, in the order
+||| written, and its tree's nodes.
 export
-madeBy : ParsingState -> (List ASemanticDecoration, List PragmaUse, Builder)
-madeBy (MkParsing ds ps t) = (contents ds, contents ps, t)
-
-||| What parsing a source made, once it is done: its decorations, the names
-||| of the holes it writes, read from its tree's hole nodes, and the
-||| pragmas it writes.
-public export
-record State where
-  constructor MkState
-  decorations : List ASemanticDecoration
-  holeNames : List Ident
-  pragmaUses : List PragmaUse
+madeBy : ParsingState -> (List PragmaUse, Builder)
+madeBy (MkParsing ps t) = (contents ps, t)
 
 ||| A grammar of a source, at bound `n`, run below it if `r`, consuming if
 ||| `c`.
@@ -85,27 +71,14 @@ public export
 EmptyRule : (n : Nat) -> (r : Bool) -> Type -> Type
 EmptyRule n r = BRule n r False
 
--- The entries given, written after those before them, in order.
-writeAll : List a -> (1 trail : Trail a) -> Trail a
-writeAll [] trail = trail
-writeAll (x :: xs) trail = writeAll xs (write x trail)
-
--- The state with the decorations given written.
-decorating : List ASemanticDecoration -> (1 st : ParsingState) -> Stepped ParsingState ()
-decorating s (MkParsing ds ps t) = MkStepped (MkParsing (writeAll s ds) ps t) ()
-
-export
-actD : List ASemanticDecoration -> EmptyRule n r ()
-actD s = updateState (decorating s)
-
 -- The state with its tree as a step of making it gave it back.
-withTree : (1 decorated : Trail ASemanticDecoration) -> (1 pragmasWritten : Trail PragmaUse) ->
+withTree : (1 pragmasWritten : Trail PragmaUse) ->
            (1 step : Stepped Builder a) -> Stepped ParsingState a
-withTree ds ps (MkStepped t x) = MkStepped (MkParsing ds ps t) x
+withTree ps (MkStepped t x) = MkStepped (MkParsing ps t) x
 
 -- The state with a step of making its tree taken.
 building : Build a -> (1 st : ParsingState) -> Stepped ParsingState a
-building b (MkParsing ds ps t) = withTree ds ps (runBuild b t)
+building b (MkParsing ps t) = withTree ps (runBuild b t)
 
 ||| A step of making the parse tree, taken in the parse's state, so that a
 ||| branch that fails drops the nodes it made.
@@ -152,23 +125,14 @@ documentation' = terminal "Expected documentation comment" $
                             DocComment d => Just d
                             _ => Nothing
 
--- A value parsed from no input decorates nothing.
-export
-decorationFromBounded : {0 a : Type} -> OriginDesc -> Decoration -> WithBounds a -> List ASemanticDecoration
-decorationFromBounded fname decor bnds
-   = case bnds.bounds of
-          Just bs => [((fname, startBounds bs, endBounds bs), decor, Nothing)]
-          Nothing => []
-
-documentation : OriginDesc -> Rule n r String
-documentation fname
-  = do b <- bounds (some documentation')
-       actD (decorationFromBounded fname Comment b)
-       pure (unlines $ forget b.val)
+documentation : Rule n r String
+documentation
+  = do ds <- some documentation'
+       pure (unlines $ forget ds)
 
 export
 optDocumentation : OriginDesc -> EmptyRule n r String
-optDocumentation fname = option "" (documentation fname)
+optDocumentation fname = option "" documentation
 
 export
 intLit : Rule n r Integer
@@ -177,19 +141,6 @@ intLit
                \case
                  IntegerLit i => Just i
                  _ => Nothing
-
-export
-onOffLit : Rule n r Bool
-onOffLit
-    = terminal "Expected on or off" $
-               \case
-                 Ident s => onOff (knownOf s)
-                 _ => Nothing
-  where
-    onOff : Maybe Known -> Maybe Bool
-    onOff (Just Kon) = Just True
-    onOff (Just Koff) = Just False
-    onOff _ = Nothing
 
 export
 simpleStrLit : Rule n r String
@@ -316,7 +267,7 @@ exactIdent req
 
 -- The state with a pragma's use written.
 usingPragma : PragmaUse -> (1 st : ParsingState) -> Stepped ParsingState ()
-usingPragma use (MkParsing ds ps t) = MkStepped (MkParsing ds (write use ps) t) ()
+usingPragma use (MkParsing ps t) = MkStepped (MkParsing (write use ps) t) ()
 
 ||| The pragma given, its use recorded where it is written.
 export

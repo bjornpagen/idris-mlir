@@ -19,19 +19,6 @@ writtenSearchDepth : Nat
 writtenSearchDepth = 50
 
 export
-Reify BindMode where
-  reify defs val@(NDCon _ n _ _ args)
-      = case (!(knownCon defs n), args) of
-             (Just KPI, [(_, c)])
-                 => do c' <- reify defs !(evalClosure defs c)
-                       pure (PI c')
-             (Just KPATTERN, _) => pure PATTERN
-             (Just KCOVERAGE, _) => pure COVERAGE
-             (Just KNONE, _) => pure NONE
-             _ => cantReify val "BindMode"
-  reify deva val = cantReify val "BindMode"
-
-export
 Reflect BindMode where
   reflect fc defs lhs env (PI c)
       = do c' <- reflect fc defs lhs env c
@@ -44,34 +31,11 @@ Reflect BindMode where
       = getCon fc defs (reflectionttimp KNONE)
 
 export
-Reify UseSide where
-  reify defs val@(NDCon _ n _ _ args)
-      = case (!(knownCon defs n), args) of
-             (Just KUseLeft, _) => pure UseLeft
-             (Just KUseRight, _) => pure UseRight
-             _ => cantReify val "UseSide"
-  reify defs val = cantReify val "UseSide"
-
-export
 Reflect UseSide where
   reflect fc defs lhs env UseLeft
       = getCon fc defs (reflectionttimp KUseLeft)
   reflect fc defs lhs env UseRight
       = getCon fc defs (reflectionttimp KUseRight)
-
-export
-Reify DotReason where
-  reify defs val@(NDCon _ n _ _ args)
-      = case (!(knownCon defs n), args) of
-             (Just KNonLinearVar, _) => pure NonLinearVar
-             (Just KVarApplied, _) => pure VarApplied
-             (Just KNotConstructor, _) => pure NotConstructor
-             (Just KErasedArg, _) => pure ErasedArg
-             (Just KUserDotted, _) => pure UserDotted
-             (Just KUnknownDot, _) => pure UnknownDot
-             (Just KUnderAppliedCon, _) => pure UnderAppliedCon
-             _ => cantReify val "DotReason"
-  reify defs val = cantReify val "DotReason"
 
 export
 Reflect DotReason where
@@ -89,404 +53,6 @@ Reflect DotReason where
       = getCon fc defs (reflectionttimp KUnknownDot)
   reflect fc defs lhs env UnderAppliedCon
       = getCon fc defs (reflectionttimp KUnderAppliedCon)
-
-
-mutual
-  export
-  Reify RawImp where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KIVar, [fc, n])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          n' <- reify defs !(evalClosure defs n)
-                          pure (IVar fc' n')
-               (Just KIPi, [fc, c, p, mn, aty, rty])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          c' <- reify defs !(evalClosure defs c)
-                          p' <- reify defs !(evalClosure defs p)
-                          mn' <- reify defs !(evalClosure defs mn)
-                          aty' <- reify defs !(evalClosure defs aty)
-                          rty' <- reify defs !(evalClosure defs rty)
-                          pure (IPi fc' c' p' mn' aty' rty')
-               (Just KILam, [fc, c, p, mn, aty, lty])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          c' <- reify defs !(evalClosure defs c)
-                          p' <- reify defs !(evalClosure defs p)
-                          mn' <- reify defs !(evalClosure defs mn)
-                          aty' <- reify defs !(evalClosure defs aty)
-                          lty' <- reify defs !(evalClosure defs lty)
-                          pure (ILam fc' c' p' mn' aty' lty')
-               (Just KILet, [fc, lhsFC, c, n, ty, val, sc])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          lhsFC' <- reify defs !(evalClosure defs lhsFC)
-                          c' <- reify defs !(evalClosure defs c)
-                          n' <- reify defs !(evalClosure defs n)
-                          ty' <- reify defs !(evalClosure defs ty)
-                          val' <- reify defs !(evalClosure defs val)
-                          sc' <- reify defs !(evalClosure defs sc)
-                          pure (ILet fc' lhsFC' c' n' ty' val' sc')
-               (Just KICase, [fc, opts, sc, ty, cs])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          opts' <- reify defs !(evalClosure defs opts)
-                          sc' <- reify defs !(evalClosure defs sc)
-                          ty' <- reify defs !(evalClosure defs ty)
-                          cs' <- reify defs !(evalClosure defs cs)
-                          pure (ICase fc' opts' sc' ty' cs')
-               (Just KILocal, [fc, ds, sc])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          ds' <- reify defs !(evalClosure defs ds)
-                          sc' <- reify defs !(evalClosure defs sc)
-                          pure (ILocal fc' ds' sc')
-               (Just KIUpdate, [fc, ds, sc])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          ds' <- reify defs !(evalClosure defs ds)
-                          sc' <- reify defs !(evalClosure defs sc)
-                          pure (IUpdate fc' ds' sc')
-               (Just KIApp, [fc, f, a])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          f' <- reify defs !(evalClosure defs f)
-                          a' <- reify defs !(evalClosure defs a)
-                          pure (IApp fc' f' a')
-               (Just KINamedApp, [fc, f, m, a])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          f' <- reify defs !(evalClosure defs f)
-                          m' <- reify defs !(evalClosure defs m)
-                          a' <- reify defs !(evalClosure defs a)
-                          pure (INamedApp fc' f' m' a')
-               (Just KIAutoApp, [fc, f, a])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          f' <- reify defs !(evalClosure defs f)
-                          a' <- reify defs !(evalClosure defs a)
-                          pure (IAutoApp fc' f' a')
-               (Just KIWithApp, [fc, f, a])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          f' <- reify defs !(evalClosure defs f)
-                          a' <- reify defs !(evalClosure defs a)
-                          pure (IWithApp fc' f' a')
-               -- A search here has no depth: a script's is dropped.
-               (Just KISearch, [fc, d])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          pure (ISearch fc')
-               (Just KIAlternative, [fc, t, as])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          as' <- reify defs !(evalClosure defs as)
-                          pure (IAlternative fc' t' as')
-               (Just KIRewrite, [fc, t, sc])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          sc' <- reify defs !(evalClosure defs sc)
-                          pure (IRewrite fc' t' sc')
-               (Just KIBindHere, [fc, t, sc])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          sc' <- reify defs !(evalClosure defs sc)
-                          pure (IBindHere fc' t' sc')
-               (Just KIBindVar, [fc, n])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          n' <- reify defs !(evalClosure defs n)
-                          pure (IBindVar fc' n')
-               (Just KIAs, [fc, nameFC, s, n, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          nameFC' <- reify defs !(evalClosure defs nameFC)
-                          s' <- reify defs !(evalClosure defs s)
-                          n' <- reify defs !(evalClosure defs n)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IAs fc' nameFC' s' n' t')
-               (Just KIMustUnify, [fc, r, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          r' <- reify defs !(evalClosure defs r)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IMustUnify fc' r' t')
-               (Just KIDelayed, [fc, r, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          r' <- reify defs !(evalClosure defs r)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IDelayed fc' r' t')
-               (Just KIDelay, [fc, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IDelay fc' t')
-               (Just KIForce, [fc, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IForce fc' t')
-               (Just KIQuote, [fc, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IQuote fc' t')
-               (Just KIQuoteName, [fc, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IQuoteName fc' t')
-               (Just KIQuoteDecl, [fc, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IQuoteDecl fc' t')
-               (Just KIUnquote, [fc, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IUnquote fc' t')
-               (Just KIPrimVal, [fc, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IPrimVal fc' t')
-               (Just KIType, [fc])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          pure (IType fc')
-               (Just KIHole, [fc, n])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          n' <- reify defs !(evalClosure defs n)
-                          pure (IHole fc' n')
-               (Just KImplicit, [fc, n])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          n' <- reify defs !(evalClosure defs n)
-                          pure (Implicit fc' n')
-               (Just KIWithUnambigNames, [fc, ns, t])
-                    => do fc' <- reify defs !(evalClosure defs fc)
-                          ns' <- reify defs !(evalClosure defs ns)
-                          t' <- reify defs !(evalClosure defs t)
-                          pure (IWithUnambigNames fc' ns' t')
-               _ => cantReify val "TTImp"
-    reify defs val = cantReify val "TTImp"
-
-  export
-  Reify IFieldUpdate where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), args) of
-               (Just KISetField, [(_, x), (_, y)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          pure (ISetField x' y')
-               (Just KISetFieldApp, [(_, x), (_, y)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          pure (ISetFieldApp x' y')
-               _ => cantReify val "IFieldUpdate"
-    reify defs val = cantReify val "IFieldUpdate"
-
-  export
-  Reify AltType where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), args) of
-               (Just KFirstSuccess, _)
-                    => pure FirstSuccess
-               (Just KUnique, _)
-                    => pure Unique
-               (Just KUniqueDefault, [(_, x)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (UniqueDefault x')
-               _ => cantReify val "AltType"
-    reify defs val = cantReify val "AltType"
-
-  export
-  Reify FnOpt where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), args) of
-               (Just KInline, _) => pure Inline
-               (Just KUnsafe, _) => pure Unsafe
-               (Just KNoInline, _) => pure NoInline
-               (Just KDeprecate, _) => pure Deprecate
-               (Just KTCInline, _) => pure TCInline
-               (Just KHint, [(_, x)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (Hint x')
-               (Just KGlobalHint, [(_, x)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (GlobalHint x')
-               (Just KExternFn, _) => pure ExternFn
-               (Just KForeignFn, [(_, x)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (ForeignFn x')
-               (Just KForeignExport, [(_, x)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (ForeignExport x')
-               (Just KInvertible, _) => pure Invertible
-               (Just KTotality, [(_, x)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (Totality x')
-               (Just KMacro, _) => pure Macro
-               (Just KSpecArgs, [(_, x)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (SpecArgs x')
-               _ => cantReify val "FnOpt"
-    reify defs val = cantReify val "FnOpt"
-
-  export
-  Reify ImpTy where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KMkTy, [w, y, z])
-                    => do fc' <- reify defs !(evalClosure defs w)
-                          name' <- the (Core (WithFC Name)) (reify defs !(evalClosure defs y))
-                          term' <- reify defs !(evalClosure defs z)
-                          pure (MkWithFCTyName fc' name' term')
-               _ => cantReify val "ITy"
-    reify defs val = cantReify val "ITy"
-
-  export
-  Reify DataOpt where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), args) of
-               (Just KSearchBy, [(_, x)])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (SearchBy x')
-               (Just KNoHints, _) => pure NoHints
-               (Just KUniqueSearch, _) => pure UniqueSearch
-               (Just KExternal, _) => pure External
-               (Just KNoNewtype, _) => pure NoNewtype
-               _ => cantReify val "DataOpt"
-    reify defs val = cantReify val "DataOpt"
-
-  export
-  Reify ImpData where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KMkData, [v,w,x,y,z])
-                    => do v' <- reify defs !(evalClosure defs v)
-                          w' <- reify defs !(evalClosure defs w)
-                          x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          pure (MkImpData v' w' x' y' z')
-               (Just KMkLater, [x,y,z])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          pure (MkImpLater x' y' z')
-               _ => cantReify val "Data"
-    reify defs val = cantReify val "Data"
-
-  export
-  Reify IField where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KMkIField, [v,w,x,y,z])
-                    => do fc <- reify defs !(evalClosure defs v)
-                          rig <- reify defs !(evalClosure defs w)
-                          info <- reify defs !(evalClosure defs x)
-                          name <- reify defs !(evalClosure defs y)
-                          type <- reify defs !(evalClosure defs z)
-                          pure (MkWithFCRigName fc rig (NoFC name) (MkPiBindData info type))
-               _ => cantReify val "IField"
-    reify defs val = cantReify val "IField"
-
-  export
-  Reify ImpRecord where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KMkRecord, [v,w,x,y,z,a])
-                    => do fc <- reify defs !(evalClosure defs v)
-                          tyName <- reify defs !(evalClosure defs w)
-                          params <- reify defs !(evalClosure defs x)
-                          opts <- reify defs !(evalClosure defs y)
-                          conName <- reify defs !(evalClosure defs z)
-                          fields <- reify defs !(evalClosure defs a)
-                          pure (MkFCVal fc $ MkImpRecord (MkWithName (NoFC tyName) (map fromOldParams params))
-                                                      (MkWithNameOpts (NoFC conName) opts fields))
-               _ => cantReify val "Record"
-    reify defs val = cantReify val "Record"
-
-  export
-  Reify WithFlag where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KSyntactic, [])
-                    => pure Syntactic
-               _ => cantReify val "WithFlag"
-    reify defs val = cantReify val "WithFlag"
-
-  export
-  Reify ImpClause where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KPatClause, [x,y,z])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          pure (PatClause x' y' z')
-               (Just KWithClause, [u,v,w,x,y,z,a])
-                    => do u' <- reify defs !(evalClosure defs u)
-                          v' <- reify defs !(evalClosure defs v)
-                          w' <- reify defs !(evalClosure defs w)
-                          x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          a' <- reify defs !(evalClosure defs a)
-                          pure (WithClause u' v' w' x' y' z' a')
-               (Just KImpossibleClause, [x,y])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          pure (ImpossibleClause x' y')
-               _ => cantReify val "Clause"
-    reify defs val = cantReify val "Clause"
-
-  export
-  Reify (IClaimData Name) where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KMkIClaimData, [w, x, y, z])
-                    => do w' <- reify defs !(evalClosure defs w)
-                          x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          pure (MkIClaimData w' x' y' z')
-               _ => cantReify val "IClaimData"
-    reify defs val = cantReify val "IClaimData"
-
-  export
-  Reify ImpDecl where
-    reify defs val@(NDCon _ n _ _ args)
-        = case (!(knownCon defs n), map snd args) of
-               (Just KIClaim, [v])
-                    => do v' <- reify defs !(evalClosure defs v)
-                          pure (IClaim v')
-               (Just KIData, [x,y,z,w])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          w' <- reify defs !(evalClosure defs w)
-                          pure (IData x' y' z' w')
-               (Just KIDef, [x,y,z])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          pure (IDef x' y' z')
-               (Just KIParameters, [x,y,z])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          pure (IParameters x' (map fromOldParams y') z')
-               (Just KIRecord, [w,x,y,z,u])
-                    => do w' <- reify defs !(evalClosure defs w)
-                          -- Base holds the nested namespace as its text.
-                          nested <- the (Core (Maybe String)) (reify defs !(evalClosure defs x))
-                          x' <- traverseOpt internNamespace nested
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          u' <- reify defs !(evalClosure defs u)
-                          pure (IRecord w' x' y' z' u')
-               (Just KIFail, [w,x,y])
-                    => do w' <- reify defs !(evalClosure defs w)
-                          x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          pure (IFail w' x' y')
-               (Just KINamespace, [w,x,y])
-                    => do w' <- reify defs !(evalClosure defs w)
-                          x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          pure (INamespace w' x' y')
-               (Just KITransform, [w,x,y,z])
-                    => do w' <- reify defs !(evalClosure defs w)
-                          x' <- reify defs !(evalClosure defs x)
-                          y' <- reify defs !(evalClosure defs y)
-                          z' <- reify defs !(evalClosure defs z)
-                          pure (ITransform w' x' y' z')
-               (Just KILog, [x])
-                    => do x' <- reify defs !(evalClosure defs x)
-                          pure (ILog x')
-               _ => cantReify val "Decl"
-    reify defs val = cantReify val "Decl"
 
 mutual
   export
@@ -636,10 +202,6 @@ mutual
         = pure (Ref tfc Bound t)
     reflect fc defs lhs env (IUnquote tfc t)
         = throw (InternalError "Can't reflect an unquote: escapes should be lifted out")
-    -- Language.Reflection's TTImp has no term for `%runElab`, so a quote
-    -- holding one has no value to be: the program is refused.
-    reflect fc defs lhs env (IRunElab tfc _ t)
-        = throw (GenericMsg tfc "A quote cannot hold %runElab: Language.Reflection's TTImp has no term for it")
     reflect fc defs lhs env (IPrimVal tfc t)
         = do fc' <- reflect fc defs lhs env tfc
              t' <- reflect fc defs lhs env t
@@ -701,14 +263,10 @@ mutual
     reflect fc defs lhs env (ForeignFn x)
         = do x' <- reflect fc defs lhs env x
              appCon fc defs (reflectionttimp KForeignFn) [x']
-    reflect fc defs lhs env (ForeignExport x)
-        = do x' <- reflect fc defs lhs env x
-             appCon fc defs (reflectionttimp KForeignExport) [x']
     reflect fc defs lhs env Invertible = getCon fc defs (reflectionttimp KInvertible)
     reflect fc defs lhs env (Totality r)
         = do r' <- reflect fc defs lhs env r
              appCon fc defs (reflectionttimp KTotality) [r']
-    reflect fc defs lhs env Macro = getCon fc defs (reflectionttimp KMacro)
     reflect fc defs lhs env (SpecArgs r)
         = do r' <- reflect fc defs lhs env r
              appCon fc defs (reflectionttimp KSpecArgs) [r']
@@ -846,8 +404,6 @@ mutual
              y' <- reflect fc defs lhs env y
              z' <- reflect fc defs lhs env z
              appCon fc defs (reflectionttimp KITransform) [w', x', y', z']
-    reflect fc defs lhs env (IRunElabDecl w x)
-        = throw (GenericMsg fc "Can't reflect a %runElab")
     reflect fc defs lhs env (IPragma _ _ x)
         = throw (GenericMsg fc "Can't reflect a pragma")
     reflect fc defs lhs env (ILog x)

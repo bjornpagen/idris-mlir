@@ -85,11 +85,6 @@ export
 width : Doc ann -> (Int -> Doc ann) -> Doc ann
 width doc f = column (\colStart => doc <+> column (\colEnd => f (colEnd - colStart)))
 
-||| Layout a document depending on the page width, if one has been specified.
-export
-pageWidth : (PageWidth -> Doc ann) -> Doc ann
-pageWidth = WithPageWidth
-
 ||| Lays out a document with the nesting level set to the current column.
 export
 align : Doc ann -> Doc ann
@@ -144,12 +139,6 @@ emptyDoc = Empty
 export
 softline : Doc ann
 softline = Union (Chara ' ') Line
-
-||| Like `softline`, but behaves like `neutral` if the resulting output does not fit
-||| on the page.
-export
-softline' : Doc ann
-softline' = Union neutral Line
 
 ||| A line break, even when grouped.
 export
@@ -221,15 +210,6 @@ export
 line' : Doc ann
 line' = FlatAlt Line Empty
 
-||| First lays out the document. It then appends spaces until the width is equal to `i`.
-||| If the width is already larger than `i`, the nesting level is decreased by `i`
-||| and a line is appended.
-export
-fillBreak : Int -> Doc ann -> Doc ann
-fillBreak f x  = width x (\w => if w > f
-                                   then nest f line'
-                                   else spaces $ f - w)
-
 ||| Concatenate all documents element-wise with a binary function.
 export
 concatWith : (Doc ann -> Doc ann -> Doc ann) -> List (Doc ann) -> Doc ann
@@ -269,12 +249,6 @@ export
 vcat : List (Doc ann) -> Doc ann
 vcat = concatWith (\x, y => x <+> line' <+> y)
 
-||| Concatenates documents horizontally with `(<+>)` as log as it fits the page, then
-||| inserts a line and continues.
-export
-fillCat : List (Doc ann) -> Doc ann
-fillCat = concatWith (\x, y => x <+> softline' <+> y)
-
 ||| Tries laying out the documents separated with nothing, and if it does not fit the page,
 ||| separates them with newlines.
 export
@@ -287,10 +261,6 @@ punctuate : Doc ann -> List (Doc ann) -> List (Doc ann)
 punctuate _ [] = []
 punctuate _ [d] = [d]
 punctuate p (d :: ds) = (d <+> p) :: punctuate p ds
-
-export
-plural : (Num amount, Eq amount) => doc -> doc -> amount -> doc
-plural one multiple n = if n == 1 then one else multiple
 
 ||| Encloses the document between two other documents using `(<+>)`.
 export
@@ -339,11 +309,6 @@ alterAnnotations re (Column f) = Column (\x => alterAnnotations re $ f x)
 alterAnnotations re (WithPageWidth f) = WithPageWidth (\x => alterAnnotations re $ f x)
 alterAnnotations re (Nesting f) = Nesting (\x => alterAnnotations re $ f x)
 alterAnnotations re (Annotated ann x) = foldr Annotated (alterAnnotations re x) (re ann)
-
-||| Removes all annotations.
-export
-unAnnotate : Doc ann -> Doc xxx
-unAnnotate = alterAnnotations (const [])
 
 ||| Changes the annotations of a document.
 export
@@ -437,20 +402,9 @@ list = group . encloseSep (flatAlt (pretty0 "[ ") (pretty0 "["))
                           (flatAlt (pretty0 " ]") (pretty0 "]"))
                           (pretty0 ", ")
 
-||| Variant of `encloseSep` with parentheses and comma as separator.
-export
-tupled : List (Doc ann) -> Doc ann
-tupled = group . encloseSep (flatAlt (pretty0 "( ") (pretty0 "("))
-                            (flatAlt (pretty0 " )") (pretty0 ")"))
-                            (pretty0 ", ")
-
 export
 prettyList : Pretty ann a => List a -> Doc ann
 prettyList = align . list . map pretty
-
-export
-prettyList1 : Pretty ann a => List1 a -> Doc ann
-prettyList1 = prettyList . forget
 
 export
 [prettyListMaybe] Pretty ann a => Pretty ann (List (Maybe a)) where
@@ -460,10 +414,6 @@ export
 Pretty Void Char where
   pretty '\n' = line
   pretty c = Chara c
-
-export
-prettyMaybe : Pretty ann a => Maybe a -> Doc ann
-prettyMaybe = maybe neutral pretty
 
 ||| This data type represents laid out documents and is used by the display functions.
 public export
@@ -475,39 +425,7 @@ data SimpleDocStream : Type -> Type where
   SAnnPush : ann -> (rest : SimpleDocStream ann) -> SimpleDocStream ann
   SAnnPop : (rest : SimpleDocStream ann) -> SimpleDocStream ann
 
-internalError : SimpleDocStream ann
-internalError = let msg = "<internal pretty printing error>" in
-                    SText (cast $ length msg) msg SEmpty
-
 data AnnotationRemoval = Remove | DontRemove
-
-||| Changes the annotation of a document to a different annotation or none.
-export
-alterAnnotationsS : (ann -> Maybe ann') -> SimpleDocStream ann -> SimpleDocStream ann'
-alterAnnotationsS re = fromMaybe internalError . go []
-  where
-    go : List AnnotationRemoval -> SimpleDocStream ann -> Maybe (SimpleDocStream ann')
-    go stack SEmpty = pure SEmpty
-    go stack (SChar c rest) = SChar c . delay <$> go stack rest
-    go stack (SText l t rest) = SText l t . delay <$> go stack rest
-    go stack (SLine l rest) = SLine l <$> go stack rest
-    go stack (SAnnPush ann rest) = case re ann of
-      Nothing => go (Remove :: stack) rest
-      Just ann' => SAnnPush ann' <$> go (DontRemove :: stack) rest
-    go stack (SAnnPop rest) = case stack of
-      [] => Nothing
-      DontRemove :: stack' => SAnnPop <$> go stack' rest
-      Remove :: stack' => go stack' rest
-
-||| Removes all annotations.
-export
-unAnnotateS : SimpleDocStream ann -> SimpleDocStream xxx
-unAnnotateS SEmpty = SEmpty
-unAnnotateS (SChar c rest) = SChar c (unAnnotateS rest)
-unAnnotateS (SText l t rest) = SText l t (unAnnotateS rest)
-unAnnotateS (SLine l rest) = SLine l (unAnnotateS rest)
-unAnnotateS (SAnnPush ann rest) = unAnnotateS rest
-unAnnotateS (SAnnPop rest) = unAnnotateS rest
 
 ||| Changes the annotation of a document.
 export
@@ -544,52 +462,6 @@ traverse f (SAnnPush ann rest) = SAnnPush <$> f ann <*> traverse f rest
 traverse f (SAnnPop rest) = SAnnPop <$> traverse f rest
 
 data WhitespaceStrippingState = AnnotationLevel Int | RecordedWithespace (List Int) Int
-
-dropWhileEnd : (a -> Bool) -> List a -> List a
-dropWhileEnd p = foldr (\x, xs => if p x && isNil xs then [] else x :: xs) []
-
-||| Removes all trailing space characters.
-export
-removeTrailingWhitespace : SimpleDocStream ann -> SimpleDocStream ann
-removeTrailingWhitespace = fromMaybe internalError . go (RecordedWithespace [] 0)
-  where
-    prependEmptyLines : List Int -> SimpleDocStream ann -> SimpleDocStream ann
-    prependEmptyLines is sds0 = foldr (\_, sds => SLine 0 sds) sds0 is
-
-    commitWhitespace : List Int -> Int -> SimpleDocStream ann -> SimpleDocStream ann
-    commitWhitespace [] 0 sds = sds
-    commitWhitespace [] 1 sds = SChar ' ' sds
-    commitWhitespace [] n sds = SText n (textSpaces n) sds
-    commitWhitespace (i :: is) n sds = prependEmptyLines is (SLine (i + n) sds)
-
-    go : WhitespaceStrippingState -> SimpleDocStream ann -> Maybe (SimpleDocStream ann)
-    go (AnnotationLevel _) SEmpty = pure SEmpty
-    go l@(AnnotationLevel _) (SChar c rest) = SChar c . delay <$> go l rest
-    go l@(AnnotationLevel _) (SText lt text rest) = SText lt text . delay <$> go l rest
-    go l@(AnnotationLevel _) (SLine i rest) = SLine i <$> go l rest
-    go (AnnotationLevel l) (SAnnPush ann rest) = SAnnPush ann <$> go (AnnotationLevel (l + 1)) rest
-    go (AnnotationLevel l) (SAnnPop rest) =
-      if l > 1
-         then SAnnPop <$> go (AnnotationLevel (l - 1)) rest
-         else SAnnPop <$> go (RecordedWithespace [] 0) rest
-    go (RecordedWithespace {}) SEmpty = pure SEmpty
-    go (RecordedWithespace lines spaces) (SChar ' ' rest) = go (RecordedWithespace lines (spaces + 1)) rest
-    go (RecordedWithespace lines spaces) (SChar c rest) =
-      do rest' <- go (RecordedWithespace [] 0) rest
-         pure $ commitWhitespace lines spaces (SChar c rest')
-    go (RecordedWithespace lines spaces) (SText l text rest) =
-      let stripped = pack $ dropWhileEnd (== ' ') $ unpack text
-          strippedLength = cast $ length stripped
-          trailingLength = l - strippedLength in
-          if strippedLength == 0
-             then go (RecordedWithespace lines (spaces + l)) rest
-             else do rest' <- go (RecordedWithespace [] trailingLength) rest
-                     pure $ commitWhitespace lines spaces (SText strippedLength stripped rest')
-    go (RecordedWithespace lines spaces) (SLine i rest) = go (RecordedWithespace (i :: lines) 0) rest
-    go (RecordedWithespace lines spaces) (SAnnPush ann rest) =
-      do rest' <- go (AnnotationLevel 1) rest
-         pure $ commitWhitespace lines spaces (SAnnPush ann rest')
-    go (RecordedWithespace lines spaces) (SAnnPop _) = Nothing
 
 public export
 FittingPredicate : Type -> Type
@@ -710,33 +582,3 @@ Show (Doc ann) where
 ------------------------------------------------------------------------
 -- Turn the document into a string, and a list of annotation spans
 ------------------------------------------------------------------------
-
-export
-displaySpans : SimpleDocStream a -> (String, List (Span a))
-displaySpans p =
-  let (bits, anns) = go Z [<] [<] [] p in
-  (concat bits, anns)
-
-  where
-
-    go : (index : Nat) ->
-         (doc   : SnocList String) ->
-         (spans : SnocList (Span a)) ->
-         (ann : List (Nat, a)) -> -- starting index, < current
-         SimpleDocStream a ->
-         (List String, List (Span a))
-    go index doc spans ann SEmpty = (doc <>> [], spans <>> [])
-    go index doc spans ann (SChar c rest)
-      = go (S index) (doc :< cast c) spans ann rest
-    go index doc spans ann (SText len text rest)
-      = go (integerToNat (cast len) + index) (doc :< text) spans ann rest
-    go index doc spans ann (SLine i rest)
-      = let text = strCons '\n' (textSpaces i) in
-        go (S (integerToNat $ cast i) + index) (doc :< text) spans ann rest
-    go index doc spans ann (SAnnPush a rest)
-      = go index doc spans ((index, a) :: ann) rest
-    go index doc spans ((start, a) :: ann) (SAnnPop rest)
-      = let span = MkSpan start (minus index start) a in
-        go index doc (spans :< span) ann rest
-    go index doc spans [] (SAnnPop rest)
-      = go index doc spans [] rest

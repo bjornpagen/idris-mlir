@@ -459,7 +459,7 @@ data Follows
 ||| How the walk follows a definition from where it comes.
 follows : Origin -> GlobalDef -> Follows
 follows origin def = case definition def of
-    PMDef (MkPMDefInfo (SolvedHole _) _ _) _ _ =>
+    PMDef (MkPMDefInfo (SolvedHole _) _) _ _ =>
       if isErased (multiplicity def) then Solution else written
     _ => written
   where

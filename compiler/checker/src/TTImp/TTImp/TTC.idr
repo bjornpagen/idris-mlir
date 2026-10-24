@@ -79,8 +79,6 @@ mutual
         = do tag 23; toBuf fc; toBuf t
     toBuf (IUnquote fc t)
         = do tag 24; toBuf fc; toBuf t
-    toBuf (IRunElab fc re t)
-        = do tag 25; toBuf fc; toBuf re; toBuf t
 
     toBuf (IPrimVal fc y)
         = do tag 26; toBuf fc; toBuf y
@@ -173,8 +171,6 @@ mutual
                         pure (IQuoteDecl fc y)
                24 => do fc <- fromBuf; y <- fromBuf
                         pure (IUnquote fc y)
-               25 => do fc <- fromBuf; re <- fromBuf; y <- fromBuf
-                        pure (IRunElab fc re y)
 
                26 => do fc <- fromBuf; y <- fromBuf
                         pure (IPrimVal fc y)
@@ -355,13 +351,11 @@ mutual
     toBuf (Totality Total) = tag 6
     toBuf (Totality CoveringOnly) = tag 7
     toBuf (Totality PartialOK) = tag 8
-    toBuf Macro = tag 9
     toBuf (SpecArgs ns) = do tag 10; toBuf ns
     toBuf TCInline = tag 11
     toBuf NoInline = tag 12
     toBuf Unsafe = tag 13
     toBuf Deprecate = tag 14
-    toBuf (ForeignExport cs) = do tag 15; toBuf cs
 
     fromBuf
         = case !getTag of
@@ -374,13 +368,11 @@ mutual
                6 => pure (Totality Total)
                7 => pure (Totality CoveringOnly)
                8 => pure (Totality PartialOK)
-               9 => pure Macro
                10 => do ns <- fromBuf; pure (SpecArgs ns)
                11 => pure TCInline
                12 => pure NoInline
                13 => pure Unsafe
                14 => pure Deprecate
-               15 => do cs <- fromBuf; pure (ForeignExport cs)
                _ => corrupt "FnOpt"
 
   export
@@ -410,8 +402,6 @@ mutual
         = do tag 5; toBuf fc; toBuf xs; toBuf ds
     toBuf (ITransform fc n lhs rhs)
         = do tag 6; toBuf fc; toBuf n; toBuf lhs; toBuf rhs
-    toBuf (IRunElabDecl fc tm)
-        = do tag 7; toBuf fc; toBuf tm
     toBuf (IPragma fc ns p)
         = do tag 10; toBuf fc; toBuf ns; toBuf p
     toBuf (ILog n)
@@ -444,8 +434,6 @@ mutual
                6 => do fc <- fromBuf; n <- fromBuf
                        lhs <- fromBuf; rhs <- fromBuf
                        pure (ITransform fc n lhs rhs)
-               7 => do fc <- fromBuf; tm <- fromBuf
-                       pure (IRunElabDecl fc tm)
                8 => do n <- fromBuf
                        pure (ILog n)
                9 => do fc <- fromBuf
@@ -483,8 +471,6 @@ mutual
     toBuf (PrimTTImpPragma n) = do tag 15; toBuf n
     toBuf (PrimNamePragma n) = do tag 16; toBuf n
     toBuf (PrimDeclsPragma n) = do tag 17; toBuf n
-    toBuf (CGActionPragma cg dir) = do tag 18; toBuf cg; toBuf dir
-    toBuf (NamesPragma n ns) = do tag 19; toBuf n; toBuf ns
     toBuf (OverloadablePragma n) = do tag 20; toBuf n
     toBuf (ExtensionPragma e) = do tag 21; toBuf e
     toBuf (DefaultTotalityPragma tot) = do tag 22; toBuf tot
@@ -519,10 +505,6 @@ mutual
                15 => PrimTTImpPragma <$> fromBuf
                16 => PrimNamePragma <$> fromBuf
                17 => PrimDeclsPragma <$> fromBuf
-               18 => do cg <- fromBuf; dir <- fromBuf
-                        pure (CGActionPragma cg dir)
-               19 => do n <- fromBuf; ns <- fromBuf
-                        pure (NamesPragma n ns)
                20 => OverloadablePragma <$> fromBuf
                21 => ExtensionPragma <$> fromBuf
                22 => DefaultTotalityPragma <$> fromBuf

@@ -113,10 +113,6 @@ ident flavour =
     (many . pred $ isIdentTrailing flavour)
 
 export
-isIdentNormal : String -> Bool
-isIdentNormal = isIdent Normal
-
-export
 identNormal : Lexer
 identNormal = ident Normal
 

@@ -46,15 +46,6 @@ public export
 take : (n : Nat) -> (input : String) -> String
 take n str = substr Z n str
 
-||| Take the last `n` characters from a string. Returns the whole string
-||| if it's too short.
-public export
-takeLast : (n : Nat) -> (input : String) -> String
-takeLast n str with (length str)
-  takeLast n str | len with (isLTE n len)
-    takeLast n str | len | Yes prf = substr (len `minus` n) len str
-    takeLast n str | len | No contra = str
-
 ||| Remove the first `n` characters from a string. Returns the empty string if
 ||| the input string is too short.
 public export
@@ -92,8 +83,3 @@ index n str with (unpack str)
 public export
 indent : (n : Nat) -> String -> String
 indent n x = replicate n ' ' ++ x
-
-||| Indent each line of a given string by `n` spaces.
-public export
-indentLines : (n : Nat) -> String -> String
-indentLines n str = (join "\n") $ map (Extra.indent n) $ lines str

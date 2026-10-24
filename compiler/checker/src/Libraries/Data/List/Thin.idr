@@ -32,19 +32,6 @@ keeps : (args : List a) -> Thin xs ys -> Thin (args ++ xs) (args ++ ys)
 keeps [] th = th
 keeps (x :: xs) th = Keep (keeps xs th)
 
-export
-fromNatSet : NatSet -> (xs : List a) -> (xs' ** Thin xs' xs)
-fromNatSet ns xs =
-  if isEmpty ns then (_ ** Refl) else go 0 xs
-  where
-    go : Nat -> (xs : List a) -> (xs' ** Thin xs' xs)
-    go i [] = (_ ** Refl)
-    go i (x :: xs)
-        = let (xs' ** th) = go (S i) xs in
-              if i `elem` ns
-                 then (xs' ** Drop th)
-                 else (x :: xs' ** Keep th)
-
 ||| One thinning after another.
 export
 chain : Thin xs ys -> Thin ys zs -> Thin xs zs

@@ -28,11 +28,6 @@ sucR : HasLength n sx -> HasLength (S n) (sx ++ [<x])
 sucR = S
 
 export
-sucL : HasLength n sx -> HasLength (S n) ([<x] ++ sx)
-sucL Z     = S Z
-sucL (S n) = S (sucL n)
-
-export
 hlAppend : HasLength m sx -> HasLength n sy -> HasLength (n + m) (sx ++ sy)
 hlAppend sx Z = sx
 hlAppend sx (S sy) = S (hlAppend sx sy)

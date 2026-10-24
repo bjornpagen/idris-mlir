@@ -167,18 +167,9 @@ namespace Var
   later (MkVar p) = MkVar (Later p)
 
   export
-  isLater : Var (n :: vs) -> Maybe (Var vs)
-  isLater (MkVar First) = Nothing
-  isLater (MkVar (Later p)) = Just (MkVar p)
-
-  export
   last : SizeOf vs -> Maybe (Var vs)
   last (MkSizeOf Z p) = Nothing
   last (MkSizeOf (S n) p) = Just (MkVar (snd $ Last p))
-
-export
-mkVar : SizeOf inner -> Var (inner ++ nm :: outer)
-mkVar (MkSizeOf s p) = MkVar (mkIsVar p)
 
 export
 mkVarChiply : SizeOf inner -> Var (inner <>> nm :: outer)
@@ -220,11 +211,6 @@ namespace NVar
   later : NVar nm ns -> NVar nm (n :: ns)
   later (MkNVar p) = MkNVar (Later p)
 
-  export
-  isLater : NVar nm (n :: ns) -> Maybe (NVar nm ns)
-  isLater (MkNVar First) = Nothing
-  isLater (MkNVar (Later p)) = Just (MkNVar p)
-
 export
 forgetName : NVar nm vars -> Var vars
 forgetName (MkNVar p) = MkVar p
@@ -232,14 +218,6 @@ forgetName (MkNVar p) = MkVar p
 export
 recoverName : (v : Var vars) -> NVar (varNm v) vars
 recoverName (MkVar p) = MkNVar p
-
-export
-mkNVar : SizeOf inner -> NVar nm (inner ++ nm :: outer)
-mkNVar (MkSizeOf s p) = MkNVar (mkIsVar p)
-
-export
-mkNVarChiply : SizeOf inner -> NVar nm (inner <>> nm :: outer)
-mkNVarChiply (MkSizeOf s p) = MkNVar (mkIsVarChiply p)
 
 -- A named variable on the side its index was found on.
 nvarAt : {idx, k : Nat} ->
@@ -252,10 +230,6 @@ export
 locateNVar : SizeOf local -> NVar nm (local ++ outer) ->
              Either (NVar nm local) (NVar nm outer)
 locateNVar s (MkNVar p) = nvarAt {k = size s} (locateIsVar s p)
-
-public export
-dropNVar : {ns : List a} -> NVar nm ns -> List a
-dropNVar (MkNVar p) = dropIsVar ns p
 
 ------------------------------------------------------------------------
 -- Scope checking
@@ -285,30 +259,8 @@ locateVar s v  = bimap forgetName forgetName
 -- Weakening
 
 export
-weakenNVar : SizeOf ns -> NVar name outer -> NVar name (ns ++ outer)
-weakenNVar s (MkNVar {nvarIdx} p)
-  = MkNVar {nvarIdx = plus (size s) nvarIdx} (weakenIsVar s p)
-
-export
 embedNVar : NVar name ns -> NVar name (ns ++ outer)
 embedNVar (MkNVar p) = MkNVar (embedIsVar p)
-
-export
-insertNVar : SizeOf local ->
-             NVar nm (local ++ outer) ->
-             NVar nm (local ++ n :: outer)
-insertNVar p v = case locateNVar p v of
-  Left v => embedNVar v
-  Right v => weakenNVar p (later v)
-
-export
-insertNVarChiply : SizeOf local ->
-  NVar nm (local <>> outer) ->
-  NVar nm (local <>> n :: outer)
-insertNVarChiply p v
-  = rewrite chipsAsListAppend local (n :: outer) in
-    insertNVar (p <>> zero)
-  $ replace {p = NVar nm} (chipsAsListAppend local outer) v
 
 -- A variable of `local` kept, or one past it moved past `ns` too: its
 -- index stated outright, so that a proof reads it off, the scopes' order
@@ -325,33 +277,8 @@ export
 insertNVarNames : GenWeakenable (NVar name)
 insertNVarNames p q v = insertedAt p q (locateNVar p v)
 
-||| The (partial) inverse to insertNVar
-export
-removeNVar : SizeOf local ->
-         NVar nm (local ++ n :: outer) ->
-  Maybe (NVar nm (local ++      outer))
-removeNVar s var = case locateNVar s var of
-  Left v => pure (embedNVar v)
-  Right v => weakenNVar s <$> isLater v
-
-export
-insertVar : SizeOf local ->
-  Var (local ++ outer) ->
-  Var (local ++ n :: outer)
-insertVar p v = forgetName $ insertNVar p (recoverName v)
-
-weakenVar : SizeOf ns -> Var outer -> Var (ns ++ outer)
-weakenVar p v = forgetName $ weakenNVar p (recoverName v)
-
 insertVarNames : GenWeakenable Var
 insertVarNames p q v = forgetName $ insertNVarNames p q (recoverName v)
-
-||| The (partial) inverse to insertVar
-export
-removeVar : SizeOf local ->
-         Var (local ++ n :: outer) ->
-  Maybe (Var (local ++      outer))
-removeVar s var = forgetName <$> removeNVar s (recoverName var)
 
 ------------------------------------------------------------------------
 -- Strengthening
@@ -480,15 +407,6 @@ FreelyEmbeddable (NVar {a = Name} nm) where
 
 ------------------------------------------------------------------------
 -- Corollaries
-
-||| Moving the zeroth variable under a set number of variables
-export
-shiftUnderNs : SizeOf {a = Name} inner ->
-               {idx : _} ->
-               (0 p : IsVar n idx (x :: inner ++ outer)) ->
-               NVar n (inner ++ x :: outer)
-shiftUnderNs s First = weakenNs s (MkNVar First)
-shiftUnderNs s (Later p) = insertNVar s (MkNVar p)
 
 ------------------------------------------------------------------------
 -- What each operation does to a variable's index

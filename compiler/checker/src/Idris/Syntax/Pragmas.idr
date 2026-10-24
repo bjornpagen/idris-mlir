@@ -19,10 +19,6 @@ data LangExt
   = ElabReflection
 
 export
-allLangExts : List LangExt
-allLangExts = [ElabReflection]
-
-export
 Show LangExt where
   show ElabReflection = "ElabReflection"
 

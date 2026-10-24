@@ -388,14 +388,6 @@ unelabNoSugar env tm
          pure $ fst tm'
 
 export
-unelabUniqueBinders : {vars : _} ->
-                {auto c : Ref Ctxt Defs} ->
-                Env Term vars -> Term vars -> Core IRawImp
-unelabUniqueBinders env tm
-    = do tm' <- unelabTy (NoSugar True) [] env tm
-         pure $ fst tm'
-
-export
 unelabNoPatvars : {vars : _} ->
                   {auto c : Ref Ctxt Defs} ->
                   Env Term vars -> Term vars -> Core IRawImp

@@ -120,19 +120,14 @@ knownTopics = [
     ("eval.ref", Just "Evaluating refs (unavailable by default, edit Core.Normalise.Eval & recompile)"),
     ("eval.stuck", Nothing),
     ("eval.stuck.outofscope", Nothing),
-    ("ide-mode.hole", Just "Displaying hole contexts"),
-    ("ide-mode.highlight", Nothing),
-    ("ide-mode.highlight.alias", Nothing),
     ("import", Nothing),
     ("import.file", Nothing),
-    ("metadata.names", Nothing),
     ("module", Nothing),
     ("module.hash", Nothing),
     ("package.depends", Just "Log which packages are being added"),
     ("quantity", Nothing),
     ("quantity.hole", Nothing),
     ("quantity.hole.update", Nothing),
-    ("reflection.reify", Just "Log what's happening when converting an `NF` to some real value"),
     ("resugar.var", Just "Resugaring variables"),
     ("resugar.sectionL", Just "Resugaring left sections"),
     ("specialise", Just "Generating a partially-evaluated specialised version of a function"),
@@ -179,18 +174,6 @@ knownTopics = [
     ("unify.unsolved", Nothing)
 ]
 
-export
-helpTopics : String
-helpTopics = show $ vcat $ map helpTopic knownTopics
-
-  where
-
-  helpTopic : (String, Maybe String) -> Doc Void
-  helpTopic (str, mblurb)
-    = let title = "+" <++> pretty str
-          blurb = maybe [] ((::[]) . indent 2 . reflow) mblurb
-      in vcat (title :: blurb)
-
 public export
 data KnownTopic : String -> Type where
   IsKnownTopic : IsJust (lookup s Log.knownTopics) => KnownTopic s
@@ -234,12 +217,6 @@ mkUnverifiedLogLevel : (s : String) -> Nat -> LogLevel
 mkUnverifiedLogLevel "" = mkLogLevel' Nothing
 mkUnverifiedLogLevel ps = mkLogLevel' (Just (split (== '.') ps))
 
-||| Like `mkUnverifiedLogLevel` but with a compile time check that
-||| the passed string is a known topic.
-export
-mkLogLevel : LogTopic -> Nat -> LogLevel
-mkLogLevel s = mkUnverifiedLogLevel s.topic
-
 ||| The unsafe constructor should only be used in places where the topic has already
 ||| been appropriately processed.
 export
@@ -255,12 +232,6 @@ topics (MkLogLevel ps _) = ps
 export
 verbosity : LogLevel -> Nat
 verbosity (MkLogLevel _ n) = n
-
-||| When writing generic functions we sometimes want to keep the same topic but
-||| change the verbosity.
-export
-withVerbosity : Nat -> LogLevel -> LogLevel
-withVerbosity n (MkLogLevel ps _) = MkLogLevel ps n
 
 ||| A log level is show as `P.Q.R:N` where `P`, `Q` and `R` are topics and `N` is
 ||| a verbosity level. If there are no topics then we simply print `N`.

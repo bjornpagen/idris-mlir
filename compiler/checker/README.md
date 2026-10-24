@@ -44,7 +44,7 @@ the same profile as any other.
 
 - **The REPL, the IDE mode and every code generator.** They are
   out of scope, so they are gone rather than switched off: `Idris.REPL`,
-  `Idris.IDEMode.*` (but `Holes`, below), `Protocol.*` (but `Hex`),
+  `Idris.IDEMode.*`, `Protocol.*` (but `Hex`),
   `TTImp.Interactive.*`, `Yaffle.*`, `Idris.Main`, `Idris.Driver` (our
   own driver replaces it), and `Compiler.Scheme`, `Compiler.ES`,
   `Compiler.RefC` and `Compiler.Interpreter`, with the Scheme evaluator
@@ -52,17 +52,78 @@ the same profile as any other.
   `schemeExpr`. The command line lost the options that only served them
   (`--repl`, `--ide-mode`, `--inc`, `--dumpcases` and the like), and so
   did a session's options; the REPL's command syntax went from
-  `Idris.Syntax`, `Idris.Parser` and `TTImp` (Yaffle's). A code generator
-  is only one a driver registers, known by its name (`CG` is `Other
-  String`, and a session no longer carries a default one): `--cg` checks
-  that it names one, `--directive` is the session's, and `--exec` is the
-  driver's to run or refuse. Ours registers none and reads none of these
-  options: the frontend takes the checked definitions from the context
-  Idris built. The log topics only the deleted modules used
-  are gone, and `Idris.Env` lists only the variables the checker's code and
-  its driver read (not `IDRIS2_CG`, which named the default code
-  generator). `Idris.Package` lost `--mkdoc`, `--init`, `--repl` and
-  `--dump-ipkg-json` with the modules behind them.
+  `Idris.Syntax`, `Idris.Parser` and `TTImp` (Yaffle's). No code generator
+  is known: the frontend takes the checked definitions from the context
+  Idris built. A `%cg` directive, which addresses one of upstream's code
+  generators, desugars to nothing, as a directive to another back end is
+  passed over; `%export` (and `%nomangle`) is refused by the parser, since
+  this compiler has no foreign interface; the context's directives and
+  foreign exports, and their TTC sections, are gone. The log topics only
+  the deleted modules used are gone. `Idris.Package` lost `--mkdoc`,
+  `--init`, `--repl` and `--dump-ipkg-json` with the modules behind them.
+- **The command line and the package commands nothing gives.** The
+  frontend parses its own command line and runs one package command on
+  one package file (`processPackage`), so upstream's command line went:
+  its usage text and `Idris.Env`, the options only it gave (`--check`,
+  `--output`, `--exec`, `--cg`, `--directive`, `--version`, `--help`,
+  `--quiet`, the printing and colour options, `--list-packages`,
+  `--paths`, `--find-ipkg`, `--alt-error-count`, `--install-with-src`,
+  `--dump-installdir`, ...), the session's flags they set and nothing
+  read, the session after checking (`PostSession`), and the package
+  options' partition and the control flow it returned. What a package's
+  `opts` field may give stays: `--no-prelude`, `-p`, the directories,
+  `--total`, `-Werror`, `-Wno-shadowing`, `--ignore-missing-ipkg`,
+  `--timing` and `--log`; any other word there is an unknown flag. A
+  package's descriptive fields (`authors`, `license`, `brief`, ...) are
+  read and dropped, since nothing here shows a package.
+- **The IDE's metadata and the parser's decorations.** Upstream records
+  what the IDE mode reads back (the type and left-hand side at each source
+  span, semantic highlighting) in `Core.Metadata` and saves it beside each
+  TTC as a `.ttm` file; the parser built a trail of decorations for every
+  keyword, symbol and name it read. Here the adders did nothing and the
+  `.ttm` file was neither written nor read, so `Core.Metadata`, the `Ref
+  MD Metadata` the elaborator threaded through some forty-five modules,
+  every adder call, and the parser's trail and its `decorate` wrappers
+  are gone: each rule is its plain rule.
+- **Definitions nothing reaches.** What the deletions above, and the
+  REPL's, the IDE mode's and the code generators' before them, left with
+  no reader went: some 250 definitions (unused printing and pretty-printer
+  combinators, algebraic laws no proof uses, logging, literate and path
+  helpers, variable and name helpers, package helpers), the modules
+  `Libraries.Data.List.Quantifiers.Extra`,
+  `Libraries.Text.PrettyPrint.Prettyprinter.SimpleDocTree` and
+  `Libraries.System.Directory.Tree`, and the vocabulary's identifiers no
+  code names.
+- **The elaborator-script runner.** `%runElab` and `%macro` run an
+  `Elab` script while the program is elaborated: the runner read a
+  script's normal form back into the checker's values (every `Reify`
+  instance) and performed its actions, `ReadFile` and `WriteFile` among
+  them. No trusted library writes either, and a user's would run before
+  anything refused it; the parser now refuses both, as unsupported, where
+  it reads them, and the runner, the `Reify` direction, the syntax's
+  forms for a script, the `macro` flag, the definition stack only a script
+  read and the vocabulary of a script's constructors are gone. Quotation
+  (the `Reflect` direction) stays, and `%language ElabReflection`, which
+  base writes, is still read and now gates nothing.
+- **A second renderer of errors.** `Core.Core` showed every error and
+  warning by a switch of its own (`showError`, `Show Warning`), beside
+  `Idris.Error`'s `perror`, so every new error cost a case in each. An
+  error has one renderer, upstream's `perror`: a `failing` block matches
+  its text, so a block upstream rejects never passes here, and the
+  frontend writes the same text (`errorText`) as the message of Idris's
+  own error.
+- **Docstrings.** The `|||` text of each definition and module was
+  recorded in the syntax (`defDocstrings`, `modDocstrings`, with the
+  module's re-exports), saved in every TTC and read back only to append a
+  deprecated name's docstring to its deprecation warning, which `--check`
+  and package builds print and a compiled program never does; with it went
+  `Idris.Doc.*`, `Idris.IDEMode.Holes` and `Idris.Syntax.Views`, which only
+  that printing reached. The parser still reads `|||`, and `%deprecate`
+  still warns where upstream warns, without the docstring.
+- **Colour and the console's width.** What Idris prints is unannotated,
+  at an unbounded width, on every terminal (`Idris.Pretty.Render.render`):
+  the ANSI modules, the terminal renderer and the options and state that
+  chose a colour or a width went.
 - **The CExp pipeline.** The frontend consumes checked TT and its
   definition context, never CExp, so `Compiler.ANF`, `CaseOpts`,
   `CompileExpr`, `Inline`, `LambdaLift`, `NoMangle`, `Opts.*`,
@@ -72,10 +133,13 @@ the same profile as any other.
   in `Defs`, and the "compile definitions" step after a module checks.
   `Core.CompileExpr` stays as a data module: a constructor's `ConInfo` is
   one of its flags, saved in TTC.
-- **Source hashes.** Upstream could decide a rebuild by hashing a source
-  file with an external `sha256sum` through `popen`; it shipped with that
-  disabled. The checker decides by modification time only, and a TTC no
-  longer carries a source hash.
+- **Source and interface hashes.** Upstream could decide a rebuild by
+  hashing a source file with an external `sha256sum` through `popen`; it
+  shipped with that disabled. It also hashed each module's public
+  interface and its imports' (`Core.Hash`), to skip a rebuild the
+  modification times asked for when no import's interface had changed;
+  every package here is built from nothing, so the skip never ran. The
+  checker decides by modification time only, and a TTC carries no hash.
 - **The run-time case tree.** Upstream built, for every definition, a second
   tree for its back ends, with erasure, `%transform`s and `%spec`
   specialisation applied (`mkRunTime`, `compileRunTime`, `Core.Transform`'s
@@ -104,6 +168,16 @@ the same profile as any other.
   depth of the automatic search (below).
   The parser no longer knows a removed pragma, so a module that writes one
   is refused where it writes it.
+- **The IDE's hole bookkeeping and `%name`'s hints.** The context's list
+  of holes the user still has to fill in (`userHoles`), a definition's
+  flag that it was declared in another module (`externalDecl`), the
+  syntax's lists of a file's hole names and of holes written as arguments
+  (`holeNames`, `bracketholes`, with the parse's bracketing of a hole and
+  the flag it set), and the names `%name` suggests for a type's variables
+  (`namedirectives`) were kept for the REPL's `:metavars` and case split
+  and for code generators, and saved in every TTC; nothing read them.
+  `%name` is still parsed, since prelude and base write it, and desugars
+  to nothing.
 - **Windows's path grammar.** `Libraries.Utils.Path` read every path with
   Windows's grammar on every platform and asked the host's operating
   system at run time where it differed (`isWindows`): a backslash
@@ -119,29 +193,15 @@ the same profile as any other.
   back end. The refusal comes as soon as the package file is read, for
   every package command, before anything is built, installed or cleaned.
 
-### Stubbed
-
-`Core.Metadata` keeps its names and does nothing. Upstream records there
-what the IDE mode reads back (the type and left-hand side at each source
-span, semantic highlighting) and saves it beside each TTC as a `.ttm`
-file. The elaborator threads `Ref MD Metadata` through about forty-five
-modules and the parser produces decorations as it goes, so the type, its
-`Decoration`s and every adder stay, empty: the adders are no-ops, and the
-`.ttm` file is neither written nor read. A `%failing` block still saves
-and restores it, harmlessly.
-
 ### Kept although out of scope
 
 - `Idris.REPL.Opts`: `REPLOpts`, trimmed to what the elaborator and the
-  build read (the main file, the verbosity, the source being elaborated
-  for error messages, console width and colour). Some thirty elaborator
+  build read (the main file, the verbosity, and the source being
+  elaborated, for error messages). Some thirty elaborator
   modules import it by this name; renaming it would change each of them
   and gain nothing.
 - `Idris.REPL.Common`: trimmed to printing messages, warnings and errors,
   which `Idris.ModTree` and `Idris.Package` use.
-- `Idris.IDEMode.Holes`, without the IDE protocol: how a hole is printed,
-  which `Idris.Doc.Display` uses (`Idris.Error` → `Idris.Doc.String` →
-  `Idris.Doc.Display`).
 - `Protocol.Hex`: hexadecimal digits, which the lexer
   (`Parser.Lexer.Source`) uses.
 
@@ -229,8 +289,10 @@ upstream's assertions.
   hole (`solveHole`), where upstream looked it up again and threw an
   internal error if it was not there.
 - `%start` names the expression a REPL session runs first; this compiler
-  runs no REPL, so the pragma is refused, as unsupported, where it is
-  written. Upstream threw an internal error ("%start not implemented").
+  runs no REPL, so the parser refuses the pragma, as unsupported, where it
+  reads it, and no expression is parsed for it, held in the syntax or
+  saved in a TTC. Upstream threw an internal error ("%start not
+  implemented").
 
 ### Total where the frontend calls it
 
@@ -246,10 +308,8 @@ so that every recursive call is on a part of its argument:
 - weakening, thinning and shrinking a term (`Core.TT.Term`: `insertNames`,
   `thinTerm`, `shrinkTerm`), stripping and restoring a namespace (`onRefs`,
   `onTreeTerms`), `substName`, `refsToLocals`, `getRefs`, `getMetas` and
-  `addRefs` of a term and of a case tree, showing a term (`showTerm`), a
-  case tree and an error (`showError`, which shows each error a list holds
-  by a function of its own), and a term's hash (`hashTerm`), all with the
-  output upstream's gave;
+  `addRefs` of a term and of a case tree, and showing a term (`showTerm`)
+  and a case tree, all with the output upstream's gave;
 - a term's names made full or resolved (`HasNames` of a term, a case tree
   and an alternative, in `Core.Context`): one traversal each
   (`onNamesTerm`, `onNamesTree`), given what becomes of a name and of a
@@ -355,7 +415,7 @@ and normaliser is indexed by, so a definition the program cannot meet is
 never decoded; what the reading holds at an entry is the map's definition
 there (`IntMap.lookupMap`, `heldAt`). A name resolves to an entry (`Resolves`), a
 definition is the one at its name's entry (`Defines`, read purely by
-`definitionIn`), and `definedOnce` is proved, not trusted. A closed term's
+`definitionIn`). A closed term's
 normal form, as each of the four normalisers gives it, is a reduct of the
 term by that normaliser's steps and normal for them (`Reduct`, its steps
 and its normality at quantity 0); the steps are the evaluator's options
@@ -372,7 +432,7 @@ constructor's alternative is the one whose name resolves to the
 scrutinee's head's entry, and a default is taken only past alternatives
 that miss. The other facts trusted are of the same kind: a definition's
 type and tree, read through the context's accessors (`host.typeOf`,
-`host.treeOf`), are the evaluator's, one each (`typeOnce`, `treeOnce`);
+`host.treeOf`), are the evaluator's;
 every term a term reduces to reduces on to its normal form
 (`reachesNormalForm`), the confluence Idris's type checker rests on.
 Reduction is closed under putting values in for bound names
@@ -413,20 +473,6 @@ known only when the checker runs.
 - `Libraries.Data.Version` reads a token's text and converts it where it
   reads a number (`number`); upstream's token kind computed the type of a
   token's value from the kind (`TokenKind`'s `TokType`).
-- `Idris.Syntax`: a directive (`Directive' tm`) is over what its `%start`
-  expression holds: the parse tree's node while parsing (`Directive' (Id
-  FTerm)`, in `Idris.Syntax.Tree`) and a `PTerm' Name` once decoded
-  (`Directive`). Upstream's `StartExpr` held a term at a name type the
-  constructor hid, so nothing could read it back at a known type; the
-  parameter states it, and the parse tree and the decoded syntax share one
-  declaration.
-- `Parser.Rule.Source.decorationFromBounded`: a parser's semantic
-  decoration holds no name, and `decorate`, `dependentDecorate` and
-  `decorateKeywords` (`Idris.Parser`) take the type of what they decorate
-  erased. Upstream's matched on that type at run time and kept the value
-  when it was a `Name`, for the IDE's metadata, whose adders are no-ops
-  here (Stubbed, above): the name had no reader, and the rules are
-  parametric in what they decorate.
 - `Idris.Syntax.Traversals` traverses a list of paired terms (`PList`,
   `PSnocList`, `PUsing`, `PInterface`, `PImplementation`) with `traverse`
   and `map` over the pair's second component, where upstream wrote
@@ -500,10 +546,9 @@ known only when the checker runs.
   constructors, a tuple section's variable) is one node. Once the parse is
   done the nodes are frozen into columns and decoded into the `PTerm`s,
   clauses and declarations Desugar reads. What upstream's grammar read back
-  from the terms it had built is read from the tree: a hole written as an
-  argument is bracketed in the node made last, a `with` clause written
-  `_` relocates its parent's left side in a node, the hole names are those
-  of the hole nodes, and decoding groups neighbouring clauses into
+  from the terms it had built is read from the tree: a `with` clause
+  written `_` relocates its parent's left side in a node, and decoding
+  groups neighbouring clauses into
   definitions (`collectDefs`) and decides whether a `let` in a `do` block
   binds a variable. Each form's child is decoded by a decoder of its own
   (`childTerm`, `childClause`, ...), at the type of the syntax that form
@@ -610,9 +655,8 @@ known only when the checker runs.
   every elaborator that may delay one is given beside `Ref UST UState`,
   made where a unification state is made and saved and restored wherever
   one is around elaboration (`tryError`, `successful`, `checkTermSub`,
-  `processFailing`, `resetContext`, and `tryUnifyElab` and
-  `handleUnifyElab`, the variants of `tryUnify` and `handleUnify` for what
-  elaborates). A delayed elaborator (`DelayedElab`) is a function given
+  `processFailing`, `resetContext`, and `handleUnifyElab`, the variant
+  of `handleUnify` for what elaborates). A delayed elaborator (`DelayedElab`) is a function given
   that cell when it is retried, and the elaborator `delayOnFailure` and
   `delayElab` take is given it too, with the expected type, rather than
   capturing either: upstream's closures captured `Ref UST UState`, so the
@@ -641,11 +685,11 @@ known only when the checker runs.
   elaborators, with every cell in hand, `Ref Syn SyntaxInfo` among them,
   which `TTImp.TTImp`, below `Idris.Syntax`, cannot name. A cell holds
   terms (the delayed elaborators do, and `SyntaxInfo` holds an
-  interface's parents and default methods, `usingImpl` and `startExpr`)
+  interface's parents and default methods, and `usingImpl`)
   and a term's local block holds declarations, so no declaration holds a
   closure, and no cell's type reaches itself through one. `Pass`, which
   the implementation's action takes, lives in `TTImp.TTImp` for it. The other
-  cells (`Defs`, `EState`, `Metadata`, `REPLOpts`, `PostSession`) hold no
+  cells (`Defs`, `EState`, `REPLOpts`) hold no
   closure that reaches them.
 - `Core` is a function of the world (`PrimIO`), not a record over IO, and
   only its combinators in `Core.Core` see the world. Two computations in
@@ -660,9 +704,8 @@ known only when the checker runs.
   its type reads the definitions past it (`readDefinitions`), as the
   termination check does for the modules a context's imports reach.
 - `buildMain` (`Idris.ModTree`) builds a main file in a session of its
-  own: it makes the unification state, the delayed elaborators and the
-  metadata, resets the context to the main module's origin and runs
-  `buildDeps`. A driver that only builds a program, as the frontend's,
+  own: it makes the unification state and the delayed elaborators,
+  resets the context and runs `buildDeps`. A driver that only builds a program, as the frontend's,
   never holds the session's state, which holds the evaluator's values.
 - The automatic search ends by construction, with no count. Before it takes
   up a goal that is a type constructor's application, it compares the goal
@@ -725,8 +768,7 @@ known only when the checker runs.
   judging each as it comes, where it searched for the idempotent one for
   at most 1024 powers; and `normaliseTypes` follows each name once (above),
   where it stopped at a depth of 8.
-- `processDecls` and `processTTImpDecls` (`TTImp.ProcessDecls`) return
-  nothing: upstream's returned `True` whatever happened, an error being
+- `processDecls` (`TTImp.ProcessDecls`) returns nothing: upstream's returned `True` whatever happened, an error being
   thrown.
 - Whether a recursion is total depends on no count. `sizeCompare`
   (`Core.Termination.CallGraph`) compares each pair of subterms, named by

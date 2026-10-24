@@ -130,18 +130,6 @@ namespace Version
                              then v < v' || (v == v' && tag == Nothing)
                              else v < v') bounds.upperBound
 
-  -- "0.1.0-abcd" > "0.1.0"
-  inBoundsBecauseOfTag : inBounds (MkVersion (0,1,0) (Just "abcd"))
-                                  (MkPkgVersionBounds (Just $ MkPkgVersion (0 ::: [1,0])) False
-                                  (Just $ MkPkgVersion (0 ::: [2,0])) False) = True
-  inBoundsBecauseOfTag = Refl
-
-  -- not ("0.2.0-abcd" <= "0.2.0")
-  outOfBoundsBecauseOfTag : inBounds (MkVersion (0,2,0) (Just "abcd"))
-                                     (MkPkgVersionBounds (Just $ MkPkgVersion (0 ::: [1,0])) False
-                                     (Just $ MkPkgVersion (0 ::: [2,0])) True) = False
-  outOfBoundsBecauseOfTag = Refl
-
 ------------------------------------------------------------------------------
 -- Dependencies
 
@@ -168,14 +156,6 @@ record PkgDesc where
   name : String
   version : Maybe PkgVersion
   langversion : Maybe PkgVersionBounds
-  authors : Maybe String
-  maintainers : Maybe String
-  license : Maybe String
-  brief   : Maybe String
-  readme  : Maybe String
-  homepage : Maybe String
-  sourceloc : Maybe String
-  bugtracker : Maybe String
   depends : List Depends -- packages to add to search path
   modules : List (ModuleIdent, String) -- modules to install (namespace, filename)
   mainmod : Maybe (ModuleIdent, String) -- main file (i.e. file to load at REPL)
@@ -195,54 +175,16 @@ record PkgDesc where
 export
 initPkgDesc : String -> PkgDesc
 initPkgDesc pname
-    = MkPkgDesc pname Nothing Nothing Nothing Nothing Nothing
-                Nothing Nothing Nothing Nothing Nothing
+    = MkPkgDesc pname Nothing Nothing
                 [] []
                 Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
                 Nothing Nothing Nothing Nothing Nothing
-
-export
-Show PkgDesc where
-  show pkg = "Package: " ++ name pkg ++ "\n" ++
-             maybe "" (\m => "Version: "     ++ m ++ "\n") (show <$> version pkg) ++
-             maybe "" (\v => "Language Version: " ++ v ++ "\n") (show <$> langversion pkg) ++
-             maybe "" (\m => "Authors: "     ++ m ++ "\n") (authors pkg)     ++
-             maybe "" (\m => "Maintainers: " ++ m ++ "\n") (maintainers pkg) ++
-             maybe "" (\m => "License: "     ++ m ++ "\n") (license pkg)     ++
-             maybe "" (\m => "Brief: "       ++ m ++ "\n") (brief pkg)       ++
-             maybe "" (\m => "ReadMe: "      ++ m ++ "\n") (readme pkg)      ++
-             maybe "" (\m => "HomePage: "    ++ m ++ "\n") (homepage pkg)    ++
-             maybe "" (\m => "SourceLoc: "   ++ m ++ "\n") (sourceloc pkg)   ++
-             maybe "" (\m => "BugTracker: "  ++ m ++ "\n") (bugtracker pkg)  ++
-             "Depends: " ++ show (depends pkg) ++ "\n" ++
-             "Modules: " ++ show (map snd (modules pkg)) ++ "\n" ++
-             maybe "" (\m => "Main: " ++ snd m ++ "\n") (mainmod pkg) ++
-             maybe "" (\m => "Exec: " ++ m ++ "\n") (executable pkg) ++
-             maybe "" (\m => "Opts: " ++ snd m ++ "\n") (options pkg) ++
-             maybe "" (\m => "SourceDir: " ++ m ++ "\n") (sourcedir pkg) ++
-             maybe "" (\m => "DataDir: " ++ m ++ "\n") (datadir pkg) ++
-             maybe "" (\m => "BuildDir: " ++ m ++ "\n") (builddir pkg) ++
-             maybe "" (\m => "OutputDir: " ++ m ++ "\n") (outputdir pkg) ++
-             maybe "" (\m => "Prebuild: " ++ snd m ++ "\n") (prebuild pkg) ++
-             maybe "" (\m => "Postbuild: " ++ snd m ++ "\n") (postbuild pkg) ++
-             maybe "" (\m => "Preinstall: " ++ snd m ++ "\n") (preinstall pkg) ++
-             maybe "" (\m => "Postinstall: " ++ snd m ++ "\n") (postinstall pkg) ++
-             maybe "" (\m => "Preclean: " ++ snd m ++ "\n") (preclean pkg) ++
-             maybe "" (\m => "Postclean: " ++ snd m ++ "\n") (postclean pkg)
 
 export
 Pretty Void PkgDesc where
   pretty desc = vcat
     [ "package" <++> pretty desc.name
     , verField "version"     desc.version
-    , strField "authors"     desc.authors
-    , strField "maintainers" desc.maintainers
-    , strField "license"     desc.license
-    , strField "brief"       desc.brief
-    , strField "readme"      desc.readme
-    , strField "homepage"    desc.homepage
-    , strField "sourceloc"   desc.sourceloc
-    , strField "bugtracker"  desc.bugtracker
 
     , comment "the Idris2 version required (e.g. langversion >= 0.5.1)"
     , verSeqField "langversion" desc.langversion
@@ -325,10 +267,3 @@ record CSS where
   constructor MkCSS
   stylename : String
   filename  : String
-
-export
-cssFiles : List CSS
-cssFiles = [ MkCSS "Default"       "default"
-           , MkCSS "Alternative"   "alternative"
-           , MkCSS "Black & White" "blackandwhite"
-           ]

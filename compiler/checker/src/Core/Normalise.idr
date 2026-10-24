@@ -64,15 +64,6 @@ normaliseHoles : {auto c : Ref Ctxt Defs} ->
 normaliseHoles defs env tm
     = quote defs env !(nfOpts withHoles defs env tm)
 
-export
-normaliseLHS : {auto c : Ref Ctxt Defs} ->
-               {free : _} ->
-               Defs -> Env Term free -> Term free -> Core (Term free)
-normaliseLHS defs env (Bind fc n b sc)
-    = pure $ Bind fc n b !(normaliseLHS defs (b :: env) sc)
-normaliseLHS defs env tm
-    = quote defs env !(nfOpts onLHS defs env tm)
-
 ||| The normal form, its stuck applications followed at most `limit` deep,
 ||| or `TooDeep`, where the caller keeps the term another way: the limit
 ||| decides only a stored term's form.

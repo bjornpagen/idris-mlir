@@ -3,7 +3,6 @@
 module TTImp.Elab.Dot
 
 import Core.Env
-import Core.Metadata
 import Core.UnifyState
 
 import Idris.REPL.Opts
@@ -35,7 +34,6 @@ registerDot rig env fc reason wantedTm gexpty
 export
 checkDot : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto e : Ref EST (EState vars)} ->

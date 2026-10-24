@@ -66,11 +66,6 @@ mkNestedNamespace : Maybe Namespace -> Ident -> Namespace
 mkNestedNamespace Nothing n = MkNS [n]
 mkNestedNamespace (Just (MkNS ns)) n = MkNS (n :: ns)
 
-export
-mkModuleIdent : Maybe Namespace -> Ident -> ModuleIdent
-mkModuleIdent Nothing n = MkMI [n]
-mkModuleIdent (Just (MkNS ns)) n = MkMI (n :: ns)
-
 -------------------------------------------------------------------------------------
 -- MANIPULATING NAMESPACES
 -------------------------------------------------------------------------------------
@@ -173,12 +168,6 @@ isApproximationOf (MkNS ms) (MkNS ns)
   -- the other's.
   = isPrefixOf ms ns
 
-||| We can check whether a given identifier is in the path of a given
-||| namespace.
-export
-isInPathOf : (i : Ident) -> (candidate : Namespace) -> Bool
-isInPathOf i (MkNS ns) = i `elem` ns
-
 -------------------------------------------------------------------------------------
 -- INSTANCES
 -------------------------------------------------------------------------------------
@@ -247,10 +236,6 @@ preludeNS : Namespace
 preludeNS = nsOf [known KPrelude]
 
 export
-numNS : Namespace
-numNS = nsOf [known KPrelude, known KNum]
-
-export
 typesNS : Namespace
 typesNS = nsOf [known KPrelude, known KTypes]
 
@@ -259,20 +244,8 @@ basicsNS : Namespace
 basicsNS = nsOf [known KPrelude, known KBasics]
 
 export
-eqOrdNS : Namespace
-eqOrdNS = nsOf [known KPrelude, known KEqOrd]
-
-export
 primIONS : Namespace
 primIONS = nsOf [known KPrimIO]
-
-export
-ioNS : Namespace
-ioNS = nsOf [known KPrelude, known KIO]
-
-export
-reflectionNS : Namespace
-reflectionNS = nsOf [known KLanguage, known KReflection]
 
 export
 reflectionTTNS : Namespace
@@ -285,10 +258,6 @@ reflectionTTImpNS = nsOf [known KLanguage, known KReflection, known KTTImp]
 export
 dpairNS : Namespace
 dpairNS = nsOf [known KBuiltin, known KDPair]
-
-export
-natNS : Namespace
-natNS = nsOf [known KData, known KNat]
 
 export
 list1NS : Namespace

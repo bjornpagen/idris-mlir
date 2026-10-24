@@ -51,14 +51,6 @@ getTypeCons (Bind _ x b scope) = case b of
 getTypeCons (App _ fn _) = getTypeCons fn
 getTypeCons _ = Nothing
 
-||| Get the arguments of a `Term` representing a type.
-getTypeArgs : {vars : _} -> Term vars -> List (vars ** Term vars)
-getTypeArgs (Bind _ x b tm) = case b of
-    Let _ _ val _ => getTypeArgs $ subst {x} val tm
-    Pi _ _ _ arg => (_ ** arg) :: getTypeArgs tm
-    _ => []
-getTypeArgs _ = []
-
 ||| Get all non-erased aruments.
 getNEArgs : {vars : _} -> Term vars -> List (vars ** Term vars)
 getNEArgs (Bind _ x b tm) = case b of

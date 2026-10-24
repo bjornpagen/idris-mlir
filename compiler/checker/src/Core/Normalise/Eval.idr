@@ -632,15 +632,6 @@ evalClosure defs (MkNFClosure opts env nf)
     = applyToStack defs opts env nf []
 
 export
-evalClosureWithOpts : {auto c : Ref Ctxt Defs} ->
-                      {free : _} ->
-                      Defs -> EvalOpts -> Closure free -> Core (NF free)
-evalClosureWithOpts defs opts (MkClosure _ locs env tm)
-    = eval defs opts env locs tm []
-evalClosureWithOpts defs opts (MkNFClosure _ env nf)
-    = applyToStack defs opts env nf []
-
-export
 nf : {auto c : Ref Ctxt Defs} ->
      {vars : _} ->
      Defs -> Env Term vars -> Term vars -> Core (NF vars)
@@ -660,15 +651,6 @@ gnf env tm
              (pure tm)
              (\c => do defs <- get Ctxt
                        nf defs env tm)
-
-export
-gnfOpts : {vars : _} ->
-          EvalOpts -> Env Term vars -> Term vars -> Glued vars
-gnfOpts opts env tm
-    = MkGlue True
-             (pure tm)
-             (\c => do defs <- get Ctxt
-                       nfOpts opts defs env tm)
 
 export
 gType : FC -> Name -> Glued vars

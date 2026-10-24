@@ -54,10 +54,8 @@ parameters (f : RawImp' nm -> RawImp' nm)
   mapFnOpt (GlobalHint b) = GlobalHint b
   mapFnOpt ExternFn = ExternFn
   mapFnOpt (ForeignFn ts) = ForeignFn (mapTTImps ts)
-  mapFnOpt (ForeignExport ts) = ForeignExport (mapTTImps ts)
   mapFnOpt Invertible = Invertible
   mapFnOpt (Totality treq) = Totality treq
-  mapFnOpt Macro = Macro
   mapFnOpt (SpecArgs ns) = SpecArgs ns
 
   mapFnOpts : List (FnOpt' nm) -> List (FnOpt' nm)
@@ -112,7 +110,6 @@ parameters (f : RawImp' nm -> RawImp' nm)
   mapImpDecl (IFail fc mstr xs) = IFail fc mstr (mapImpDecls xs)
   mapImpDecl (INamespace fc mi xs) = INamespace fc mi (mapImpDecls xs)
   mapImpDecl (ITransform fc n t u) = ITransform fc n (mapTTImp t) (mapTTImp u)
-  mapImpDecl (IRunElabDecl fc t) = IRunElabDecl fc (mapTTImp t)
   mapImpDecl (IPragma fc ns g) = IPragma fc ns g
   mapImpDecl (ILog x) = ILog x
   mapImpDecl (IBuiltin fc x n) = IBuiltin fc x n
@@ -171,7 +168,6 @@ parameters (f : RawImp' nm -> RawImp' nm)
   mapTTImp (IQuoteName fc n) = f $ IQuoteName fc n
   mapTTImp (IQuoteDecl fc xs) = f $ IQuoteDecl fc (mapImpDecls xs)
   mapTTImp (IUnquote fc t) = f $ IUnquote fc (mapTTImp t)
-  mapTTImp (IRunElab fc re t) = f $ IRunElab fc re (mapTTImp t)
   mapTTImp (IPrimVal fc c) = f $ IPrimVal fc c
   mapTTImp (IType fc) = f $ IType fc
   mapTTImp (IHole fc str) = f $ IHole fc str

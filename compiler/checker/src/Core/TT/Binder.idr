@@ -176,15 +176,6 @@ Show ty => Show (Binder ty) where
   show (PVTy _ c t) = "pty " ++ showCount c ++ show t
 
 export
-setType : Binder tm -> tm -> Binder tm
-setType (Lam fc c x _) ty = Lam fc c x ty
-setType (Let fc c val _) ty = Let fc c val ty
-setType (Pi fc c x _) ty = Pi fc c x ty
-setType (PVar fc c p _) ty = PVar fc c p ty
-setType (PLet fc c val _) ty = PLet fc c val ty
-setType (PVTy fc c _) ty = PVTy fc c ty
-
-export
 Functor PiInfo where
   map func Explicit = Explicit
   map func Implicit = Implicit

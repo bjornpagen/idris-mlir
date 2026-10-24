@@ -3,7 +3,6 @@
 module TTImp.Elab.App
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 import Core.Value
 
@@ -44,7 +43,6 @@ onLHS _ = False
 -- names. Look in the Env first, then the global context.
 getNameType : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto e : Ref EST (EState vars)} ->
               ElabMode ->
               RigCount -> Env Term vars ->
@@ -56,19 +54,7 @@ getNameType elabMode rigc env fc x
               do rigSafe rigb rigc
                  let binder = getBinder lv env
                  let bty = binderType binder
-
-                 log "metadata.names" 7 $ "getNameType is adding ↓"
-                 addNameType fc x env bty
-
                  when (isLinear rigb) $ update EST { linearUsed $= VarSet.insert (MkVar lv) }
-                 log "ide-mode.highlight" 8
-                     $ "getNameType is trying to add Bound: "
-                      ++ show x ++ " (" ++ show fc ++ ")"
-                 when (isSourceName x) $
-                   whenJust (isConcreteFC fc) $ \nfc => do
-                     log "ide-mode.highlight" 7 $ "getNameType is adding Bound: " ++ show x
-                     addSemanticDecorations [(nfc, Bound, Just x)]
-
                  pure (Local fc (Just (isLet binder)) _ lv, gnf env bty)
            Nothing =>
               do defs <- get Ctxt
@@ -79,18 +65,6 @@ getNameType elabMode rigc env fc x
                    checkDeprecation fc def
                  rigSafe (multiplicity def) rigc
                  let nt = getDefNameType def
-
-                 log "ide-mode.highlight" 8
-                     $ "getNameType is trying to add something for: "
-                      ++ show def.fullname ++ " (" ++ show fc ++ ")"
-
-                 when (isSourceName def.fullname) $
-                   whenJust (isConcreteFC fc) $ \nfc => do
-                     let decor = ifThenElse (isEscapeHatch def) Postulate (nameDecoration def.fullname nt)
-                     log "ide-mode.highlight" 7
-                       $ "getNameType is adding " ++ show decor ++ ": " ++ show def.fullname
-                     addSemanticDecorations [(nfc, decor, Just def.fullname)]
-
                  pure (Ref fc nt (Resolved i), gnf env (embed !(typeOf def)))
   where
     rigSafe : RigCount -> RigCount -> Core ()
@@ -108,7 +82,6 @@ getNameType elabMode rigc env fc x
 -- Get the type of a variable, looking it up in the nested names first.
 getVarType : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto e : Ref EST (EState vars)} ->
              ElabMode ->
              RigCount -> NestedNames vars -> Env Term vars ->
@@ -133,18 +106,6 @@ getVarType elabMode rigc nest env fc x
                                 logTerm "elab" 5 ("Type of " ++ show n') tyenv
                                 logTerm "elab" 5 ("Expands to") tm
                                 log "elab" 5 $ "Arg length " ++ show arglen
-
-                                -- Add the type to the metadata
-                                log "metadata.names" 7 $ "getVarType is adding ↓"
-                                addNameType fc x env tyenv
-
-                                when (isSourceName ndef.fullname) $
-                                  whenJust (isConcreteFC fc) $ \nfc => do
-                                    let decor = nameDecoration ndef.fullname nt
-                                    log "ide-mode.highlight" 7
-                                       $ "getNameType is adding "++ show decor ++": "
-                                                                 ++ show ndef.fullname
-                                    addSemanticDecorations [(nfc, decor, Just ndef.fullname)]
 
                                 pure (tm, arglen, gnf env tyenv)
     where
@@ -171,7 +132,6 @@ isHole _ = False
 -- variable where the names it binds are bound elsewhere.
 unifiedArg : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto e : Ref EST (EState vars)} ->
              RigCount -> ElabInfo -> Env Term vars -> FC ->
@@ -195,7 +155,6 @@ unifiedArg argRig elabinfo env fc nm metaval metaty
 mutual
   makeImplicit : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->
@@ -227,7 +186,6 @@ mutual
 
   makeAutoImplicit : {vars : _} ->
                      {auto c : Ref Ctxt Defs} ->
-                     {auto m : Ref MD Metadata} ->
                      {auto u : Ref UST UState} ->
                      {auto dl : Ref DLY DelayedElabs} ->
                      {auto e : Ref EST (EState vars)} ->
@@ -283,7 +241,6 @@ mutual
 
   makeDefImplicit : {vars : _} ->
                     {auto c : Ref Ctxt Defs} ->
-                    {auto m : Ref MD Metadata} ->
                     {auto u : Ref UST UState} ->
                     {auto dl : Ref DLY DelayedElabs} ->
                     {auto e : Ref EST (EState vars)} ->
@@ -380,7 +337,6 @@ mutual
   checkValidPattern :
     {vars : _} ->
     {auto c : Ref Ctxt Defs} ->
-    {auto m : Ref MD Metadata} ->
     {auto u : Ref UST UState} ->
     {auto e : Ref EST (EState vars)} ->
     RigCount -> Env Term vars -> FC ->
@@ -454,7 +410,6 @@ mutual
   -- disambiguation when elaborating the argument.
   checkRestApp : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->
@@ -620,7 +575,6 @@ mutual
   -- Returns the checked term and its (weakly) normalised type
   checkAppWith' : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->
@@ -799,7 +753,6 @@ mutual
   ||| that it ought to be forced by another pattern somewhere else in the LHS.
   checkAppWith : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->
@@ -836,7 +789,6 @@ mutual
 export
 checkApp : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto e : Ref EST (EState vars)} ->
@@ -861,8 +813,6 @@ checkApp rig elabinfo nest env fc (IVar fc' n) expargs autoargs namedargs exp
         nty <- getNF nty_in
         prims <- getPrimitiveNames
         elabinfo <- updateElabInfo prims elabinfo.elabMode n expargs elabinfo
-
-        addNameLoc fc' n
 
         logC "elab" 10
                 (do defs <- get Ctxt

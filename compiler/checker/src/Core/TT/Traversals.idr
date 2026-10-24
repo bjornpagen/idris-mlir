@@ -15,13 +15,6 @@ import Libraries.Data.NameMap
 -- so that each recursive call is on a part of the term it was given and
 -- each traversal is total by its structure.
 
--- TODO fix future type error
-export
-unBinds : Term vars -> Exists (\ outer => Term (outer <>> vars))
-unBinds (Bind _ x _ scope) = let (Evidence outer t) = unBinds scope in
-                             Evidence (outer :< x) t
-unBinds t = Evidence [<] t
-
 export
 onPRefs : Monoid m =>
           (Name      -> m) ->
@@ -60,10 +53,6 @@ onPRefs f = go neutral where
   inBinder (PVTy _ _ ty) = go neutral ty
 
 export
-allGlobals : Term vars -> NameMap ()
-allGlobals = onPRefs (\ n => singleton n ())
-
-export
 onConstants : Monoid m =>
           (Constant  -> m) ->
           (Term vars -> m)
@@ -99,10 +88,6 @@ onConstants f = go neutral where
   inBinder (PVar _ _ _ ty) = go neutral ty
   inBinder (PLet _ _ val ty) = go neutral val <+> go neutral ty
   inBinder (PVTy _ _ ty) = go neutral ty
-
-export
-allConstants : Term vars -> SortedSet Constant
-allConstants = onConstants @{MkMonoid @{MkSemigroup union} empty} singleton
 
 export
 mapTermM : Monad m =>

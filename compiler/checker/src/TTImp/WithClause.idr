@@ -3,7 +3,6 @@
 module TTImp.WithClause
 
 import Core.Context.Log
-import Core.Metadata
 
 import TTImp.BindImplicits
 import TTImp.TTImp
@@ -24,39 +23,26 @@ getHeadLoc (IAutoApp _ f _) = getHeadLoc f
 getHeadLoc (INamedApp _ f _ _) = getHeadLoc f
 getHeadLoc t = getFC t
 
-addAlias : {auto m : Ref MD Metadata} ->
-           {auto c : Ref Ctxt Defs} ->
-           FC -> FC -> Core ()
-addAlias from to =
-  whenJust (isConcreteFC from) $ \ from =>
-    whenJust (isConcreteFC to) $ \ to => do
-      log "ide-mode.highlight.alias" 25 $
-        "Adding alias: " ++ show from ++ " -> " ++ show to
-      addSemanticAlias from to
-
 mutual
   export
-  getMatch : {auto m : Ref MD Metadata} ->
-             {auto c : Ref Ctxt Defs} ->
+  getMatch : {auto c : Ref Ctxt Defs} ->
              (lhs : Bool) -> RawImp -> RawImp ->
              Core (List (Name, RawImp))
-  getMatch lhs (IBindVar to n) tm@(IBindVar from _)
-      = [(n, tm)] <$ addAlias from to
   getMatch lhs (IBindVar _ n) tm = pure [(n, tm)]
   getMatch lhs (Implicit {}) tm = pure []
   getMatch lhs _ (IMustUnify _ UserDotted _) = pure []
 
   getMatch lhs (IVar to (NS ns n)) (IVar from (NS ns' n'))
       = if n == n' && isParentOf ns' ns
-          then [] <$ addAlias from to -- <$ decorateName loc nm
+          then pure []
           else matchFail from
   getMatch lhs (IVar to (NS ns n)) (IVar from n')
       = if n == n'
-          then [] <$ addAlias from to -- <$ decorateName loc (NS ns n')
+          then pure []
           else matchFail from
   getMatch lhs (IVar to n) (IVar from n')
       = if n == n'
-          then [] <$ addAlias from to -- <$ decorateName loc n'
+          then pure []
           else matchFail from
   getMatch lhs (IPi _ c p n arg ret) (IPi loc c' p' n' arg' ret')
       = if c == c' && eqPiInfoBy (\_, _ => True) p p' && n == n'
@@ -114,8 +100,7 @@ mutual
     else matchFail fc'
   getMatch lhs pat spec = matchFail (getFC spec)
 
-  matchAny : {auto m : Ref MD Metadata} ->
-             {auto c : Ref Ctxt Defs} ->
+  matchAny : {auto c : Ref Ctxt Defs} ->
              FC -> (lhs : Bool) -> List (RawImp, RawImp) ->
              Core (List (Name, RawImp))
   matchAny fc lhs [] = matchFail fc
@@ -123,8 +108,7 @@ mutual
       = catch (getMatch lhs x y)
               (\err => matchAny fc lhs ms)
 
-  matchAll : {auto m : Ref MD Metadata} ->
-             {auto c : Ref Ctxt Defs} ->
+  matchAll : {auto c : Ref Ctxt Defs} ->
              (lhs : Bool) -> List (RawImp, RawImp) ->
              Core (List (Name, RawImp))
   matchAll lhs [] = pure []
@@ -133,8 +117,7 @@ mutual
            mxy <- getMatch lhs x y
            mergeMatches lhs (mxy ++ matches)
 
-  mergeMatches : {auto m : Ref MD Metadata} ->
-                 {auto c : Ref Ctxt Defs} ->
+  mergeMatches : {auto c : Ref Ctxt Defs} ->
                  (lhs : Bool) -> List (Name, RawImp) ->
                  Core (List (Name, RawImp))
   mergeMatches lhs [] = pure []
@@ -172,7 +155,6 @@ getArgMatch ploc mode search warg ms (Just (_, nm))
 
 export
 getNewLHS : {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             FC -> (drop : Nat) -> NestedNames vars ->
             Name -> List (Maybe (PiInfo RawImp, Name)) ->
             RawImp -> RawImp -> Core RawImp
@@ -222,7 +204,6 @@ getNewLHS iploc drop nest wname wargnames lhs_raw patlhs
 -- Find a 'with' application on the RHS and update it
 export
 withRHS : {auto c : Ref Ctxt Defs} ->
-          {auto m : Ref MD Metadata} ->
           FC -> (drop : Nat) -> Name -> List (Maybe (PiInfo RawImp, Name)) ->
           RawImp -> RawImp ->
           Core RawImp

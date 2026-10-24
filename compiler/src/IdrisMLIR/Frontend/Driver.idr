@@ -37,7 +37,6 @@ import Core.Context
 import Core.Core
 import Core.Directory
 import Core.InitPrimitives
-import Core.Metadata
 import Core.Options
 import Core.UnifyState
 
@@ -254,12 +253,14 @@ siteOf main (Refused r) = r.site
 siteOf main (ByIdris e) = fromMaybe main (getErrorLoc e >>= isNonEmptyFC)
 
 ||| A rejection as a refusal of a rule at its site (`siteOf`). Idris's own
-||| error is a refusal of the rule `Elaboration`, its message Core's print
-||| of the error: Idris's renderer (`Idris.Error.perror`) is covering, and
-||| the frontend is total.
-refusalOf : (main : NonEmptyFC) -> Rejection -> (SomeRule, NonEmptyFC, String)
-refusalOf main r@(Refused refusal) = (refusal.rule, siteOf main r, refusal.message)
-refusalOf main r@(ByIdris e) = (Refusal Elaboration, siteOf main r, show e)
+||| error is a refusal of the rule `Elaboration`, its message the error's
+||| text by Idris's one renderer (`host.errorText`), which a `failing`
+||| block matches.
+refusalOf : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
+            {auto o : Ref ROpts REPLOpts} ->
+            (main : NonEmptyFC) -> Rejection -> Core (SomeRule, NonEmptyFC, String)
+refusalOf main r@(Refused refusal) = pure (refusal.rule, siteOf main r, refusal.message)
+refusalOf main r@(ByIdris e) = pure (Refusal Elaboration, siteOf main r, !(host.errorText e))
 
 ||| The program refused: its refusals written, in the order given, into the
 ||| module at `out`, with no Core and nothing printed, since idris-mlir
@@ -274,11 +275,14 @@ refusedAt out rs = do
 ||| the one the modules already read (none, when Idris could not build the
 ||| program) hold, or what `lacking` says, once the session is done, a
 ||| module they lack is (`moduleRefusals`).
-refusing : {auto c : Ref Ctxt Defs} -> Modules -> (lacking : Core (ModuleIdent -> Lacked)) -> (main : NonEmptyFC) ->
+refusing : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
+           {auto o : Ref ROpts REPLOpts} ->
+           Modules -> (lacking : Core (ModuleIdent -> Lacked)) -> (main : NonEmptyFC) ->
            (out : String) -> List1 Rejection -> Core ()
 refusing loaded lacking main out rs = do
   lacked <- lacking
-  refusedAt out !(moduleRefusals lacked loaded (map (refusalOf main) rs))
+  refusals <- traverseList1 (refusalOf main) rs
+  refusedAt out !(moduleRefusals lacked loaded refusals)
 
 ||| What a module a refusal of a session that loaded no program names is,
 ||| where no table holds it: one Idris found, read at the home it found it
@@ -296,10 +300,11 @@ building = do
 ||| does not locate): there is no main file's start to put it at. Its rule
 ||| and message are `refusalOf`'s for Idris's error. Essential: Idris
 ||| locates the error or it does not.
-unnamed : {auto c : Ref Ctxt Defs} -> (out : String) -> Error -> Core ()
+unnamed : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
+          {auto o : Ref ROpts REPLOpts} -> (out : String) -> Error -> Core ()
 unnamed out err = do
   let rule : SomeRule = Refusal Elaboration
-      message = show err
+  message <- host.errorText err
   refusals <- case the (Maybe NonEmptyFC) (getErrorLoc err >>= isNonEmptyFC) of
     Just site => do
       lacked <- building
@@ -349,12 +354,11 @@ perform (Compile timing out source) = do
         InternalError _ => throw err
         _ => refusing SortedMap.empty building main out (singleton (ByIdris err))
 perform (PackageCommand timing cmd file) = do
-  p <- newRef PostS defaultPost
   -- Timed, Idris prints its own phases as it runs them (`logTime`), and
   -- the command's whole time is the file's.
   when (isJust timing) $ setSession ({ logTimings := Just 1 } !getSession)
   start <- now
-  ignore (host.processPackageOpts [Package cmd (Just file)])
+  host.processPackage cmd file
   end <- now
   reportTimes timing [(pack (dropWhile (== '-') (unpack (show cmd))), end - start)]
 perform LibDir = coreLift (putStrLn !pkgGlobalDirectory)
@@ -370,28 +374,37 @@ frontend r = do
         Compile _ _ source => (Just source, NoneLvl)
         _ => (Nothing, InfoLvl)
   o <- newRef ROpts (defaultOpts mainFile verbosity)
-  -- What Idris prints is the same on any terminal: no colour, and no
-  -- line broken at the terminal's width.
-  setColor False
-  setConsoleWidth (Just 0)
   addPrimitives
-  catch (do session r; perform r.task) $ \err => case (r.task, err) of
-    -- The compiler's own error is printed whatever the task. Essential:
-    -- the refusal and the compiler's failure are two outcomes (3 and 1).
-    (Compile _ _ _, InternalError _) => do
-      update ROpts { verbosity := ErrorLvl }
-      printed err
-    -- Once the main module is named `perform` refuses each error but the
-    -- compiler's own, so a compilation's error here came before it was
-    -- named, or in refusing another.
-    (Compile _ out _, _) => unnamed out err
-    _ => printed err
+  catch (catch (do session r; perform r.task) handled) failed
   where
     printed : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} -> {auto o : Ref ROpts REPLOpts} ->
               Error -> Core ()
     printed err = do
       showingItsSource err
       host.emitError err
+      coreLift (exitWith (statusOf err))
+
+    handled : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} -> {auto o : Ref ROpts REPLOpts} ->
+              Error -> Core ()
+    handled err = case (r.task, err) of
+      -- The compiler's own error is printed whatever the task. Essential:
+      -- the refusal and the compiler's failure are two outcomes (3 and 1).
+      (Compile _ _ _, InternalError _) => do
+        update ROpts { verbosity := ErrorLvl }
+        printed err
+      -- Once the main module is named `perform` refuses each error but the
+      -- compiler's own, so a compilation's error here came before it was
+      -- named, or in refusing another.
+      (Compile _ out _, _) => unnamed out err
+      _ => printed err
+
+    -- An error raised while one was handled (a refused program's module
+    -- that cannot be written, ...), its text on stderr.
+    failed : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} -> {auto o : Ref ROpts REPLOpts} ->
+             Error -> Core ()
+    failed err = do
+      text <- host.errorText err
+      coreLift (ignore (fPutStrLn stderr ("idris-mlir-front: " ++ text)))
       coreLift (exitWith (statusOf err))
 
 main : IO ()
@@ -401,7 +414,6 @@ main = do
     Left msg => do
       ignore (fPutStrLn stderr ("idris-mlir-front: " ++ msg ++ "\n" ++ synopsis))
       exitWith (ExitFailure 2)
-    Right r => coreRun (frontend r)
-                 (\err => do ignore (fPutStrLn stderr ("idris-mlir-front: " ++ show err))
-                             exitWith (statusOf err))
-                 pure
+    -- Every error after the session's state is made is handled in
+    -- `frontend`, and making that state raises none.
+    Right r => coreRun (frontend r) (\_ => exitWith (ExitFailure 1)) pure

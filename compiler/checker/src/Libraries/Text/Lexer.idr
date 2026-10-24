@@ -149,12 +149,6 @@ hexDigits = some (pred isHexDigit)
 octDigits : Lexer
 octDigits = some (pred isOctDigit)
 
-||| One letter or digit.
-||| /[A-Za-z0-9]/
-export
-alphaNum : Lexer
-alphaNum = pred isAlphaNum
-
 ||| One whitespace character.
 ||| /\\s/
 export

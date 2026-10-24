@@ -3,7 +3,6 @@
 module TTImp.Elab.Record
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 import Core.Value
 
@@ -264,7 +263,6 @@ needType _ = False
 -- lambda would capture checkUpdate's cell.
 checkUpdateDelayed : {vars : _} ->
                      {auto c : Ref Ctxt Defs} ->
-                     {auto m : Ref MD Metadata} ->
                      {auto u : Ref UST UState} ->
                      {auto dl : Ref DLY DelayedElabs} ->
                      {auto e : Ref EST (EState vars)} ->
@@ -285,7 +283,6 @@ checkUpdateDelayed rig elabinfo nest env fc upds rec solvemode given delayed rec
 export
 checkUpdate : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto e : Ref EST (EState vars)} ->

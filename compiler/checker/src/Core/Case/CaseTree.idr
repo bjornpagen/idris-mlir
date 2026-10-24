@@ -256,29 +256,6 @@ export
 {vars : _} -> Show (CaseAlt vars) where
   show = showCA showTerm ""
 
-mutual
-  export
-  eqTree : CaseTree vs -> CaseTree vs' -> Bool
-  eqTree (Case i _ _ alts) (Case i' _ _ alts')
-      = i == i'
-       && length alts == length alts'
-       && all (uncurry eqAlt) (zip alts alts')
-  eqTree (STerm _ t) (STerm _ t') = eqTerm t t'
-  eqTree (Unmatched _) (Unmatched _) = True
-  eqTree Impossible Impossible = True
-  eqTree _ _ = False
-
-  eqAlt : CaseAlt vs -> CaseAlt vs' -> Bool
-  eqAlt (ConCase n t args tree) (ConCase n' t' args' tree')
-      = n == n' && eqTree tree tree' -- assume arities match, since name does
-  eqAlt (DelayCase _ _ tree) (DelayCase _ _ tree')
-      = eqTree tree tree'
-  eqAlt (ConstCase c tree) (ConstCase c' tree')
-      = c == c' && eqTree tree tree'
-  eqAlt (DefaultCase tree) (DefaultCase tree')
-      = eqTree tree tree'
-  eqAlt _ _ = False
-
 -- A pattern shown with the patterns it holds shown by a function of its
 -- own, so that every recursive call is on a part of its argument.
 mutual

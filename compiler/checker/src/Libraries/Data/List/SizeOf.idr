@@ -14,10 +14,6 @@ record SizeOf {a : Type} (xs : List a) where
   size        : Nat
   0 hasLength : HasLength size xs
 
-export
-0 theList : SizeOf {a} xs -> List a
-theList _ = xs
-
 public export
 zero : SizeOf []
 zero = MkSizeOf Z Z

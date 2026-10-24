@@ -3,7 +3,6 @@
 module TTImp.ProcessTransform
 
 import Core.Env
-import Core.Metadata
 import Core.UnifyState
 
 import Idris.REPL.Opts
@@ -27,7 +26,6 @@ import Libraries.Data.VarSet
 export
 processTransform : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
-                   {auto m : Ref MD Metadata} ->
                    {auto u : Ref UST UState} ->
                    {auto dl : Ref DLY DelayedElabs} ->
                    {auto s : Ref Syn SyntaxInfo} ->
@@ -42,7 +40,6 @@ processTransform eopts nest env fc tn_in lhs rhs
          logTerm "transform.lhs" 3 "Transform LHS" lhstm
          rhstm <- wrapError (InRHS fc tn_in) $
                        checkTermSub tidx InExpr (InTrans :: eopts) nest' env' env sub' rhs (gnf env' lhsty)
-         clearHoleLHS
          logTerm "transform.rhs" 3 "Transform RHS" rhstm
          case getFn lhstm of
               Ref {} => pure ()

@@ -478,14 +478,6 @@ getMissingAlts fc defs nfty alts
 KnownVars : Scope -> Type -> Type
 KnownVars vars a = List (Var vars, a)
 
-showK : {ns : _} ->
-        Show a => KnownVars ns a -> String
-showK {a} xs = show (map aString xs)
-  where
-    aString : {vars : Scope} ->
-              (Var vars, a) -> (Name, a)
-    aString (MkVar v, t) = (nameAt v, t)
-
 -- TODO re-use `Thinnable`
 weakenNs : SizeOf args -> KnownVars vars a -> KnownVars (args ++ vars) a
 weakenNs args [] = []

@@ -171,12 +171,6 @@ export
 allLessThan : Nat -> NatSet
 allLessThan n = let (q, b) = place n in copies q oneBits (word (bitAt b - 1) [])
 
-0 allLessThanSpecEmpty : NatSet.toList (allLessThan 0) === []
-allLessThanSpecEmpty = Refl
-
-0 allLessThanSpecNonEmpty : NatSet.toList (allLessThan 10) === [0..9]
-allLessThanSpecNonEmpty = Refl
-
 export
 overwrite : a -> NatSet -> List a -> List a
 overwrite c [] xs = xs
@@ -208,21 +202,6 @@ up b c (w :: ws) = word (prim__shl_Bits64 w b .|. c) (up b (prim__shr_Bits64 w (
 export %inline
 popZ : NatSet -> NatSet
 popZ = down 1
-
--- Pop the positions below `n` and shift the others by `-n`: whole words go,
--- then the bits left below 64 are shifted out.
-export
-popNs : Nat -> NatSet -> NatSet
-popNs n ns = let (q, b) = place n in bits b (whole q ns)
-  where
-    whole : Nat -> List Bits64 -> List Bits64
-    whole Z ws = ws
-    whole (S _) [] = []
-    whole (S q) (_ :: ws) = whole q ws
-
-    bits : Bits64 -> List Bits64 -> List Bits64
-    bits 0 ws = ws
-    bits b ws = down b ws
 
 -- Add a 'new' Zero (not in the set) and shift all the
 -- other positions by +1 (useful when going under a binder)

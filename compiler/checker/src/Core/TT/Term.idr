@@ -491,12 +491,6 @@ apply loc fn (a :: args) = apply loc (App loc fn a) args
 
 -- Creates a chain of `App` nodes, each with its own file context
 export
-applySpineWithFC : Term vars -> SnocList (FC, Term vars) -> Term vars
-applySpineWithFC fn [<] = fn
-applySpineWithFC fn (args :< (fc, arg)) = App fc (applySpineWithFC fn args) arg
-
--- Creates a chain of `App` nodes, each with its own file context
-export
 applyStackWithFC : Term vars -> List (FC, Term vars) -> Term vars
 applyStackWithFC fn [] = fn
 applyStackWithFC fn ((fc, arg) :: args) = applyStackWithFC (App fc fn arg) args
@@ -505,10 +499,6 @@ applyStackWithFC fn ((fc, arg) :: args) = applyStackWithFC (App fc fn arg) args
 export
 fnType : FC -> Term vars -> Term vars -> Term vars
 fnType fc arg scope = Bind emptyFC (MN (known K_) 0) (Pi fc top Explicit arg) (weaken scope)
-
-export
-linFnType : FC -> Term vars -> Term vars -> Term vars
-linFnType fc arg scope = Bind emptyFC (MN (known K_) 0) (Pi fc linear Explicit arg) (weaken scope)
 
 export
 getFnArgs : Term vars -> (Term vars, List (Term vars))

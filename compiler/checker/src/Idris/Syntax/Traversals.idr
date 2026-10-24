@@ -97,8 +97,6 @@ mapPTermM f = goPTerm where
     goPTerm (PUnquote fc x) =
       PUnquote fc <$> goPTerm x
       >>= f
-    goPTerm (PRunElab fc x) =
-      PRunElab fc <$> goPTerm x
       >>= f
     goPTerm t@(PHole {}) = f t
     goPTerm t@(PType {}) = f t
@@ -311,7 +309,6 @@ mapPTermM f = goPTerm where
     goPDecl (PFixity p) = pure (PFixity p)
     goPDecl (PNamespace strs ps) = PNamespace strs <$> goPDecls ps
     goPDecl (PTransform n a b) = PTransform n <$> goPTerm a <*> goPTerm b
-    goPDecl (PRunElabDecl a) = PRunElabDecl <$> goPTerm a
     goPDecl (PDirective d) = pure (PDirective d)
     goPDecl p@(PBuiltin {}) = pure p
 
@@ -336,7 +333,6 @@ mapPTermM f = goPTerm where
     goPFnOpt : PFnOpt' nm -> Core (PFnOpt' nm)
     goPFnOpt o@(IFnOpt {}) = pure o
     goPFnOpt (PForeign ts) = PForeign <$> goPTerms ts
-    goPFnOpt (PForeignExport ts) = PForeignExport <$> goPTerms ts
 
     goMPTerm : Maybe (PTerm' nm) -> Core (Maybe $ PTerm' nm)
     goMPTerm Nothing  = pure Nothing
@@ -473,8 +469,6 @@ mapPTerm f = goPTerm where
       = f $ PQuoteDecl fc (goPDecls x)
     goPTerm (PUnquote fc x)
       = f $ PUnquote fc $ goPTerm x
-    goPTerm (PRunElab fc x)
-      = f $ PRunElab fc $ goPTerm x
     goPTerm t@(PHole {}) = f t
     goPTerm t@(PType {}) = f t
     goPTerm (PAs fc nameFC x pat)
@@ -596,7 +590,6 @@ mapPTerm f = goPTerm where
     goPDecl (PFixity p) = PFixity p
     goPDecl (PNamespace strs ps) = PNamespace strs $ goPDecls ps
     goPDecl (PTransform n a b) = PTransform n (goPTerm a) (goPTerm b)
-    goPDecl (PRunElabDecl a) = PRunElabDecl $ goPTerm a
     goPDecl (PDirective d) = PDirective d
     goPDecl p@(PBuiltin {}) = p
 
@@ -628,7 +621,6 @@ mapPTerm f = goPTerm where
     goPFnOpt : PFnOpt' nm -> PFnOpt' nm
     goPFnOpt o@(IFnOpt {}) = o
     goPFnOpt (PForeign ts) = PForeign $ goPTerms ts
-    goPFnOpt (PForeignExport ts) = PForeignExport $ goPTerms ts
 
     goMPTerm : Maybe (PTerm' nm) -> Maybe (PTerm' nm)
     goMPTerm Nothing  = Nothing
@@ -747,8 +739,7 @@ substFC fc = mapPTerm $ \case
   PQuoteName _ n => PQuoteName fc n
   PQuoteDecl _ xs => PQuoteDecl fc xs
   PUnquote _ x => PUnquote fc x
-  PRunElab _ x => PRunElab fc x
-  PHole _ bracket holename => PHole fc bracket holename
+  PHole _ holename => PHole fc holename
   PType _ => PType fc
   PAs _ _ n pattern => PAs fc fc n pattern
   PDotted _ x => PDotted fc x

@@ -37,7 +37,3 @@ interpolateName = NS preludeNS (knownUN Kinterpolate)
 export
 eqName : Name
 eqName = NS builtinNS (knownUN KHomoEq)
-
-export
-heqName : Name
-heqName = NS builtinNS (knownUN KHeteroEq)

@@ -124,7 +124,6 @@ mutual
        IQuoteName : FC -> Name -> RawImp' nm
        IQuoteDecl : FC -> List (ImpDecl' nm) -> RawImp' nm
        IUnquote : FC -> RawImp' nm -> RawImp' nm
-       IRunElab : FC -> (requireExtension : Bool) -> RawImp' nm -> RawImp' nm
 
        IPrimVal : FC -> (c : Constant) -> RawImp' nm
        IType : FC -> RawImp' nm
@@ -236,7 +235,6 @@ mutual
       show (IQuoteName fc tm) = "(%quotename " ++ show tm ++ ")"
       show (IQuoteDecl fc tm) = "(%quotedecl " ++ show tm ++ ")"
       show (IUnquote fc tm) = "(%unquote " ++ show tm ++ ")"
-      show (IRunElab fc _ tm) = "(%runelab " ++ show tm ++ ")"
       show (IPrimVal fc c) = show c
       show (IHole _ x) = "?" ++ x.text
       show (IUnifyLog _ lvl x) = "(%logging " ++ show lvl ++ " " ++ show x ++ ")"
@@ -272,11 +270,9 @@ mutual
        -- Defined externally, list calling conventions
        ForeignFn : List (RawImp' nm) -> FnOpt' nm
        -- Mark for export to a foreign language, list calling conventions
-       ForeignExport : List (RawImp' nm) -> FnOpt' nm
        -- assume safe to cancel arguments in unification
        Invertible : FnOpt' nm
        Totality : TotalReq -> FnOpt' nm
-       Macro : FnOpt' nm
        SpecArgs : List Name -> FnOpt' nm
   %name FnOpt' fopt
 
@@ -306,12 +302,10 @@ mutual
     show (GlobalHint t) = "%globalhint " ++ show t
     show ExternFn = "%extern"
     show (ForeignFn cs) = "%foreign " ++ showSep " " (map show cs)
-    show (ForeignExport cs) = "%export " ++ showSep " " (map show cs)
     show Invertible = "%invertible"
     show (Totality Total) = "total"
     show (Totality CoveringOnly) = "covering"
     show (Totality PartialOK) = "partial"
-    show Macro = "%macro"
     show (SpecArgs ns) = "%spec " ++ showSep " " (map show ns)
 
   export
@@ -324,10 +318,8 @@ mutual
     (GlobalHint x) == (GlobalHint y) = x == y
     ExternFn == ExternFn = True
     (ForeignFn xs) == (ForeignFn ys) = True -- xs == ys
-    (ForeignExport xs) == (ForeignExport ys) = True -- xs == ys
     Invertible == Invertible = True
     (Totality tot_lhs) == (Totality tot_rhs) = tot_lhs == tot_rhs
-    Macro == Macro = True
     (SpecArgs ns) == (SpecArgs ns') = ns == ns'
     _ == _ = False
 
@@ -394,10 +386,6 @@ mutual
   public export
   toOldParams : ImpParameter' (RawImp' nm) -> OldParameters' nm
   toOldParams bind = (bind.name.val, bind.rig, bind.val.info, bind.val.boundType)
-
-  public export
-  fromOldParams : OldParameters' nm -> ImpParameter' (RawImp' nm)
-  fromOldParams (nm, rig, info,type) = MkWithRigName rig (NoFC nm) (MkPiBindData info type)
 
   export
   Show nm => Show (ImpParameter' nm) where
@@ -550,8 +538,6 @@ mutual
        PrimTTImpPragma : Name -> Pragma
        PrimNamePragma : Name -> Pragma
        PrimDeclsPragma : Name -> Pragma
-       CGActionPragma : String -> String -> Pragma
-       NamesPragma : Name -> List String -> Pragma
        OverloadablePragma : Name -> Pragma
        ExtensionPragma : LangExt -> Pragma
        DefaultTotalityPragma : TotalReq -> Pragma
@@ -573,7 +559,6 @@ mutual
        IFail : FC -> Maybe String -> List (ImpDecl' nm) -> ImpDecl' nm
        INamespace : FC -> Namespace -> List (ImpDecl' nm) -> ImpDecl' nm
        ITransform : FC -> Name -> RawImp' nm -> RawImp' nm -> ImpDecl' nm
-       IRunElabDecl : FC -> RawImp' nm -> ImpDecl' nm
        IPragma : FC -> List Name -> -- pragmas might define names that wouldn't
                                     -- otherwise be spotted in 'definedInBlock' so they
                                     -- can be flagged here.
@@ -608,8 +593,6 @@ mutual
         showSep "\n" (showDecls decls)
   showDecl (ITransform _ n lhs rhs)
       = "%transform " ++ show n ++ " " ++ show lhs ++ " ==> " ++ show rhs
-  showDecl (IRunElabDecl _ tm)
-      = "%runElab " ++ show tm
   showDecl (IPragma {}) = "[externally defined pragma]"
   showDecl (ILog Nothing) = "%logging off"
   showDecl (ILog (Just (topic, lvl))) = "%logging " ++ case topic of
@@ -739,7 +722,6 @@ findIBinds (IDelay fc tm) = findIBinds tm
 findIBinds (IForce fc tm) = findIBinds tm
 findIBinds (IQuote fc tm) = findIBinds tm
 findIBinds (IUnquote fc tm) = findIBinds tm
-findIBinds (IRunElab fc _ tm) = findIBinds tm
 findIBinds (IBindHere _ _ tm) = findIBinds tm
 findIBinds (IBindVar _ (UN (Basic n))) = [n]
 findIBinds (IUpdate fc updates tm)
@@ -777,7 +759,6 @@ findImplicits (IDelay fc tm) = findImplicits tm
 findImplicits (IForce fc tm) = findImplicits tm
 findImplicits (IQuote fc tm) = findImplicits tm
 findImplicits (IUnquote fc tm) = findImplicits tm
-findImplicits (IRunElab fc _ tm) = findImplicits tm
 findImplicits (IBindVar _ (UN (Basic n))) = [n]
 findImplicits (IUpdate fc updates tm)
     = findImplicits tm ++ concatMap (findImplicits . getFieldUpdateTerm) updates
@@ -1021,7 +1002,6 @@ getFC (IQuote x _) = x
 getFC (IQuoteName x _) = x
 getFC (IQuoteDecl x _) = x
 getFC (IUnquote x _) = x
-getFC (IRunElab x _ _) = x
 getFC (IAs x _ _ _ _) = x
 getFC (Implicit x _) = x
 getFC (IWithUnambigNames x _ _) = x
@@ -1038,7 +1018,6 @@ namespace ImpDecl
   getFC (IFail fc _ _) = fc
   getFC (INamespace fc _ _) = fc
   getFC (ITransform fc _ _ _) = fc
-  getFC (IRunElabDecl fc _) = fc
   getFC (IPragma fc _ _) = fc
   getFC (ILog _) = EmptyFC
   getFC (IBuiltin fc _ _) = fc
@@ -1062,12 +1041,6 @@ export
 isExplicit : Arg' nm -> Maybe (FC, RawImp' nm)
 isExplicit (Explicit fc t) = Just (fc, t)
 isExplicit _ = Nothing
-
-export
-unIArg : Arg' nm -> RawImp' nm
-unIArg (Explicit _ t) = t
-unIArg (Auto _ t) = t
-unIArg (Named _ _ t) = t
 
 export
 covering

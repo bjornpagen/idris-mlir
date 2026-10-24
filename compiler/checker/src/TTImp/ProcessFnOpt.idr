@@ -67,15 +67,11 @@ processFnOpt fc _ ndef ExternFn
     = setFlag fc ndef Inline -- if externally defined, inline when compiling
 processFnOpt fc _ ndef (ForeignFn _)
     = setFlag fc ndef Inline -- if externally defined, inline when compiling
-processFnOpt fc _ ndef (ForeignExport _)
-    = pure ()
 processFnOpt fc _ ndef Invertible
     = setFlag fc ndef Invertible
 processFnOpt fc _ ndef (Totality tot)
     = do throwIfHasTotality fc ndef "Multiple totality modifiers"
          setFlag fc ndef (SetTotal tot)
-processFnOpt fc _ ndef Macro
-    = setFlag fc ndef Macro
 processFnOpt fc _ ndef (SpecArgs ns)
     = do defs <- get Ctxt
          Just gdef <- lookupCtxtExact ndef (gamma defs)

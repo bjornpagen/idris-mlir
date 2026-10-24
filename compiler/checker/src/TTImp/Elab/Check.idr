@@ -6,7 +6,6 @@ module TTImp.Elab.Check
 -- reading and writing elaboration state
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 import Core.Value
 
@@ -102,11 +101,6 @@ bindingRig : ImplBinding vars -> RigCount
 bindingRig (NameBinding _ c _ _ _) = c
 bindingRig (AsBinding c _ _ _ _) = c
 
-export
-bindingPiInfo : ImplBinding vars -> PiInfo (Term vars)
-bindingPiInfo (NameBinding _ _ p _ _) = p
-bindingPiInfo (AsBinding _ p _ _ _) = p
-
 -- Current elaboration state (preserved/updated throughout elaboration)
 public export
 record EState (vars : Scope) where
@@ -175,11 +169,6 @@ initEStateSub n env sub = MkEState
     , unambiguousNames = empty
     , marks = []
     }
-
-export
-initEState : {vars : _} ->
-             Int -> Env Term vars -> EState vars
-initEState n env = initEStateSub n env Refl
 
 export
 saveHole : {auto e : Ref EST (EState vars)} ->
@@ -293,12 +282,6 @@ inScope {c} {e} fc env elab
          st' <- strengthenedEState c e' fc env
          put {ref=e} EST st'
          pure res
-
-export
-mustBePoly : {auto e : Ref EST (EState vars)} ->
-             FC -> Env Term vars ->
-             Term vars -> Term vars -> Core ()
-mustBePoly fc env tm ty = update EST { polyMetavars $= ((fc, env, tm, ty) :: ) }
 
 -- Return whether we already know the return type of the given function
 -- type. If we know this, we can possibly infer some argument types before
@@ -485,7 +468,6 @@ initElabInfo m = MkElabInfo m NONE False True False
 export
 tryError : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto e : Ref EST (EState vars)} ->
@@ -494,7 +476,6 @@ tryError elab
     = do ust <- get UST
          dls <- get DLY
          est <- get EST
-         md <- get MD
          defs <- branch
          catch (do res <- elab
                    commit
@@ -502,7 +483,6 @@ tryError elab
                (\err => do put UST ust
                            put DLY dls
                            put EST est
-                           put MD md
                            defs' <- get Ctxt
                            put Ctxt ({ timings := timings defs' } defs)
                            pure (Left err))
@@ -510,7 +490,6 @@ tryError elab
 export
 try : {vars : _} ->
       {auto c : Ref Ctxt Defs} ->
-      {auto m : Ref MD Metadata} ->
       {auto u : Ref UST UState} ->
       {auto dl : Ref DLY DelayedElabs} ->
       {auto e : Ref EST (EState vars)} ->
@@ -523,7 +502,6 @@ try elab1 elab2
 export
 handle : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
-         {auto m : Ref MD Metadata} ->
          {auto u : Ref UST UState} ->
          {auto dl : Ref DLY DelayedElabs} ->
          {auto e : Ref EST (EState vars)} ->
@@ -535,14 +513,13 @@ handle elab1 elab2
 
 successful : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
              Bool -> -- constraints allowed
              List (Maybe Name, Core a) ->
              Core (List (Either (Maybe Name, Error)
-                                (Nat, a, Defs, (UState, DelayedElabs), EState vars, Metadata)))
+                                (Nat, a, Defs, (UState, DelayedElabs), EState vars)))
 successful allowCons [] = pure []
 successful allowCons ((tm, elab) :: elabs)
     = do ust <- get UST
@@ -551,7 +528,6 @@ successful allowCons ((tm, elab) :: elabs)
                         then 0
                         else length (toList (guesses ust))
          est <- get EST
-         md <- get MD
          defs <- branch
          catch (do -- Run the elaborator
                    logC "elab" 5 $
@@ -567,14 +543,12 @@ successful allowCons ((tm, elab) :: elabs)
                                    else length (toList (guesses ust'))
 
                    est' <- get EST
-                   md' <- get MD
                    defs' <- get Ctxt
 
                    -- Reset to previous state and try the rest
                    put UST ust
                    put DLY dls
                    put EST est
-                   put MD md
                    put Ctxt defs
                    logC "elab" 5 $
                             do tm' <- maybe (pure (knownUN K__))
@@ -585,11 +559,10 @@ successful allowCons ((tm, elab) :: elabs)
                    elabs' <- successful allowCons elabs
                    -- Record success, and the state we ended at
                    pure (Right (minus ncons' ncons,
-                                res, defs', (ust', dls'), est', md') :: elabs'))
+                                res, defs', (ust', dls'), est') :: elabs'))
                (\err => do put UST ust
                            put DLY dls
                            put EST est
-                           put MD md
                            put Ctxt defs
                            when (abandon err) $ throw err
                            elabs' <- successful allowCons elabs
@@ -610,7 +583,6 @@ successful allowCons ((tm, elab) :: elabs)
 export
 exactlyOne' : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto e : Ref EST (EState vars)} ->
@@ -621,11 +593,10 @@ exactlyOne' allowCons fc env [(tm, elab)] = elab
 exactlyOne' {vars} allowCons fc env all
     = do elabs <- successful allowCons all
          case getRight elabs of
-              Right (res, defs, (ust, dls), est, md) =>
+              Right (res, defs, (ust, dls), est) =>
                     do put UST ust
                        put DLY dls
                        put EST est
-                       put MD  md
                        put Ctxt defs
                        commit
                        pure res
@@ -653,7 +624,6 @@ exactlyOne' {vars} allowCons fc env all
 export
 exactlyOne : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
@@ -665,7 +635,6 @@ exactlyOne = exactlyOne' True
 export
 anyOne : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
-         {auto m : Ref MD Metadata} ->
          {auto u : Ref UST UState} ->
          {auto dl : Ref DLY DelayedElabs} ->
          {auto e : Ref EST (EState vars)} ->
@@ -685,7 +654,6 @@ anyOne fc es = anyOneErrs es [<] where
 export
 check : {vars : _} ->
         {auto c : Ref Ctxt Defs} ->
-        {auto m : Ref MD Metadata} ->
         {auto u : Ref UST UState} ->
         {auto dl : Ref DLY DelayedElabs} ->
         {auto e : Ref EST (EState vars)} ->
@@ -700,7 +668,6 @@ check : {vars : _} ->
 export
 checkImp : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto e : Ref EST (EState vars)} ->
@@ -714,7 +681,6 @@ checkImp : {vars : _} ->
 export
 processDecl : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->

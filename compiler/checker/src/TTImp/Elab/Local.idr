@@ -3,7 +3,6 @@
 module TTImp.Elab.Local
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 
 import Idris.REPL.Opts
@@ -23,7 +22,6 @@ import Libraries.Data.WithDefault
 export
 localHelper : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
@@ -170,7 +168,6 @@ localHelper {vars} nest env nestdecls_in func
 export
 checkLocal : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
@@ -200,7 +197,6 @@ getLocalTerm fc env f (a :: as)
 export
 checkCaseLocal : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->

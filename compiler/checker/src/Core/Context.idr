@@ -6,7 +6,6 @@ import        Core.Case.CaseTree
 import public Core.Context.Context
 import public Core.Core
 import        Core.Env
-import        Core.Hash
 import public Core.Name
 import        Core.Options
 import public Core.Options.Log
@@ -40,10 +39,6 @@ import System.Clock
 import System.Directory
 
 %default covering
-
-export
-namesResolvedAs : Context -> NameMap Name
-namesResolvedAs ctxt = map Resolved ctxt.resolvedAs
 
 -- Implemented later, once we can convert to and from full names
 -- Defined in Core.TTC
@@ -550,32 +545,6 @@ data TreeOf : Body args -> CaseTree args -> Type where
   LiveTreeOf : TreeOf (LiveBody tree pats clauses) tree
   StoredTreeOf : TreeOf (StoredBody roots pats clauses) (decodedTree roots)
 
-0 liveOnce : LiveType t = LiveType t' -> t = t'
-liveOnce Refl = Refl
-
-0 storedOnce : StoredType r = StoredType r' -> r = r'
-storedOnce Refl = Refl
-
-0 liveNotStored : LiveType t = StoredType r -> Void
-liveNotStored Refl impossible
-
-||| A definition has one type: what it holds is one form, and decoding is a
-||| function.
-export
-0 typeOnce : TypeOf d ty -> TypeOf d ty' -> ty = ty'
-typeOnce (LiveTypeOf held) (LiveTypeOf held') = liveOnce (trans (sym held) held')
-typeOnce (LiveTypeOf held) (StoredTypeOf held') = void (liveNotStored (trans (sym held) held'))
-typeOnce (StoredTypeOf held) (LiveTypeOf held') = void (liveNotStored (trans (sym held') held))
-typeOnce (StoredTypeOf held) (StoredTypeOf held')
-    = cong (Stored.decode SizeOf.zero) (storedOnce (trans (sym held) held'))
-
-||| A body has one case tree: what it holds is one form, and decoding is a
-||| function.
-export
-0 treeOnce : TreeOf body tree -> TreeOf body tree' -> tree = tree'
-treeOnce LiveTreeOf LiveTreeOf = Refl
-treeOnce StoredTreeOf StoredTreeOf = Refl
-
 ||| A definition's type, with what it was read from: every reader of a
 ||| definition's type reads it here. Total, so that a total program reads
 ||| it directly.
@@ -1017,8 +986,6 @@ HasNames Error where
   full gam (BadDotPattern fc rho x s t)
     = BadDotPattern fc <$> full gam rho <*> pure x <*> full gam s <*> full gam t
   full gam (BadImplicit fc x) = pure (BadImplicit fc x)
-  full gam (BadRunElab fc rho s desc) = BadRunElab fc <$> full gam rho <*> full gam s <*> pure desc
-  full gam (RunElabFail e) = RunElabFail <$> full gam e
   full gam (GenericMsg fc x) = pure (GenericMsg fc x)
   full gam (GenericMsgSol fc x y z) = pure (GenericMsgSol fc x y z)
   full gam (TTCError x) = pure (TTCError x)
@@ -1034,7 +1001,6 @@ HasNames Error where
   full gam ForceNeeded = pure ForceNeeded
   full gam (InternalError x) = pure (InternalError x)
   full gam (UserError x) = pure (UserError x)
-  full gam (NoForeignCC fc xs) = pure (NoForeignCC fc xs)
   full gam (BadMultiline fc x) = pure (BadMultiline fc x)
   full gam (FailingDidNotFail fc) = pure (FailingDidNotFail fc)
   full gam (FailingWrongError fc x err) = FailingWrongError fc x <$> traverseList1 (full gam) err
@@ -1116,8 +1082,6 @@ HasNames Error where
   resolved gam (BadDotPattern fc rho x s t)
     = BadDotPattern fc <$> resolved gam rho <*> pure x <*> resolved gam s <*> resolved gam t
   resolved gam (BadImplicit fc x) = pure (BadImplicit fc x)
-  resolved gam (BadRunElab fc rho s desc) = BadRunElab fc <$> resolved gam rho <*> resolved gam s <*> pure desc
-  resolved gam (RunElabFail e) = RunElabFail <$> resolved gam e
   resolved gam (GenericMsg fc x) = pure (GenericMsg fc x)
   resolved gam (GenericMsgSol fc x y z) = pure (GenericMsgSol fc x y z)
   resolved gam (TTCError x) = pure (TTCError x)
@@ -1133,7 +1097,6 @@ HasNames Error where
   resolved gam ForceNeeded = pure ForceNeeded
   resolved gam (InternalError x) = pure (InternalError x)
   resolved gam (UserError x) = pure (UserError x)
-  resolved gam (NoForeignCC fc xs) = pure (NoForeignCC fc xs)
   resolved gam (BadMultiline fc x) = pure (BadMultiline fc x)
   resolved gam (FailingDidNotFail fc) = pure (FailingDidNotFail fc)
   resolved gam (FailingWrongError fc x err) = FailingWrongError fc x <$> traverseList1 (resolved gam) err
@@ -1203,11 +1166,6 @@ writtenDef gam ns def
     fullDef (BySearch c n) = pure $ BySearch c !(full gam n)
     fullDef (Guess tm b cs) = pure $ Guess !(full gam tm) b cs
     fullDef t = pure t
-
--- Return all the currently defined names
-export
-allNames : Context -> Core (List Name)
-allNames ctxt = traverse (full ctxt) $ map Resolved [1..nextEntry ctxt - 1]
 
 ||| The modules a context's imports reach without importing them, and the
 ||| definitions read from them, which the termination check reads and the
@@ -1298,10 +1256,6 @@ record Defs where
      -- We don't look up anything in here, it's merely for saving out to TTC.
      -- We save the hints in the 'GlobalDef' itself for faster lookup.
   saveAutoHints : List (Name, Bool)
-  namedirectives : NameMap (List String)
-  ifaceHash : Int
-  importHashes : List (Namespace, Int)
-     -- ^ interface hashes of imported modules
   imported : List Import
      -- ^ the modules this module imports, each where its `import` is
   pragmaUses : List PragmaUse
@@ -1312,22 +1266,10 @@ record Defs where
   importsRead : List ImportRead
      -- ^ every import of a TTC the session read that it read in turn, the
      -- last first, each with the module it was read as
-  cgdirectives : List (CG, String)
-     -- ^ Code generator directives, which are free form text and thus to
-     -- be interpreted however the specific code generator requires
-  userHoles : NameMap Bool
-     -- ^ Metavariables the user still has to fill in. In practice, that's
-     -- everything with a user accessible name and a definition of Hole.
-     -- The Bool says whether it was introduced in another module.
   timings : StringMap (Bool, Integer)
      -- ^ record of timings from logTimeRecord
   warnings : List Warning
      -- ^ as yet unreported warnings
-  schemeEvalLoaded : Bool
-  foreignExports : NameMap (List (String, String))
-       -- ^ For functions which are callable from a foreign language. This
-       -- maps names to a pair of the back end and the exported function name
-  defsStack : SnocList Name -- stack of the definition names being processed
   unimported : Unimported
 
 -- Label for context references
@@ -1359,20 +1301,12 @@ initDefsWith ids
            , localHints = empty
            , saveTypeHints = []
            , saveAutoHints = []
-           , namedirectives = empty
-           , ifaceHash = 5381
-           , importHashes = []
            , imported = []
            , pragmaUses = []
            , allImported = []
            , importsRead = []
-           , cgdirectives = []
-           , userHoles = empty
            , timings = empty
            , warnings = []
-           , schemeEvalLoaded = False
-           , foreignExports = empty
-           , defsStack = [<]
            , unimported = MkUnimported [] empty
            }
 
@@ -1414,11 +1348,6 @@ internNamespace : {auto c : Ref Ctxt Defs} -> String -> Core Namespace
 internNamespace "" = pure emptyNS
 internNamespace str = nsOf <$> traverse intern (forget (split (== '.') str))
 
-||| A module's identifier spelled as text, its parts separated by dots.
-export
-internModuleIdent : {auto c : Ref Ctxt Defs} -> String -> Core ModuleIdent
-internModuleIdent str = nsAsModuleIdent <$> internNamespace str
-
 ||| The identifier a name's root (`nameRoot`) is spelled by: the name's own,
 ||| reused, and interned only for the text a block's or a resolved name's
 ||| root is printed as, which no identifier holds.
@@ -1447,15 +1376,6 @@ clearCtxt
     resetElab opts =
       let tot = totalReq (session opts) in
       { elabDirectives := { totality := tot } defaultElab } opts
-
-export
-getFieldNames : Context -> Namespace -> List Name
-getFieldNames ctxt recNS
-  = let nms = resolvedAs ctxt in
-    keys $ flip filterBy nms $ \ n =>
-      case isRF n of
-        Nothing => False
-        Just (ns, field) => ns == recNS
 
 -- Find similar looking names in the context
 export
@@ -1554,17 +1474,6 @@ ambiguousName fc n ns = do
     [] =>         undefinedName fc n
     ns => throw $ AmbiguousName fc ns
 
--- Get the canonical name of something that might have been aliased via
--- import as
-export
-canonicalName : {auto c : Ref Ctxt Defs} ->
-                FC -> Name -> Core Name
-canonicalName fc n
-    = do defs <- get Ctxt
-         case !(lookupCtxtName n (gamma defs)) of
-              [(n, _, _)] => pure n
-              ns => ambiguousName fc n (map fst ns)
-
 -- If the name is aliased, get the alias
 export
 aliasName : {auto c : Ref Ctxt Defs} ->
@@ -1585,49 +1494,6 @@ aliasName fulln
              else findAlias ps
     findAlias (_ :: ps) = findAlias ps
 
--- Beware: if your hashable thing contains (potentially resolved) names,
--- it'll be better to use addHashWithNames to make the hash independent
--- of the internal numbering of names.
-export
-addHash : {auto c : Ref Ctxt Defs} -> Hashable a => a -> Core ()
-addHash x = update Ctxt { ifaceHash $= flip hashWithSalt x }
-
-export
-initHash : {auto c : Ref Ctxt Defs} -> Core ()
-initHash = update Ctxt { ifaceHash := 5381 }
-
-export
-addUserHole : {auto c : Ref Ctxt Defs} ->
-              Bool -> -- defined in another module?
-              Name -> -- hole name
-              Core ()
-addUserHole ext n = update Ctxt { userHoles $= insert n ext }
-
-export
-clearUserHole : {auto c : Ref Ctxt Defs} -> Name -> Core ()
-clearUserHole n = update Ctxt { userHoles $= delete n }
-
-export
-getUserHoles : {auto c : Ref Ctxt Defs} ->
-               Core (List Name)
-getUserHoles
-    = do defs <- get Ctxt
-         let hs = sort (keys (userHoles defs))
-         filterM (isHole defs) hs
-  where
-    -- If a hole is declared in one file and defined in another, its
-    -- name won't have been cleared unless we've already looked up its
-    -- definition (as addDef needs to be called to clear it). So here
-    -- check that it's really a hole
-    isHole : Defs -> Name -> Core Bool
-    isHole defs n
-        = do Just def <- lookupCtxtExact n (gamma defs)
-                  | Nothing => pure True
-             pure $ case definition def of
-                  None => True
-                  Hole {} => True
-                  _ => False
-
 export
 addDef : {auto c : Ref Ctxt Defs} ->
          Name -> GlobalDef -> Core Int
@@ -1635,10 +1501,6 @@ addDef n def
     = do defs <- get Ctxt
          (idx, gam') <- addCtxt n def (gamma defs)
          put Ctxt ({ gamma := gam' } defs)
-         case definition def of
-              None => pure ()
-              Hole {} => pure ()
-              _ => clearUserHole (fullname def)
          pure idx
 
 export
@@ -1775,13 +1637,6 @@ depth
   = do defs <- get Ctxt
        pure (branchDepth (gamma defs))
 
-export
-dumpStaging : {auto c : Ref Ctxt Defs} ->
-              Core ()
-dumpStaging
-    = do defs <- get Ctxt
-         coreLift $ putStrLn $ "Staging area: " ++ show (keys (staging (gamma defs)))
-
 -- Explicitly note that the name should be saved when writing out a .ttc
 export
 addToSave : {auto c : Ref Ctxt Defs} ->
@@ -1887,15 +1742,6 @@ prettyName (WithBlock outer idx)
 prettyName (NS ns n) = prettyName n
 prettyName n = pure (show n)
 
--- Add a hash of a thing that contains names,
--- but convert the internal numbers to full names first.
--- This makes the hash not depend on the internal numbering,
--- which is unstable.
-export
-addHashWithNames : {auto c : Ref Ctxt Defs} ->
-  Hashable a => HasNames a => a -> Core ()
-addHashWithNames x = toFullNames x >>= addHash
-
 export
 setIsEscapeHatch : {auto c : Ref Ctxt Defs} ->
   FC -> Name -> Core ()
@@ -1962,15 +1808,6 @@ setSizeChange loc n sc
          ignore $ addDef n ({ sizeChange := sc } def)
 
 export
-setTotality : {auto c : Ref Ctxt Defs} ->
-              FC -> Name -> Totality -> Core ()
-setTotality loc n tot
-    = do defs <- get Ctxt
-         Just def <- lookupCtxtExact n (gamma defs)
-              | Nothing => undefinedName loc n
-         ignore $ addDef n ({ totality := tot } def)
-
-export
 setCovering : {auto c : Ref Ctxt Defs} ->
               FC -> Name -> Covering -> Core ()
 setCovering loc n tot
@@ -1998,15 +1835,6 @@ getTotality loc n
          pure $ totality def
 
 export
-getSizeChange : {auto c : Ref Ctxt Defs} ->
-                FC -> Name -> Core (List SCCall)
-getSizeChange loc n
-    = do defs <- get Ctxt
-         Just def <- lookupCtxtExact n (gamma defs)
-              | Nothing => undefinedName loc n
-         pure $ sizeChange def
-
-export
 setVisibility : {auto c : Ref Ctxt Defs} ->
                 FC -> Name -> Visibility -> Core ()
 setVisibility fc n vis
@@ -2014,15 +1842,6 @@ setVisibility fc n vis
          Just def <- lookupCtxtExact n (gamma defs)
               | Nothing => undefinedName fc n
          ignore $ addDef n ({ visibility := specified vis } def)
-
-export
-withDefStacked : {auto c : Ref Ctxt Defs} ->
-                 Name -> Core a -> Core a
-withDefStacked n act
-    = do defs <- get Ctxt
-         let ds = defs.defsStack
-         put Ctxt $ {defsStack $= (:< n)} defs
-         act <* update Ctxt {defsStack := ds}
 
 public export
 record SearchData where
@@ -2212,12 +2031,6 @@ addOpenHint hintn_in
          update Ctxt { openHints $= insert hintn () }
 
 export
-dropOpenHint : {auto c : Ref Ctxt Defs} -> Name -> Core ()
-dropOpenHint hintn_in
-    = do hintn <- toResolvedNames hintn_in
-         update Ctxt { openHints $= delete hintn }
-
-export
 setOpenHints : {auto c : Ref Ctxt Defs} -> NameMap () -> Core ()
 setOpenHints hs = update Ctxt { openHints := hs }
 
@@ -2280,28 +2093,6 @@ export
 addUnimported : {auto c : Ref Ctxt Defs} -> ModuleIdent -> Core ()
 addUnimported m = update Ctxt { unimported->unread $= (m ::) }
 
-export
-addDirective : {auto c : Ref Ctxt Defs} ->
-               String -> String -> Core ()
-addDirective c str
-    = do defs <- get Ctxt
-         case getCG (options defs) c of
-              Nothing => -- warn, rather than fail, because the CG may exist
-                         -- but be unknown to this particular instance
-                         coreLift $ putStrLn $ "Unknown code generator " ++ c
-              Just cg => put Ctxt ({ cgdirectives $= ((cg, str) ::) } defs)
-
-export
-getDirectives : {auto c : Ref Ctxt Defs} ->
-                CG -> Core (List String)
-getDirectives cg
-    = do defs <- get Ctxt
-         pure $ defs.options.session.directives ++
-                 mapMaybe getDir (cgdirectives defs)
-  where
-    getDir : (CG, String) -> Maybe String
-    getDir (x', str) = if cg == x' then Just str else Nothing
-
 -- Add a new nested namespace to the current namespace for new definitions
 -- e.g. extendNS ["Data"] when namespace is "Prelude.List" leads to
 -- current namespace of "Prelude.List.Data"
@@ -2354,21 +2145,6 @@ export
 setVisible : {auto c : Ref Ctxt Defs} ->
              Namespace -> Core ()
 setVisible nspace = update Ctxt { gamma->visibleNS $= (nspace ::) }
-
-export
-getVisible : {auto c : Ref Ctxt Defs} ->
-             Core (List Namespace)
-getVisible
-    = do defs <- get Ctxt
-         pure (visibleNS (gamma defs))
-
--- set whether all names should be viewed as public. Be careful with this,
--- it's not intended for when checking user code! It's meant for allowing
--- easy checking of partially evaluated definitions.
-export
-setAllPublic : {auto c : Ref Ctxt Defs} ->
-               (pub : Bool) -> Core ()
-setAllPublic pub = update Ctxt { gamma->allPublic := pub }
 
 export
 isAllPublic : {auto c : Ref Ctxt Defs} ->
@@ -2436,18 +2212,10 @@ setPPrint : {auto c : Ref Ctxt Defs} -> PPrinter -> Core ()
 setPPrint ppopts = update Ctxt { options->printing := ppopts }
 
 export
-updatePPrint : {auto c : Ref Ctxt Defs} -> (PPrinter -> PPrinter) -> Core ()
-updatePPrint f = update Ctxt { options->printing $= f }
-
-export
 getDirs : {auto c : Ref Ctxt Defs} -> Core Dirs
 getDirs
     = do defs <- get Ctxt
          pure (dirs (options defs))
-
-export
-addExtraDir : {auto c : Ref Ctxt Defs} -> String -> Core ()
-addExtraDir dir = update Ctxt { options->dirs->extra_dirs $= ((::) dir) . filter (/= dir) }
 
 export
 addPackageDir: {auto c : Ref Ctxt Defs} -> PackageDir -> Core ()
@@ -2465,16 +2233,8 @@ addDataDir : {auto c : Ref Ctxt Defs} -> String -> Core ()
 addDataDir dir = update Ctxt { options->dirs->data_dirs $= (++ [dir]) }
 
 export
-addLibDir : {auto c : Ref Ctxt Defs} -> String -> Core ()
-addLibDir dir = update Ctxt { options->dirs->lib_dirs $= (++ [dir]) }
-
-export
 setBuildDir : {auto c : Ref Ctxt Defs} -> String -> Core ()
 setBuildDir dir = update Ctxt { options->dirs->build_dir := dir }
-
-export
-setDependsDir : {auto c : Ref Ctxt Defs} -> String -> Core ()
-setDependsDir dir = update Ctxt { options->dirs->depends_dir := dir }
 
 export
 setOutputDir : {auto c : Ref Ctxt Defs} -> Maybe String -> Core ()
@@ -2500,10 +2260,6 @@ getWorkingDir
          pure d
 
 export
-setExtraDirs : {auto c : Ref Ctxt Defs} -> List String -> Core ()
-setExtraDirs dirs = update Ctxt { options->dirs->extra_dirs := dirs }
-
-export
 withCtxt : {auto c : Ref Ctxt Defs} -> Core a -> Core a
 withCtxt = wrapRef Ctxt resetCtxt
   where
@@ -2518,10 +2274,6 @@ setPrefix dir = update Ctxt { options->dirs->prefix_dir := dir }
 export
 setExtension : {auto c : Ref Ctxt Defs} -> LangExt -> Core ()
 setExtension e = update Ctxt { options $= setExtension e }
-
-export
-isExtension : LangExt -> Defs -> Bool
-isExtension e defs = isExtension e (options defs)
 
 export
 checkUnambig : {auto c : Ref Ctxt Defs} ->
@@ -2633,13 +2385,6 @@ export
 setFromDecls : {auto c : Ref Ctxt Defs} ->
                Name -> Core ()
 setFromDecls n = update Ctxt { options $= setFromDecls n }
-
-export
-addNameDirective : {auto c : Ref Ctxt Defs} ->
-                   FC -> Name -> List String -> Core ()
-addNameDirective fc n ns
-    = do n' <- checkUnambig fc n
-         update Ctxt { namedirectives $= insert n' ns  }
 
 -- Checking special names from Options
 
@@ -2763,15 +2508,6 @@ addLogLevel Nothing  = update Ctxt { options->session->logEnabled := False, opti
 addLogLevel (Just l) = update Ctxt { options->session->logEnabled := True, options->session->logLevel $= insertLogLevel l }
 
 export
-setLogLevel : {auto c : Ref Ctxt Defs} ->
-              LogLevel -> Core ()
-setLogLevel = addLogLevel . Just
-
-export
-stopLogging : {auto c : Ref Ctxt Defs} -> Core ()
-stopLogging = addLogLevel Nothing
-
-export
 withLogLevel : {auto c : Ref Ctxt Defs} ->
                LogLevel -> Core a -> Core a
 withLogLevel l comp = do
@@ -2807,15 +2543,6 @@ updateSession f = setSession (f !getSession)
 export
 recordWarning : {auto c : Ref Ctxt Defs} -> Warning -> Core ()
 recordWarning w = update Ctxt { warnings $= (w ::) }
-
-export
-getTime : Core Integer
-getTime
-    = do clock <- coreLift (clockTime Monotonic)
-         pure (seconds clock * nano + nanoseconds clock)
-  where
-    nano : Integer
-    nano = 1000000000
 
 -- Set a name as Private that was previously visible (and, if 'everywhere' is
 -- set, hide in any modules imported by this one)

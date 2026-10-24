@@ -3,10 +3,8 @@
 module Idris.Elab.Interface
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 
-import Idris.Doc.String
 import Idris.REPL.Opts
 import Idris.Syntax
 
@@ -298,7 +296,6 @@ elabInterface : {vars : _} ->
                 {auto u : Ref UST UState} ->
                 {auto dl : Ref DLY DelayedElabs} ->
                 {auto s : Ref Syn SyntaxInfo} ->
-                {auto m : Ref MD Metadata} ->
                 {auto o : Ref ROpts REPLOpts} ->
                 FC -> WithDefault Visibility Private ->
                 Env Term vars -> NestedNames vars ->
@@ -315,7 +312,6 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
          conName_in <- maybe (mkCon vfc fullIName) (pure . val) mcon
          -- Machine generated names need to be qualified when looking them up
          conName <- inCurrentNS conName_in
-         whenJust ((.doc) <$> mcon) (addDocString conName)
          (meth_sigs, defaults) <- splitParts <$> traverse bodyPart body
          let meth_decls = meth_sigs
          let meth_names = map (val . name) meth_decls
@@ -452,13 +448,7 @@ elabInterface {vars} ifc def_vis env nest constraints iname params dets mcon bod
 
         changeNameTerm : Name -> RawImp -> Core RawImp
         changeNameTerm dn (IVar fc n')
-            = do if n /= n' then pure (IVar fc n') else do
-                 log "ide-mode.highlight" 7 $
-                   "elabDefault is trying to add Function: " ++ show n ++ " (" ++ show fc ++")"
-                 whenJust (isConcreteFC fc) $ \nfc => do
-                   log "ide-mode.highlight" 7 $ "elabDefault is adding Function: " ++ show n
-                   addSemanticDecorations [(nfc, Function, Just n)]
-                 pure (IVar fc dn)
+            = pure (if n /= n' then IVar fc n' else IVar fc dn)
         changeNameTerm dn (IApp fc f arg)
             = IApp fc <$> changeNameTerm dn f <*> pure arg
         changeNameTerm dn (IAutoApp fc f arg)

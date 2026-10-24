@@ -9,7 +9,6 @@ import public Parser.Unlit
 import Core.Context
 import Core.Core
 import Core.Name
-import Core.Metadata
 import Core.FC
 
 import Idris.Syntax.Pragmas
@@ -44,40 +43,36 @@ internTokens toks
 -- done, so the syntax a parse gives is made once, of what it kept.
 parseTokens : {0 e : Bool} -> (origin : OriginDesc) ->
               ({0 n : Nat} -> BRule n False e (Read ty)) ->
-              List (Located ()) -> Tokens Token ->
-              Either Error (List Warning, State, ty)
-parseTokens origin p cs toks
+              Tokens Token ->
+              Either Error (List Warning, List PragmaUse, ty)
+parseTokens origin p toks
     = do (st, ws, reader) <- mapFst (fromParsingErrors origin) $ parseWith parsing p toks
-         let (decorated, uses, tree) = madeBy st
+         let (uses, tree) = madeBy st
          let Just frozen = frozenTree tree
              | Nothing => Left (InternalError "A parse tree has a child that is none of its nodes")
          let Just parsed = reader frozen
              | Nothing => Left (InternalError "A parse tree decodes to no syntax")
-         let cs : SemanticDecorations
-                = cs <&> \ c => ((origin, startBounds c.bounds, endBounds c.bounds), Comment, Nothing)
          let ws = ws <&> \ (mb, warn) =>
                     let mkFC = \ b => MkFC origin (startBounds b) (endBounds b)
                     in ParserWarning (maybe EmptyFC mkFC mb) warn
-         let state : State
-             state = MkState (cs ++ decorated) (holesWritten tree) uses
-         pure (ws, state, parsed)
+         pure (ws, uses, parsed)
 
 export
 runParserTo : {auto c : Ref Ctxt Defs} -> {0 e : Bool} ->
               (origin : OriginDesc) ->
               Maybe LiterateStyle -> Lexer ->
               String -> ({0 n : Nat} -> BRule n False e (Read ty)) ->
-              Core (Either Error (List Warning, State, ty))
+              Core (Either Error (List Warning, List PragmaUse, ty))
 runParserTo origin lit reject str p
     = case lexSource origin lit reject str of
            Left err => pure (Left err)
-           Right (cs, toks) => parseTokens origin p cs <$> internTokens toks
+           Right (_, toks) => parseTokens origin p <$> internTokens toks
 
 export
 runParser : {auto c : Ref Ctxt Defs} -> {0 e : Bool} ->
             (origin : OriginDesc) -> Maybe LiterateStyle -> String ->
             ({0 n : Nat} -> BRule n False e (Read ty)) ->
-            Core (Either Error (List Warning, State, ty))
+            Core (Either Error (List Warning, List PragmaUse, ty))
 runParser origin lit = runParserTo origin lit (pred $ const False)
 
 export covering
@@ -85,7 +80,7 @@ parseFile : {auto c : Ref Ctxt Defs}
          -> (fname : String)
          -> (origin : OriginDesc)
          -> ({0 n : Nat} -> Rule n False (Read ty))
-         -> Core (Either Error (List Warning, State, ty))
+         -> Core (Either Error (List Warning, List PragmaUse, ty))
 parseFile fname origin p
     = do Right str <- coreLift (readFile fname)
              | Left err => pure (Left (FileErr fname err))

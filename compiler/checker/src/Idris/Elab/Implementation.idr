@@ -3,7 +3,6 @@
 module Idris.Elab.Implementation
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 
 import Idris.REPL.Opts
@@ -120,7 +119,6 @@ elabImplementation : {vars : _} ->
                      {auto u : Ref UST UState} ->
                      {auto dl : Ref DLY DelayedElabs} ->
                      {auto s : Ref Syn SyntaxInfo} ->
-                     {auto m : Ref MD Metadata} ->
                      {auto o : Ref ROpts REPLOpts} ->
                      FC -> Visibility -> List FnOpt -> Pass ->
                      Env Term vars -> NestedNames vars ->
@@ -530,7 +528,6 @@ elabImplementation {vars} ifc vis opts_in pass env nest is cons iname ps named i
     updateBody ns (IDef fc n cs)
         = do cs' <- traverse (updateClause ns) cs
              n' <- findMethName ns fc n
-             log "ide-mode.highlight" 1 $ show (n, n', fc)
              pure (IDef fc n' cs')
     updateBody ns e
         = throw (GenericMsg (getFC e)

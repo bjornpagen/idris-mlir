@@ -135,7 +135,6 @@ quotedDecl env (IFail _ _ ds) = quotedDecls env [] [] ds
 quotedDecl env (INamespace _ _ ds) = quotedDecls env [] [] ds
 quotedDecl env (ITransform _ _ lhs rhs)
     = findBindableNamesQuot env lhs ++ findBindableNamesQuot env rhs
-quotedDecl env (IRunElabDecl _ _) = [] -- Not sure about this either
 quotedDecl env (IPragma _ _ _) = []
 quotedDecl env (ILog _) = []
 quotedDecl env (IBuiltin {}) = []
@@ -267,7 +266,6 @@ findBindableNamesQuot env (IUnifyLog fc k x)
 findBindableNamesQuot env (IQuote fc x) = []
 findBindableNamesQuot env (IQuoteName fc x) = []
 findBindableNamesQuot env (IQuoteDecl fc xs) = []
-findBindableNamesQuot env (IRunElab fc _ x) = []
 
 -- What a variable contributes: its name, unless it is bound locally.
 freeName : (env : List Name) -> Name -> List Name
@@ -693,20 +691,6 @@ mutual
   substLocDecls fc' [] = []
   substLocDecls fc' (d :: ds) = substLocDecl fc' d :: substLocDecls fc' ds
 
-nameNum : String -> (String, Maybe Int)
-nameNum str = case span isDigit (reverse str) of
-  ("", _) => (str, Nothing)
-  (nums, pre) => case unpack pre of
-    ('_' :: rest) => (reverse (pack rest), Just $ cast (reverse nums))
-    _ => (str, Nothing)
-
-nextNameNum : (String, Maybe Int) -> (String, Maybe Int)
-nextNameNum (str, mn) = (str, Just $ maybe 0 (1+) mn)
-
-unNameNum : (String, Maybe Int) -> String
-unNameNum (str, Nothing) = str
-unNameNum (str, Just n) = fastConcat [str, "_", show n]
-
 export
 etaExpandImplicits : {auto c : Ref Ctxt Defs} ->
                      {auto u : Ref UST UState} ->
@@ -779,154 +763,3 @@ findUniqueBindableNames fc arg env used t
     bindApart : (Name, Name) -> Core (Name, Name)
     bindApart (nm, UN (Basic n)) = pure (nm, UN (Basic !(genUniqueIdent used n)))
     bindApart bound = pure bound
-
--- The next spelling is new text, so the session's table makes it an
--- identifier.
-export
-uniqueBasicName : {auto c : Ref Ctxt Defs} ->
-                  Defs -> List Ident -> Ident -> Core Ident
-uniqueBasicName defs used n
-    = if !usedName
-         then uniqueBasicName defs used !(intern (next n.text))
-         else pure n
-  where
-    usedName : Core Bool
-    usedName
-        = pure $ case !(lookupTyName (UN $ Basic n) (gamma defs)) of
-                      [] => n `elem` used
-                      _ => True
-
-    next : String -> String
-    next = unNameNum . nextNameNum . nameNum
-
-export
-uniqueHoleName : {auto c : Ref Ctxt Defs} ->
-                 {auto s : Ref Syn SyntaxInfo} ->
-                 Defs -> List Ident -> Ident -> Core Ident
-uniqueHoleName defs used n
-    = do syn <- get Syn
-         uniqueBasicName defs (used ++ holeNames syn) n
-
-export
-uniqueHoleNames : {auto c : Ref Ctxt Defs} ->
-                  {auto s : Ref Syn SyntaxInfo} ->
-                  Defs -> Nat -> Ident -> Core (List Ident)
-uniqueHoleNames defs = go [] where
-
-  go : List Ident -> Nat -> Ident -> Core (List Ident)
-  go acc Z _ = pure (reverse acc)
-  go acc (S n) hole = do
-    hole' <- uniqueHoleName defs acc hole
-    go (hole' :: acc) n hole'
-
--- concatenation of the first two arguments must not be empty, or else we loop forever.
--- Each candidate is new text, so the session's table makes it an identifier
--- before it is compared with the names in use.
-unique : {auto c : Ref Ctxt Defs} ->
-         List String -> List String -> Int -> List Name -> Core Ident
-unique [] supply suff usedns = unique supply supply (suff + 1) usedns
-unique (str :: next) supply suff usedns
-    = do var <- intern (mkVarN str suff)
-         if UN (Basic var) `elem` usedns
-            then unique next supply suff usedns
-            else pure var
-  where
-    mkVarN : String -> Int -> String
-    mkVarN x 0 = x
-    mkVarN x i = x ++ show i
-
-
-export
-getArgName : {vars : _} ->
-             {auto c : Ref Ctxt Defs} ->
-             Defs -> Name ->
-             List Name -> -- explicitly bound names (possibly coming later),
-                          -- so we don't invent a default
-                          -- name that duplicates it
-             List Name -> -- names bound so far
-             NF vars -> Core Ident
-getArgName defs x bound allvars ty
-    = do defnames <- findNames ty
-         getName x defnames allvars
-  where
-    lookupName : Name -> List (Name, a) -> Core (Maybe a)
-    lookupName n [] = pure Nothing
-    lookupName n ((n', t) :: ts)
-        = if !(getFullName n) == !(getFullName n')
-             then pure (Just t)
-             else lookupName n ts
-
-    notBound : String -> Core Bool
-    notBound x = pure $ not $ UN (Basic !(intern x)) `elem` bound
-
-    defaultNames : List String
-    defaultNames = ["x", "y", "z", "w", "v", "s", "t", "u"]
-
-    namesFor : Name -> Core (Maybe (List String))
-    namesFor n = lookupName n (NameMap.toList (namedirectives defs))
-
-    findNamesM : NF vars -> Core (Maybe (List String))
-    findNamesM (NBind _ x (Pi {}) _)
-        = pure (Just ["f", "g"])
-    findNamesM (NTCon _ n d [(_, v)]) = do
-          case knownRoot (dropNS !(full (gamma defs) n)) of
-            Just KList =>
-              do nf <- evalClosure defs v
-                 case !(findNamesM nf) of
-                   Nothing => namesFor n
-                   Just ns => pure (Just (map (++ "s") ns))
-            Just KMaybe =>
-              do nf <- evalClosure defs v
-                 case !(findNamesM nf) of
-                   Nothing => namesFor n
-                   Just ns => pure (Just (map ("m" ++) ns))
-            Just KSnocList =>
-              do nf <- evalClosure defs v
-                 case !(findNamesM nf) of
-                   Nothing => namesFor n
-                   Just ns => pure (Just (map ("s" ++) ns))
-            _ => namesFor n
-    findNamesM (NTCon _ n _ _) = namesFor n
-    findNamesM (NPrimVal fc $ PrT c) = do
-          let defaultPos = ["m", "n", "p", "q"]
-          let defaultInts = ["i", "j", "k", "l"]
-          map Just $ filterM notBound $ case c of
-            IntType => defaultInts
-            Int8Type => defaultInts
-            Int16Type => defaultInts
-            Int32Type => defaultInts
-            Int64Type => defaultInts
-            IntegerType => defaultInts
-            Bits8Type => defaultPos
-            Bits16Type => defaultPos
-            Bits32Type => defaultPos
-            Bits64Type => defaultPos
-            StringType => ["str"]
-            CharType => ["c","d"]
-            DoubleType => ["dbl"]
-            WorldType => ["wrld", "w"]
-    findNamesM ty = pure Nothing
-
-    findNames : NF vars -> Core (List String)
-    findNames nf = filterM notBound $ fromMaybe defaultNames !(findNamesM nf)
-
-    getName : Name -> List String -> List Name -> Core Ident
-    getName (UN (Basic n)) defs used =
-      -- # 1742 Uppercase names are not valid for pattern variables
-      let candidate = ifThenElse (lowerFirst n.text) n.text (toLower n.text) in
-      unique (candidate :: defs) (candidate :: defs) 0 used
-    getName _ [] used = unique defaultNames defaultNames 0 $ used ++ bound
-    getName _ defs used = unique defs defs 0 used
-
-export
-getArgNames : {vars : _} ->
-              {auto c : Ref Ctxt Defs} ->
-              Defs -> List Name -> List Name -> Env Term vars -> NF vars ->
-              Core (List Ident)
-getArgNames defs bound allvars env (NBind fc x (Pi _ _ p ty) sc)
-    = do ns <- case p of
-                    Explicit => pure [!(getArgName defs x bound allvars !(evalClosure defs ty))]
-                    _ => pure []
-         sc' <- sc defs (toClosure defaultOpts env (Erased fc Placeholder))
-         pure $ ns ++ !(getArgNames defs bound (map (UN . Basic) ns ++ allvars) env sc')
-getArgNames defs bound allvars env val = pure []

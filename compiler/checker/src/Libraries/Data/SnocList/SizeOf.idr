@@ -24,10 +24,6 @@ record SizeOf {a : Type} (sx : SnocList a) where
   size        : Nat
   0 hasLength : HasLength size sx
 
-export
-0 theList : SizeOf {a} sx -> SnocList a
-theList _ = sx
-
 public export
 Lin : SizeOf [<]
 Lin = MkSizeOf Z Z
@@ -43,11 +39,6 @@ zero = MkSizeOf Z Z
 public export
 suc : SizeOf as -> SizeOf (as :< a)
 suc (MkSizeOf n p) = MkSizeOf (S n) (S p)
-
--- ||| suc but from the right
-export
-sucL : SizeOf as -> SizeOf ([<a] ++ as)
-sucL (MkSizeOf n p) = MkSizeOf (S n) (sucL p)
 
 public export
 (<><) : SizeOf {a} sx -> LSizeOf {a} ys -> SizeOf (sx <>< ys)

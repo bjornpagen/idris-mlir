@@ -4,7 +4,6 @@ module TTImp.Elab
 
 import Core.Env
 import Core.LinearCheck
-import Core.Metadata
 import Core.Unify
 
 import Idris.REPL.Opts
@@ -104,7 +103,6 @@ addHoleToSave n
 export
 elabTermSubMarked : {inner, vars : _} ->
                      {auto c : Ref Ctxt Defs} ->
-                     {auto m : Ref MD Metadata} ->
                      {auto u : Ref UST UState} ->
                      {auto dl : Ref DLY DelayedElabs} ->
                      {auto s : Ref Syn SyntaxInfo} ->
@@ -221,7 +219,6 @@ elabTermSubMarked {vars} defining mode opts nest env env' sub tm ty
 export
 elabTermSub : {inner, vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
@@ -238,7 +235,6 @@ elabTermSub defining mode opts nest env env' sub tm ty
 export
 elabTerm : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto s : Ref Syn SyntaxInfo} ->
@@ -253,7 +249,6 @@ elabTerm defining mode opts nest env tm ty
 export
 checkTermSub : {inner, vars : _} ->
                {auto c : Ref Ctxt Defs} ->
-               {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
@@ -270,7 +265,6 @@ checkTermSub defining mode opts nest env env' sub tm ty
                       _ => get Ctxt
          ust <- get UST
          dls <- get DLY
-         mv <- get MD
          res <-
             catch {t = Error}
                   (elabTermSub defining mode opts nest
@@ -280,7 +274,6 @@ checkTermSub defining mode opts nest env env' sub tm ty
                       => do put Ctxt defs
                             put UST ust
                             put DLY dls
-                            put MD mv
                             tm' <- bindImps loc benv ns tm
                             elabTermSub defining mode opts nest
                                         env env' sub
@@ -308,7 +301,6 @@ checkTermSub defining mode opts nest env env' sub tm ty
 export
 checkTerm : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto dl : Ref DLY DelayedElabs} ->
             {auto s : Ref Syn SyntaxInfo} ->

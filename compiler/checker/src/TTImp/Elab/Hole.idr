@@ -4,7 +4,6 @@ module TTImp.Elab.Hole
 
 import Core.Context.Log
 import Core.Env
-import Core.Metadata
 import Core.Normalise
 import Core.Unify
 import Core.Value
@@ -29,7 +28,6 @@ mkPrecise _ = pure ()
 export
 checkHole : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto e : Ref EST (EState vars)} ->
             RigCount -> ElabInfo ->
@@ -50,10 +48,6 @@ checkHole rig elabinfo nest env fc n_in (Just gexpty)
          let env' = letToLam env
          (idx, metaval) <- metaVarI fc rig env' nm expty
          mkPrecise !(getNF gexpty)
-         -- Record the LHS for this hole in the metadata
-         withCurrentLHS (Resolved idx)
-         addNameLoc fc nm
-         addUserHole False nm
          saveHole nm
          pure (metaval, gexpty)
 checkHole rig elabinfo nest env fc n_in exp
@@ -69,8 +63,5 @@ checkHole rig elabinfo nest env fc n_in exp
              | _ => do log "elab.hole" 1 $ show nm ++ " already defined"
                        throw (AlreadyDefined fc nm)
          (idx, metaval) <- metaVarI fc rig env' nm ty
-         withCurrentLHS (Resolved idx)
-         addNameLoc fc nm
-         addUserHole False nm
          saveHole nm
          pure (metaval, gnf env ty)

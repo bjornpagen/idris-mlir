@@ -48,10 +48,6 @@ export
 inMatch : UnifyInfo
 inMatch = MkUnifyInfo True InMatch
 
-export
-inSearch : UnifyInfo
-inSearch = MkUnifyInfo True InSearch
-
 lower : UnifyInfo -> UnifyInfo
 lower = { atTop := False }
 
@@ -512,7 +508,6 @@ tryInstantiate {newvars} loc mode env mname mref num mdef locs otm tm
          logTerm "unify.instantiate" 5 "Definition" rhs
          let simpleDef = MkPMDefInfo (SolvedHole num)
                                      (not (isUserName mname) && isSimple rhs)
-                                     False
          let newdef = { definition :=
                           PMDef simpleDef Scope.empty (LiveBody (STerm 0 rhs) [] [])
                       } mdef
@@ -1661,7 +1656,7 @@ retryGuess mode smode (hid, (loc, hname))
                                               do ty <- getType Env.empty tm
                                                  logTerm "unify.retry" 5 "Retry Delay" tm
                                                  pure $ delayMeta r envb !(getTerm ty) tm
-                                  let gdef = { definition := PMDef (MkPMDefInfo NotHole True False)
+                                  let gdef = { definition := PMDef (MkPMDefInfo NotHole True)
                                                                    Scope.empty (LiveBody (STerm 0 tm') [] []) } def
                                   logTerm "unify.retry" 5 ("Resolved " ++ show hname) tm'
                                   ignore $ addDef (Resolved hid) gdef
@@ -1687,7 +1682,7 @@ retryGuess mode smode (hid, (loc, hname))
                          -- All constraints resolved, so turn into a
                          -- proper definition and remove it from the
                          -- hole list
-                         [] => do let gdef = { definition := PMDef (MkPMDefInfo NotHole True False)
+                         [] => do let gdef = { definition := PMDef (MkPMDefInfo NotHole True)
                                                                    Scope.empty (LiveBody (STerm 0 tm) [] []) } def
                                   logTerm "unify.retry" 5 ("Resolved " ++ show hname) tm
                                   ignore $ addDef (Resolved hid) gdef

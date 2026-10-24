@@ -57,43 +57,6 @@ record Dirs where
   lib_dirs : List String -- places to look for libraries (for code generation)
   data_dirs : List String -- places to look for data file
 
-export
-execBuildDir : Dirs -> String
-execBuildDir d = build_dir d </> "exec"
-
-export
-outputDirWithDefault : Dirs -> String
-outputDirWithDefault d = fromMaybe (build_dir d </> "exec") (output_dir d)
-
-public export
-toString : Dirs -> String
-toString d@(MkDirs wdir sdir bdir ldir odir dfix edirs ppaths pdirs ldirs ddirs) = """
-  + Working Directory      :: \{ show wdir }
-  + Source Directory       :: \{ show sdir }
-  + Build Directory        :: \{ show bdir }
-  + Local Depend Directory :: \{ show ldir }
-  + Output Directory       :: \{ show $ outputDirWithDefault d }
-  + Installation Prefix    :: \{ show dfix }
-  + Extra Directories      :: \{ show edirs }
-  + Package Search Paths   :: \{ show ppaths }
-  + Package Directories    :: \{ show pdirs }
-  + CG Library Directories :: \{ show ldirs }
-  + Data Directories       :: \{ show ddirs }
-  """
-
--- Upstream's own back ends are not part of this compiler, so a code
--- generator is only ever one a driver registers, known by its name.
-public export
-data CG = Other String
-
-export
-Eq CG where
-  Other s == Other t = s == t
-
-export
-Show CG where
-  show (Other s) = s
-
 public export
 record PairNames where
   constructor MkPairNs
@@ -136,32 +99,11 @@ record ElabDirectives where
   -- default: yes
   prefixRecordProjections : Bool
 
-||| Options relevant after running a typechecking session
-public export
-record PostSession where
-  constructor MkPostSession
-  checkOnly : Bool
-  outputFile : Maybe String
-
-export
-defaultPost : PostSession
-defaultPost = MkPostSession
-  { checkOnly = False
-  , outputFile = Nothing
-  }
-
--- tag for PostSession
-export
-data PostS : Type where
-
 public export
 record Session where
   constructor MkSessionOpts
   noprelude : Bool
   totalReq : TotalReq
-  nobanner : Bool
-  findipkg : Bool
-  directives : List String
   ignoreMissingPkg : Bool -- fail silently on missing packages. This is because
           -- while we're bootstrapping, we find modules by a different route
           -- but we still want to have the dependencies listed properly
@@ -171,8 +113,6 @@ record Session where
                     -- any logging is enabled.
   logLevel : LogLevels
   logTimings : Maybe Nat -- log level, higher means more details
-  logErrorCount : Nat -- when parsing alternatives fails, how many errors
-                      -- should be shown.
 
   -- Warnings
   warningsAsErrors : Bool
@@ -197,15 +137,6 @@ record Options where
   rewritenames : Maybe RewriteNames
   primnames : PrimNames
   extensions : List LangExt
-  additionalCGs : List (String, CG)
-
-export
-availableCGs : Options -> List (String, CG)
-availableCGs o = additionalCGs o
-
-export
-getCG : Options -> String -> Maybe CG
-getCG o cg = lookup (toLower cg) (availableCGs o)
 
 defaultDirs : Dirs
 defaultDirs = MkDirs "." Nothing "build" "depends" Nothing
@@ -220,18 +151,9 @@ defaultPPrint = MkPPOpts
     }
 
 export
-docsPPrint : PPrinter
-docsPPrint = MkPPOpts
-    { showImplicits = False
-    , showMachineNames = True
-    , showFullEnv = False
-    , fullNamespace = False
-    }
-
-export
 defaultSession : Session
-defaultSession = MkSessionOpts False CoveringOnly False False [] False False
-                               defaultLogLevel Nothing 1 False True
+defaultSession = MkSessionOpts False CoveringOnly False False
+                               defaultLogLevel Nothing False True
 
 export
 defaultElab : ElabDirectives
@@ -242,7 +164,7 @@ defaults : Core Options
 defaults
     = pure $ MkOptions
         defaultDirs defaultPPrint defaultSession defaultElab Nothing Nothing
-        (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing) [] []
+        (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing) []
 
 -- Reset the options which are set by source files
 export
@@ -293,11 +215,3 @@ setFromDecls n = { primnames->fromDeclsName := Just n }
 export
 setExtension : LangExt -> Options -> Options
 setExtension e = { extensions $= (e ::) }
-
-export
-isExtension : LangExt -> Options -> Bool
-isExtension e opts = e `elem` extensions opts
-
-export
-addCG : (String, CG) -> Options -> Options
-addCG cg = { additionalCGs $= (cg::) }

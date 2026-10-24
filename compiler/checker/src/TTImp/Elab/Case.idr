@@ -3,7 +3,6 @@
 module TTImp.Elab.Case
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 import Core.Value
 
@@ -119,18 +118,6 @@ findImpsIn fc env ns (Bind _ n b sc)
 findImpsIn fc env ns ty
     = when (not (isNil ns)) $
            throw (TryWithImplicits fc env (reverse ns))
-
--- Extend the list of variables we need in the environment so far, removing
--- duplicates
-extendNeeded : {vs : _} ->
-               Binder (Term vs) ->
-               Env Term vs -> VarSet vs -> VarSet vs
-extendNeeded (Let _ _ ty val) env needed
-    = VarSet.union (findUsedLocs env ty) (VarSet.union (findUsedLocs env val) needed)
-extendNeeded (PLet _ _ ty val) env needed
-    = VarSet.union (findUsedLocs env ty) (VarSet.union (findUsedLocs env val) needed)
-extendNeeded b env needed
-    = VarSet.union (findUsedLocs env (binderType b)) needed
 
 findScrutinee : {vs : _} ->
                 Env Term vs -> RawImp -> Maybe (Var vs)
@@ -342,7 +329,6 @@ data Taking : Scope -> Type where
 export
 caseBlock : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->
@@ -616,7 +602,6 @@ caseBlock {vars} rigc elabinfo fc nest env opts scr scrtm scrty caseRig alts exp
 -- checkCase's cell, and the lambda holds no glued type (see delayElab).
 checkCaseDelayed : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
-                   {auto m : Ref MD Metadata} ->
                    {auto u : Ref UST UState} ->
                    {auto dl : Ref DLY DelayedElabs} ->
                    {auto e : Ref EST (EState vars)} ->
@@ -725,7 +710,6 @@ checkCaseDelayed rig elabinfo nest env fc opts scr scrty_in alts exp
 -- of the argument.
 checkCaseExpected : {vars : _} ->
                     {auto c : Ref Ctxt Defs} ->
-                    {auto m : Ref MD Metadata} ->
                     {auto u : Ref UST UState} ->
                     {auto dl : Ref DLY DelayedElabs} ->
                     {auto e : Ref EST (EState vars)} ->
@@ -746,7 +730,6 @@ checkCaseExpected rig elabinfo nest env fc opts scr scrty_in alts expected
 export
 checkCase : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->

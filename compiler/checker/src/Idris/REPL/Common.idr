@@ -4,7 +4,6 @@ module Idris.REPL.Common
 
 import Core.Env
 import Core.InitPrimitives
-import Core.Metadata
 import Core.Unify
 
 import Idris.Error
@@ -28,7 +27,7 @@ iputStrLn : {auto c : Ref Ctxt Defs} ->
 iputStrLn msg
     = do opts <- get ROpts
          case verbosity opts of
-              InfoLvl  => coreLift $ putStrLn !(render msg)
+              InfoLvl  => coreLift $ putStrLn (render msg)
               -- output silenced
               _ => pure ()
 
@@ -48,17 +47,11 @@ doPrint MsgStatusInfo  ErrorLvl = False
 doPrint MsgStatusInfo  NoneLvl  = False
 
 printWithStatus : {auto o : Ref ROpts REPLOpts} ->
-                  (Doc ann -> Core String) ->
-                  (Doc ann -> MsgStatus -> Core ())
-printWithStatus render msg status
+                  Doc ann -> MsgStatus -> Core ()
+printWithStatus msg status
   = do opts <- get ROpts
        when (doPrint status (verbosity opts)) $
-         coreLift $ putStrLn !(render msg)
-
-export
-printError : {auto o : Ref ROpts REPLOpts} ->
-             Doc IdrisAnn -> Core ()
-printError msg = printWithStatus render msg MsgStatusError
+         coreLift $ putStrLn (render msg)
 
 -- Display an error message from checking a source file
 export
@@ -66,14 +59,14 @@ emitError : {auto c : Ref Ctxt Defs} ->
             {auto o : Ref ROpts REPLOpts} ->
             {auto s : Ref Syn SyntaxInfo} ->
             Error -> Core ()
-emitError e = printWithStatus render !(display e) MsgStatusError
+emitError e = printWithStatus !(display e) MsgStatusError
 
 export
 emitWarning : {auto c : Ref Ctxt Defs} ->
               {auto o : Ref ROpts REPLOpts} ->
               {auto s : Ref Syn SyntaxInfo} ->
               Warning -> Core ()
-emitWarning w = printWithStatus render !(displayWarning w) MsgStatusInfo
+emitWarning w = printWithStatus !(displayWarning w) MsgStatusInfo
 
 export
 emitWarnings : {auto c : Ref Ctxt Defs} ->
@@ -104,14 +97,11 @@ resetContext : {auto c : Ref Ctxt Defs} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
-               {auto m : Ref MD Metadata} ->
-               (origin : OriginDesc) ->
                Core ()
-resetContext origin
+resetContext
     = do defs <- get Ctxt
          put Ctxt ({ options := clearNames (options defs) } !(initDefsWith defs.gamma.idents))
          addPrimitives
          put UST initUState
          put DLY (the DelayedElabs [])
          put Syn initSyntax
-         put MD (initMetadata origin)

@@ -62,10 +62,6 @@ export %inline
 dropFirst : VarSet (v :: vs) -> VarSet vs
 dropFirst = NatSet.popZ
 
-export %inline
-dropInner : SizeOf inner -> VarSet (inner ++ vs) -> VarSet vs
-dropInner p = NatSet.popNs p.size
-
 export %hint
 varSetFreelyEmbeddable : FreelyEmbeddable VarSet
 varSetFreelyEmbeddable = MkFreelyEmbeddable id

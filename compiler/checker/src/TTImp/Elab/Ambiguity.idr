@@ -3,7 +3,6 @@
 module TTImp.Elab.Ambiguity
 
 import Core.Env
-import Core.Metadata
 import Core.Reflect
 import Core.Unify
 import Core.Value
@@ -141,21 +140,8 @@ expandAmbigName mode nest env orig args (IVar fc x) exp
 
     mkTerm : Bool -> EState vars -> Name -> GlobalDef -> RawImp
     mkTerm prim est n def
-        = if (Context.Macro `elem` flags def) && notLHS mode
-             then alternativeFirstSuccess $ reverse $
-                    allSplits args <&> \(macroArgs, extArgs) =>
-                      (IRunElab fc False $ ICoerced fc $ IVar fc n `buildAlt` macroArgs) `buildAlt` extArgs
-             else wrapDot prim est mode n (map (snd . snd) args)
-                    (definition def) (buildAlt (IVar fc n) args)
-      where
-        -- All splits of the original list starting from the (empty, full) finishing with (full, empty)
-        allSplits : (l : List a) -> Vect (S $ length l) (List a, List a)
-        allSplits []           = [([], [])]
-        allSplits full@(x::xs) = ([], full) :: (mapFst (x::) <$> allSplits xs)
-
-        alternativeFirstSuccess : forall n. Vect (S n) RawImp -> RawImp
-        alternativeFirstSuccess [x] = x
-        alternativeFirstSuccess xs  = IAlternative fc FirstSuccess $ toList xs
+        = wrapDot prim est mode n (map (snd . snd) args)
+                  (definition def) (buildAlt (IVar fc n) args)
 
     mkAlt : Bool -> EState vars -> (Name, Int, GlobalDef) -> RawImp
     mkAlt prim est (fullname, i, gdef)
@@ -340,7 +326,6 @@ getName _ = Nothing
 -- elaborates, the default.
 withDefault : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto e : Ref EST (EState vars)} ->
@@ -362,7 +347,6 @@ withDefault fc env True readings def
 -- the lambda would capture checkAlternative's cell.
 checkDefaultDelayed : {vars : _} ->
                       {auto c : Ref Ctxt Defs} ->
-                      {auto m : Ref MD Metadata} ->
                       {auto u : Ref UST UState} ->
                       {auto dl : Ref DLY DelayedElabs} ->
                       {auto e : Ref EST (EState vars)} ->
@@ -391,7 +375,6 @@ checkDefaultDelayed rig elabinfo nest env fc def alts solvemode delayed expected
 
 checkAlternativeDelayed : {vars : _} ->
                           {auto c : Ref Ctxt Defs} ->
-                          {auto m : Ref MD Metadata} ->
                           {auto u : Ref UST UState} ->
                           {auto dl : Ref DLY DelayedElabs} ->
                           {auto e : Ref EST (EState vars)} ->
@@ -434,7 +417,6 @@ checkAlternativeDelayed rig elabinfo nest env fc uniq alts solvemode delayed exp
 export
 checkAlternative : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
-                   {auto m : Ref MD Metadata} ->
                    {auto u : Ref UST UState} ->
                    {auto dl : Ref DLY DelayedElabs} ->
                    {auto e : Ref EST (EState vars)} ->
@@ -519,7 +501,6 @@ record PairParts (vars : Scope) where
 -- implicitly (`(a, b) = (c, d)`), is bound as an argument of the type.
 pairParts : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->
@@ -550,7 +531,6 @@ pairParts rig elabinfo nest env fc l r
 -- error, where it failed, is thrown.
 elaboratesAlone : {vars : _} ->
                   {auto c : Ref Ctxt Defs} ->
-                  {auto m : Ref MD Metadata} ->
                   {auto u : Ref UST UState} ->
                   {auto dl : Ref DLY DelayedElabs} ->
                   {auto e : Ref EST (EState vars)} ->
@@ -559,13 +539,11 @@ elaboratesAlone elab
     = do ust <- get UST
          dls <- get DLY
          est <- get EST
-         md <- get MD
          defs <- branch
          res <- tryError elab
          put UST ust
          put DLY dls
          put EST est
-         put MD md
          put Ctxt defs
          either throw (const (pure ())) res
 
@@ -591,7 +569,6 @@ trialPart part = part
 -- reading keeps is still made of the parts elaborated once.
 pairTypeOf : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
@@ -643,7 +620,6 @@ pairOf rig elabinfo env fc parts expected
 -- retry.
 settle : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
-         {auto m : Ref MD Metadata} ->
          {auto u : Ref UST UState} ->
          {auto dl : Ref DLY DelayedElabs} ->
          {auto e : Ref EST (EState vars)} ->
@@ -662,7 +638,6 @@ settle fc env solvemode delayed expected asType asValue
 -- the lambda captures no cell of delayed elaborators.
 settlePair : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
@@ -680,7 +655,6 @@ settlePair rig elabinfo nest env fc parts solvemode delayed expected
 -- reading it is found to write.
 settleWritten : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
-                {auto m : Ref MD Metadata} ->
                 {auto u : Ref UST UState} ->
                 {auto dl : Ref DLY DelayedElabs} ->
                 {auto e : Ref EST (EState vars)} ->
@@ -699,7 +673,6 @@ settleWritten rig elabinfo nest env fc ovl solvemode delayed expected
 -- The syntax as written, settled when first met, and else when retried.
 checkWritten : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
-               {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
@@ -728,7 +701,6 @@ checkWritten rig elabinfo nest env fc ovl solvemode expected
 export
 checkTypeOrValue : {vars : _} ->
                    {auto c : Ref Ctxt Defs} ->
-                   {auto m : Ref MD Metadata} ->
                    {auto u : Ref UST UState} ->
                    {auto dl : Ref DLY DelayedElabs} ->
                    {auto e : Ref EST (EState vars)} ->

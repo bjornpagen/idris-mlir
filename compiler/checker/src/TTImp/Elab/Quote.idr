@@ -3,7 +3,6 @@
 module TTImp.Elab.Quote
 
 import Core.Env
-import Core.Metadata
 import Core.Reflect
 import Core.UnifyState
 
@@ -194,7 +193,6 @@ onLHS _ = False
 
 bindUnqs : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto e : Ref EST (EState vars)} ->
@@ -219,7 +217,6 @@ bindUnqs ((qvar, fc, esctm) :: qs) rig elabinfo nest env tm
 export
 checkQuote : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
@@ -257,7 +254,6 @@ checkQuoteName rig elabinfo nest env fc n exp
 export
 checkQuoteDecl : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->

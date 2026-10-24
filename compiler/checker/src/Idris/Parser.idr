@@ -2,7 +2,6 @@
 -- Copyright (c) 2020 Edwin Brady
 module Idris.Parser
 
-import Core.Metadata
 import Idris.Syntax
 import Idris.Syntax.Tree
 import public Parser.Source
@@ -35,61 +34,30 @@ import Idris.Parser.Let
 fcBounds : OriginDesc => Rule n r a -> Rule n r (WithFC a)
 fcBounds a = (.withFC) <$> bounds a
 
-decorate : {0 a : Type} -> OriginDesc -> Decoration -> Rule n r a -> Rule n r a
-decorate fname decor rule = do
-  res <- bounds rule
-  actD (decorationFromBounded fname decor res)
-  pure res.val
-
-dependentDecorate : {0 a : Type} -> OriginDesc -> Rule n r a -> (a -> Decoration) -> Rule n r a
-dependentDecorate fname rule decor = do
-  res <- bounds rule
-  actD (decorationFromBounded fname (decor res.val) res)
-  pure res.val
-
-decoratedKeyword : OriginDesc -> Keyword -> Rule n r ()
-decoratedKeyword fname kwd = decorate fname Keyword (keyword kwd)
-
-decorateKeywords : {0 a : Type} -> OriginDesc -> List (WithBounds a) -> EmptyRule n r ()
-decorateKeywords fname xs
-  = actD (concatMap (decorationFromBounded fname Keyword) xs)
-
-decoratedPragma : OriginDesc -> KwPragma -> Rule n r ()
-decoratedPragma fname prg = decorate fname Keyword (pragma fname prg)
-
-decoratedSymbol : OriginDesc -> Reserved -> Rule n r ()
-decoratedSymbol fname smb = decorate fname Keyword (symbol smb)
-
-decoratedNamespacedSymbol : OriginDesc -> (plain, dotted : Reserved) -> Rule n r (Maybe Namespace)
-decoratedNamespacedSymbol fname plain dotted =
-  decorate fname Keyword $ namespacedSymbol plain dotted
-
 -- What a bracket holds is read after the bracket, so below the bound.
-parens : {0 b : Bool} -> OriginDesc -> BRule n True b a -> Rule n r a
-parens fname p
-  = pure id <* decoratedSymbol fname SymParen
+parens : {0 b : Bool} -> BRule n True b a -> Rule n r a
+parens p
+  = pure id <* symbol SymParen
             <*> p
-            <* decoratedSymbol fname SymParenClose
+            <* symbol SymParenClose
 
-curly : {0 b : Bool} -> OriginDesc -> BRule n True b a -> Rule n r a
-curly fname p
-  = pure id <* decoratedSymbol fname SymBrace
+curly : {0 b : Bool} -> BRule n True b a -> Rule n r a
+curly p
+  = pure id <* symbol SymBrace
             <*> p
-            <* decoratedSymbol fname SymBraceClose
+            <* symbol SymBraceClose
 
-decoratedDataTypeName : OriginDesc -> Rule n r Name
-decoratedDataTypeName fname = decorate fname Typ dataTypeName
+simpleNamedArg : Rule n r Ident
+simpleNamedArg
+  = unqualifiedName
+  <|> parens unqualifiedOperatorName
 
-decoratedDataConstructorName : OriginDesc -> Rule n r Name
-decoratedDataConstructorName fname = decorate fname Data dataConstructorName
-
-decoratedSimpleBinderUName : OriginDesc -> Rule n r Name
-decoratedSimpleBinderUName fname = decorate fname Bound userName
-
-decoratedSimpleNamedArg : OriginDesc -> Rule n r Ident
-decoratedSimpleNamedArg fname
-  = decorate fname Bound unqualifiedName
-  <|> parens fname (decorate fname Bound unqualifiedOperatorName)
+-- `%runElab` runs an elaborator script while the program is elaborated
+-- (reading and writing files among what a script may do); this compiler
+-- runs none, so the pragma is refused where it is read, before anything of
+-- the script is parsed or run.
+runElabRefused : String
+runElabRefused = "unsupported: the pragma %runElab runs an elaborator script, and this compiler runs no elaborator script"
 
 -- Some context for the parser
 public export
@@ -97,9 +65,6 @@ record ParseOpts where
   constructor MkParseOpts
   eqOK : Bool -- = operator is parseable
   withOK : Bool -- = with applications are parseable
-
-peq : ParseOpts -> ParseOpts
-peq = { eqOK := True }
 
 pnoeq : ParseOpts -> ParseOpts
 pnoeq = { eqOK := False }
@@ -117,45 +82,37 @@ plhs = MkParseOpts {eqOK = False, withOK = False}
 
 atom : OriginDesc -> Rule n r (Id FTerm)
 atom fname
-    = do x <- bounds $ decorate fname Typ $ exactIdent KType
+    = do x <- bounds $  exactIdent KType
          node (TmType (boundToFC fname x))
   <|> do x <- bounds $ name
          node (TmRef (boundToFC fname x) x.val)
-  <|> do x <- bounds $ dependentDecorate fname constant $ \c =>
-                       if isPrimType c
-                       then Typ
-                       else Data
+  <|> do x <- bounds constant
          node (TmPrimVal (boundToFC fname x) x.val)
-  <|> do x <- bounds $ decoratedSymbol fname SymUnderscore
+  <|> do x <- bounds $ symbol SymUnderscore
          node (TmImplicit (boundToFC fname x))
   <|> do x <- bounds $ symbol SymQuestion
          node (TmInfer (boundToFC fname x))
   <|> do x <- bounds $ holeName
-         node (TmHole (boundToFC fname x) False x.val)
-  <|> do x <- bounds $ decorate fname Data $ pragma fname KwMkWorld
+         node (TmHole (boundToFC fname x) x.val)
+  <|> do x <- bounds $  pragma fname KwMkWorld
          node (TmPrimVal (boundToFC fname x) WorldVal)
-  <|> do x <- bounds $ decorate fname Typ  $ pragma fname KwWorld
+  <|> do x <- bounds $ pragma fname KwWorld
          node (TmPrimVal (boundToFC fname x) $ PrT WorldType)
-  <|> do x <- bounds $ decoratedPragma fname KwSearch
+  <|> do x <- bounds $ pragma fname KwSearch
          node (TmSearch (boundToFC fname x))
 
 -- Expect a keyword, but if we get anything else it's a fatal error
 commitKeyword : OriginDesc -> IndentInfo -> Keyword -> Rule n r ()
 commitKeyword fname indents req
     = do mustContinue indents (Just (keywordText req))
-         decoratedKeyword fname req
+         keyword req
           <|> the (Rule _ _ ()) (fatalError ("Expected '" ++ keywordText req ++ "'"))
          mustContinue indents Nothing
 
 commitSymbol : OriginDesc -> Reserved -> Rule n r ()
 commitSymbol fname req
-    = decoratedSymbol fname req
+    = symbol req
        <|> fatalError ("Expected '" ++ reservedText req ++ "'")
-
-continueWithDecorated : OriginDesc -> IndentInfo -> Reserved -> Rule n r ()
-continueWithDecorated fname indents req
-    = mustContinue indents (Just (reservedText req)) *> decoratedSymbol fname req
-
 
 continueWith : IndentInfo -> Reserved -> Rule n r ()
 continueWith indents req
@@ -221,9 +178,9 @@ debugString fname = do
 
 totalityOpt : OriginDesc -> Rule n r TotalReq
 totalityOpt fname
-    = (decoratedKeyword fname KwPartial $> PartialOK)
-  <|> (decoratedKeyword fname KwTotal $> Total)
-  <|> (decoratedKeyword fname KwCovering $> CoveringOnly)
+    = (keyword KwPartial $> PartialOK)
+  <|> (keyword KwTotal $> Total)
+  <|> (keyword KwCovering $> CoveringOnly)
 
 fnOpt : OriginDesc -> Rule n r (Id FOpt)
 fnOpt fname
@@ -232,7 +189,7 @@ fnOpt fname
 
 multiplicity : OriginDesc -> EmptyRule n r RigCount
 multiplicity fname
-    = case !(optional $ decorate fname Keyword intLit) of
+    = case !(optional $ intLit) of
         (Just 0) => pure erased
         (Just 1) => pure linear
         Nothing => pure top
@@ -243,8 +200,8 @@ multiplicity fname
 ||| bindSymbol := '->' | '=>'
 bindSymbol : OriginDesc -> Rule n r (PiInfo (Id FTerm))
 bindSymbol fname
-    = (decoratedSymbol fname SymArrow $> Explicit)
-  <|> (decoratedSymbol fname SymFatArrow $> AutoImplicit)
+    = (symbol SymArrow $> Explicit)
+  <|> (symbol SymFatArrow $> AutoImplicit)
 
 validPatternVar : Name -> EmptyRule n r ()
 validPatternVar (UN Underscore) = pure ()
@@ -260,15 +217,14 @@ getInitRange _ = fatalError "Invalid list range syntax"
 
 visOption : OriginDesc ->  Rule n r Visibility
 visOption fname
-    = (decoratedKeyword fname KwPublic *> decoratedKeyword fname KwExport $> Public)
+    = (keyword KwPublic *> keyword KwExport $> Public)
     -- If "public export" failed then we try to parse just "public" and emit an error message saying
     -- the user should use "public export"
-  <|> (bounds (decoratedKeyword fname KwPublic) >>= \x
+  <|> (bounds (keyword KwPublic) >>= \x
     => the (Rule _ _ Visibility) (fatalLoc x.bounds
            #""public" keyword by itself is not an export modifier, did you mean "public export"?"#))
-  <|> (decoratedKeyword fname KwExport $> Export)
-  <|> (decoratedKeyword fname KwPrivate $> Private)
-
+  <|> (keyword KwExport $> Export)
+  <|> (keyword KwPrivate $> Private)
 
 visibility : OriginDesc -> EmptyRule n r (WithDefault Visibility Private)
 visibility fname
@@ -281,7 +237,7 @@ exportVisibility fname
   <|> pure defaulted
 
 withFlags : OriginDesc -> EmptyRule n r (List WithFlag)
-withFlags fname = many (Syntactic <$ decoratedPragma fname KwSyntactic)
+withFlags fname = many (Syntactic <$ pragma fname KwSyntactic)
 
 -- A type constructor's type: a `Type` for each parameter, and `Type`. The
 -- one `Type` is every one of them.
@@ -307,20 +263,20 @@ dataConType ret args
 
 dataOpt : OriginDesc -> Rule n r DataOpt
 dataOpt fname
-    = (decorate fname Keyword (exactIdent KnoHints) $> NoHints)
-  <|> (decorate fname Keyword (exactIdent KuniqueSearch) $> UniqueSearch)
-  <|> (do b   <- bounds $ decorate fname Keyword (exactIdent Ksearch)
+    = ((exactIdent KnoHints) $> NoHints)
+  <|> ((exactIdent KuniqueSearch) $> UniqueSearch)
+  <|> (do b   <- bounds $ (exactIdent Ksearch)
           det <- mustWorkBecause b.bounds "Expected list of determining parameters" $
-                   some (decorate fname Bound name)
+                   some (name)
           pure $ SearchBy det)
-  <|> (decorate fname Keyword (exactIdent Kexternal) $> External)
-  <|> (decorate fname Keyword (exactIdent KnoNewtype) $> NoNewtype)
+  <|> ((exactIdent Kexternal) $> External)
+  <|> ((exactIdent KnoNewtype) $> NoNewtype)
 
 dataOpts : OriginDesc -> EmptyRule n r (List DataOpt)
 dataOpts fname = option [] $ do
-  decoratedSymbol fname SymBracket
-  opts <- sepBy1 (decoratedSymbol fname SymComma) (dataOpt fname)
-  decoratedSymbol fname SymBracketClose
+  symbol SymBracket
+  opts <- sepBy1 (symbol SymComma) (dataOpt fname)
+  symbol SymBracketClose
   pure (forget opts)
 
 -- a data declaration can have a visibility and an optional totality (#1404)
@@ -350,7 +306,7 @@ extension
 
 logLevel : OriginDesc -> Rule n r (Maybe LogLevel)
 logLevel fname
-  = (Nothing <$ decorate fname Keyword (exactIdent Koff))
+  = (Nothing <$ (exactIdent Koff))
     <|> do topic <- optional (split ('.' ==) <$> simpleStr)
            lvl <- intLit
            pure (Just (mkLogLevel' topic (fromInteger lvl)))
@@ -365,13 +321,13 @@ fix
 
 namespaceHead : OriginDesc -> Rule n r Namespace
 namespaceHead fname
-  = do decoratedKeyword fname KwNamespace
-       decorate fname Namespace $ mustWork namespaceId
+  = do keyword KwNamespace
+       mustWork namespaceId
 
 ||| builtinDecl := 'builtin' builtinType name
 builtinDecl : (fname : OriginDesc) => Rule n r (DeclOf Id)
 builtinDecl
-    = do decoratedPragma fname KwBuiltin
+    = do pragma fname KwBuiltin
          commit
          t <- builtinType
          n <- name
@@ -389,27 +345,27 @@ getVisibility v (_ :: xs) = getVisibility v xs
 recordConstructor : OriginDesc -> Rule n r (WithDocFC Name)
 recordConstructor fname
   = do doc <- optDocumentation fname
-       decorate fname Keyword $ exactIdent Kconstructor
-       n <- fcBounds $ mustWork $ decoratedDataConstructorName fname
+       exactIdent Kconstructor
+       n <- fcBounds $ mustWork $ dataConstructorName
        pure (doc :+ n)
 
 autoImplicitField : OriginDesc -> IndentInfo -> Rule n r (PiInfo t)
-autoImplicitField fname _ = AutoImplicit <$ decoratedKeyword fname KwAuto
+autoImplicitField fname _ = AutoImplicit <$ keyword KwAuto
 
 operatorBindingKeyword : (fname : OriginDesc) => EmptyRule n r BindingModifier
 operatorBindingKeyword
-  =   (decoratedKeyword fname KwAutobind >> pure Autobind)
-  <|> (decoratedKeyword fname KwTypebind >> pure Typebind)
+  =   (keyword KwAutobind >> pure Autobind)
+  <|> (keyword KwTypebind >> pure Typebind)
   <|> pure NotBinding
 
 fixDecl : (fname : OriginDesc) => Rule n r (Id FDecl)
 fixDecl
     = do vis <- exportVisibility fname
          binding <- operatorBindingKeyword
-         b <- fcBounds (do fixity <- decorate fname Keyword $ fix
+         b <- fcBounds (do fixity <-  fix
                            commit
-                           prec <- decorate fname Keyword $ intLit
-                           ops <- sepBy1 (decoratedSymbol fname SymComma) iOperator
+                           prec <-  intLit
+                           ops <- sepBy1 (symbol SymComma) iOperator
                            pure (MkPFixityData vis binding fixity (fromInteger prec) ops)
                      )
          node (Declared b.fc (DcFixity b.val))
@@ -428,12 +384,12 @@ declared d = do b <- fcBounds d
 export
 import_ : OriginDesc -> IndentInfo -> Rule n r Import
 import_ fname indents
-    = do b <- bounds (do decoratedKeyword fname KwImport
-                         reexp <- option False (decoratedKeyword fname KwPublic $> True)
-                         ns <- decorate fname Module $ mustWork moduleIdent
+    = do b <- bounds (do keyword KwImport
+                         reexp <- option False (keyword KwPublic $> True)
+                         ns <-  mustWork moduleIdent
                          nsAs <- option (miAsNamespace ns)
-                                        (do decorate fname Keyword $ exactIdent Kas
-                                            decorate fname Namespace $ mustWork namespaceId)
+                                        (do exactIdent Kas
+                                            mustWork namespaceId)
                          pure (reexp, ns, nsAs))
          atEnd indents
          (reexp, ns, nsAs) <- pure b.val
@@ -444,8 +400,8 @@ moduleHead : OriginDesc -> EmptyRule n r Module
 moduleHead fname
     = do b <- bounds (do doc    <- optDocumentation fname
                          nspace <- option (nsAsModuleIdent mainNS)
-                                     (do decoratedKeyword fname KwModule
-                                         decorate fname Module $ mustWork moduleIdent)
+                                     (do keyword KwModule
+                                         mustWork moduleIdent)
                          imports <- block (import_ fname)
                          pure (doc, nspace, imports))
          (doc, nspace, imports) <- pure b.val
@@ -507,7 +463,7 @@ parameters {0 n : Nat} (again : Grammars True n)
   mutual
     whereBlock : OriginDesc -> Int -> Rule n r (List (Id FDecl))
     whereBlock fname col
-        = do decoratedKeyword fname KwWhere
+        = do keyword KwWhere
              blockAfter col (again.topDecl fname)
 
     appExpr : ParseOpts -> OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
@@ -530,13 +486,12 @@ parameters {0 n : Nat} (again : Grammars True n)
     argExpr q fname indents
         = do continue indents
              arg <- again.simpleExpr fname indents
-             build (bracketHole arg)
              pure [UnnamedExpArg arg]
       <|> do continue indents
              braceArgs fname indents
       <|> if withOK q
              then do continue indents
-                     decoratedSymbol fname SymBar
+                     symbol SymBar
                      arg <- again.expr ({withOK := False} q) fname indents
                      pure [WithArg arg]
              else fail "| not allowed here"
@@ -546,36 +501,36 @@ parameters {0 n : Nat} (again : Grammars True n)
 
         braceArgs : OriginDesc -> IndentInfo -> Rule n True (List ArgType)
         braceArgs fname indents
-          = do start <- bounds (decoratedSymbol fname SymBrace)
+          = do start <- bounds (symbol SymBrace)
                mustWork $ do
-                 list <- sepBy (decoratedSymbol fname SymComma)
-                          $ do x <- bounds (UN . Basic <$> decoratedSimpleNamedArg fname)
+                 list <- sepBy (symbol SymComma)
+                          $ do x <- bounds (UN . Basic <$> simpleNamedArg)
                                let fc = boundToFC fname x
-                               (do tm <- decoratedSymbol fname SymEquals *> again.typeExpr pdef fname indents
+                               (do tm <- symbol SymEquals *> again.typeExpr pdef fname indents
                                    pure (NamedArg x.val tm))
                                  <|> (NamedArg x.val <$> node (TmRef fc x.val))
                  matchAny <- option [] (if isCons list then
-                                           do decoratedSymbol fname SymComma
-                                              x <- bounds (decoratedSymbol fname SymUnderscore)
+                                           do symbol SymComma
+                                              x <- bounds (symbol SymUnderscore)
                                               u <- underscore (boundToFC fname x)
                                               pure [u]
                                         else fail "non-empty list required")
-                 end <- bounds (decoratedSymbol fname SymBraceClose)
+                 end <- bounds (symbol SymBraceClose)
                  matchAny <- if isNil list
                                 then do u <- underscore (boundToFC fname (mergeBounds start end))
                                         pure [u]
                                 else pure matchAny
                  pure $ matchAny ++ list
 
-          <|> do decoratedSymbol fname SymAtBrace
+          <|> do symbol SymAtBrace
                  commit
                  tm <- again.typeExpr pdef fname indents
-                 decoratedSymbol fname SymBraceClose
+                 symbol SymBraceClose
                  pure [UnnamedAutoArg tm]
 
     with_ : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     with_ fname indents
-        = do b <- bounds (do decoratedKeyword fname KwWith
+        = do b <- bounds (do keyword KwWith
                              commit
                              ns <- singleName <|> nameList
                              end <- location
@@ -591,25 +546,25 @@ parameters {0 n : Nat} (again : Grammars True n)
 
         nameList : Rule n True (List (FC, Name))
         nameList = do
-          decoratedSymbol fname SymBracket
+          symbol SymBracket
           commit
-          ns <- sepBy1 (decoratedSymbol fname SymComma) (bounds name)
-          decoratedSymbol fname SymBracketClose
+          ns <- sepBy1 (symbol SymComma) (bounds name)
+          symbol SymBracketClose
           pure (map (\ n => (boundToFC fname n, n.val)) $ forget ns)
 
     -- The different kinds of operator bindings `x : ty` for typebind
     -- x <- e and x : ty <- e for autobind
     opBinderTypes : OriginDesc -> IndentInfo -> WithBounds (Id FTerm) -> Rule n r (OperatorLHSInfo (Id FTerm))
     opBinderTypes fname indents boundName =
-             do decoratedSymbol fname SymColon
+             do symbol SymColon
                 ty <- again.typeExpr pdef fname indents
-                decoratedSymbol fname SymLeftArrow
+                symbol SymLeftArrow
                 exp <- again.expr pdef fname indents
                 pure (BindExplicitType boundName.val ty exp)
-         <|> do decoratedSymbol fname SymLeftArrow
+         <|> do symbol SymLeftArrow
                 exp <- again.expr pdef fname indents
                 pure (BindExpr boundName.val exp)
-         <|> do decoratedSymbol fname SymColon
+         <|> do symbol SymColon
                 ty <- again.typeExpr pdef fname indents
                 pure (BindType boundName.val ty)
 
@@ -621,7 +576,7 @@ parameters {0 n : Nat} (again : Grammars True n)
     autobindOp : ParseOpts -> OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     autobindOp q fname indents
         = do b <- fcBounds $ do
-               binder <- fcBounds $ parens fname (opBinder fname indents)
+               binder <- fcBounds $ parens (opBinder fname indents)
                continue indents
                op <- fcBounds iOperator
                commit
@@ -634,7 +589,7 @@ parameters {0 n : Nat} (again : Grammars True n)
         = do l <- bounds (appExpr q fname indents)
              (if eqOK q
                  then do rhs <- bounds (continue indents
-                                    *> decoratedSymbol fname SymEquals
+                                    *> symbol SymEquals
                                     *> again.opExprBase q fname indents)
                          node $
                            let fc = boundToFC fname (mergeBounds l rhs)
@@ -665,8 +620,8 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     dpairType : OriginDesc -> WithBounds t -> IndentInfo -> Rule n r (Id FTerm)
     dpairType fname start indents
-        = do loc <- bounds (do x <- decoratedSimpleBinderUName fname
-                               decoratedSymbol fname SymColon
+        = do loc <- bounds (do x <- userName
+                               symbol SymColon
                                ty <- again.typeExpr pdef fname indents
                                pure (x, ty))
              (x, ty) <- pure loc.val
@@ -699,24 +654,21 @@ parameters {0 n : Nat} (again : Grammars True n)
         -- section otherwise treat it as prefix
         = do b <- bounds (do op <- fcBounds iOperator
                              e <- again.expr pdef fname indents
-                             continueWithDecorated fname indents SymParenClose
+                             continueWith indents SymParenClose
                              pure (op, e))
              (op, e) <- pure b.val
-             actD [(toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)]
              let fc = boundToFC fname (mergeBounds s b)
              node (TmSectionL fc op e)
       <|> do  -- (.y.z)  -- section of projection (chain)
              b <- bounds $ forget <$> some (bounds postfixProj)
-             decoratedSymbol fname SymParenClose
-             actD [(toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)]
+             symbol SymParenClose
              let projs = map (\ proj => (boundToFC fname proj, proj.val)) b.val
              node $ TmPostfixAppPartial (boundToFC fname b) projs
         -- unit type/value
       <|> do b <- bounds (continueWith indents SymParenClose)
              node (TmUnit (boundToFC fname (mergeBounds s b)))
         -- dependent pairs with type annotation (so, the type form)
-      <|> do dpairType fname s indents <* (decorate fname Typ $ symbol SymParenClose)
-                                       <* actD [(toNonEmptyFC $ boundToFC fname s, Typ, Nothing)]
+      <|> do dpairType fname s indents <* symbol SymParenClose
       <|> do e <- bounds (again.typeExpr pdef fname indents)
              -- dependent pairs with no type annotation
              (do loc <- bounds (symbol SymStarStar)
@@ -728,8 +680,7 @@ parameters {0 n : Nat} (again : Grammars True n)
                                imp
                                rest.val)) <|>
                -- right sections
-               ((do op <- bounds (fcBounds iOperator <* decoratedSymbol fname SymParenClose)
-                    actD [(toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)]
+               ((do op <- bounds (fcBounds iOperator <* symbol SymParenClose)
                     let fc = boundToFC fname (mergeBounds s op)
                     node (TmSectionR fc e.val op.val)
                  <|>
@@ -745,23 +696,21 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     listRange : OriginDesc -> WithBounds t -> IndentInfo -> List (WithBounds (Id FTerm)) -> Rule n True (Id FTerm)
     listRange fname s indents xs
-        = do b <- bounds (decoratedSymbol fname SymBracketClose)
+        = do b <- bounds (symbol SymBracketClose)
              let fc = boundToFC fname (mergeBounds s b)
              rstate <- getInitRange xs
-             decorateKeywords fname xs
              node (TmRangeStream fc (fst rstate) (snd rstate))
-      <|> do y <- bounds (again.expr pdef fname indents <* decoratedSymbol fname SymBracketClose)
+      <|> do y <- bounds (again.expr pdef fname indents <* symbol SymBracketClose)
              let fc = boundToFC fname (mergeBounds s y)
              rstate <- getInitRange xs
-             decorateKeywords fname xs
              node (TmRange fc (fst rstate) (snd rstate) y.val)
 
     listExpr : OriginDesc -> WithBounds () -> IndentInfo -> Rule n True (Id FTerm)
     listExpr fname s indents
         = do b <- bounds (do ret <- again.expr pnowith fname indents
-                             decoratedSymbol fname SymBar
-                             conds <- sepBy1 (decoratedSymbol fname SymComma) (doAct fname indents)
-                             decoratedSymbol fname SymBracketClose
+                             symbol SymBar
+                             conds <- sepBy1 (symbol SymComma) (doAct fname indents)
+                             symbol SymBracketClose
                              pure (ret, conds))
              (ret, conds) <- pure b.val
              node (TmComprehension (boundToFC fname (mergeBounds s b)) ret (concat conds))
@@ -771,7 +720,7 @@ parameters {0 n : Nat} (again : Grammars True n)
                                        x <- mustWork $ again.expr pdef fname indents
                                        pure (x <$ b)
                        pure ((hd <$ s) :: tl)
-             (do decoratedSymbol fname SymDotDot
+             (do symbol SymDotDot
                  listRange fname s indents xs)
                <|> (do b <- bounds (symbol SymBracketClose)
                        node $
@@ -807,8 +756,7 @@ parameters {0 n : Nat} (again : Grammars True n)
         = do vals <- some $ do b <- bounds (symbol SymComma)
                                exp <- optional (again.typeExpr pdef fname indents)
                                pure (boundToFC fname b, exp)
-             end <- continueWithDecorated fname indents SymParenClose
-             actD [(toNonEmptyFC (boundToFC fname s), Keyword, Nothing)]
+             end <- continueWith indents SymParenClose
              comps <- build (traverse component (numbered vals))
              let terms = map (either id id . snd) comps
              let lefts = e :: init terms
@@ -845,8 +793,7 @@ parameters {0 n : Nat} (again : Grammars True n)
     tuple : OriginDesc -> WithBounds t -> IndentInfo -> Id FTerm -> Rule n r (Id FTerm)
     tuple fname s indents e
        =   nonEmptyTuple fname s indents e
-       <|> do end <- bounds (continueWithDecorated fname indents SymParenClose)
-              actD [(toNonEmptyFC $ boundToFC fname s, Keyword, Nothing)]
+       <|> do end <- bounds (continueWith indents SymParenClose)
               node (TmBracketed (boundToFC fname (mergeBounds s end)) e)
 
     simpleExpr : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
@@ -867,17 +814,17 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     simplerExpr : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     simplerExpr fname indents
-        = do b <- bounds (do x <- bounds (decoratedSimpleBinderUName fname)
-                             decoratedSymbol fname SymAt
+        = do b <- bounds (do x <- bounds (userName)
+                             symbol SymAt
                              commit
                              expr <- again.simpleExpr fname indents
                              pure (x, expr))
              (x, expr) <- pure b.val
              node (TmAs (boundToFC fname b) (boundToFC fname x) x.val expr)
       <|> do b <- bounds $ do
-                    mns <- decoratedNamespacedSymbol fname SymIdiom SymDotIdiom
+                    mns <- namespacedSymbol SymIdiom SymDotIdiom
                     t   <- again.expr pdef fname indents
-                    decoratedSymbol fname SymIdiomClose
+                    symbol SymIdiomClose
                     pure (t, mns)
              node (TmIdiom (boundToFC fname b) (snd b.val) (fst b.val))
       <|> atom fname
@@ -885,31 +832,31 @@ parameters {0 n : Nat} (again : Grammars True n)
       <|> singlelineStr pdef fname indents
       <|> multilineStr pdef fname indents
       <|> do b <- bounds $ do
-                    decoratedSymbol fname SymDotParen
+                    symbol SymDotParen
                     commit
                     t <- again.typeExpr pdef fname indents
-                    decoratedSymbol fname SymParenClose
+                    symbol SymParenClose
                     pure t
              node (TmDotted (boundToFC fname b) b.val)
       <|> do b <- bounds $ do
-                    decoratedSymbol fname SymQuoteParen
+                    symbol SymQuoteParen
                     t <- again.typeExpr pdef fname indents
-                    decoratedSymbol fname SymParenClose
+                    symbol SymParenClose
                     pure t
              node (TmQuote (boundToFC fname b) b.val)
       <|> do b <- bounds $ do
-                    decoratedSymbol fname SymQuoteBrace
+                    symbol SymQuoteBrace
                     t <- name
-                    decoratedSymbol fname SymBraceClose
+                    symbol SymBraceClose
                     pure t
              node (TmQuoteName (boundToFC fname b) b.val)
       <|> do b <- bounds $ do
-                    decoratedSymbol fname SymQuoteBracket
+                    symbol SymQuoteBracket
                     ts <- nonEmptyBlock (again.topDecl fname)
-                    decoratedSymbol fname SymBracketClose
+                    symbol SymBracketClose
                     pure ts
              node (TmQuoteDecl (boundToFC fname b) (forget b.val))
-      <|> do b <- bounds (decoratedSymbol fname SymTilde *> again.simplerExpr fname indents)
+      <|> do b <- bounds (symbol SymTilde *> again.simplerExpr fname indents)
              node (TmUnquote (boundToFC fname b) b.val)
       <|> do start <- bounds (symbol SymParen)
              bracketedExpr fname start indents
@@ -917,9 +864,9 @@ parameters {0 n : Nat} (again : Grammars True n)
              snocListExpr fname start indents
       <|> do start <- bounds (symbol SymListBracket <|> symbol SymBracket)
              listExpr fname start indents
-      <|> do b <- bounds (decoratedSymbol fname SymBang *> again.simpleExpr fname indents)
+      <|> do b <- bounds (symbol SymBang *> again.simpleExpr fname indents)
              node (TmBang (virtualiseFC $ boundToFC fname b) b.val)
-      <|> do b <- bounds $ do decoratedPragma fname KwLogging
+      <|> do b <- bounds $ do pragma fname KwLogging
                               topic <- optional (split (('.') ==) <$> simpleStr)
                               lvl   <- intLit
                               e     <- again.expr pdef fname indents
@@ -932,21 +879,21 @@ parameters {0 n : Nat} (again : Grammars True n)
     bindList : OriginDesc -> IndentInfo ->
                Rule n True (List (RigCount, WithBounds (Id FTerm), Id FTerm, PiInfo (Id FTerm)))
     bindList fname indents
-        = forget <$> sepBy1 (decoratedSymbol fname SymComma) (explicitBind <|> implicitBind)
+        = forget <$> sepBy1 (symbol SymComma) (explicitBind <|> implicitBind)
       where
         explicitBind : Rule n True (RigCount, WithBounds (Id FTerm), Id FTerm, PiInfo (Id FTerm))
         explicitBind = do
           rig <- multiplicity fname
           pat <- bounds (again.simpleExpr fname indents)
-          ty <- (decoratedSymbol fname SymColon *> again.opExpr pdef fname indents)
+          ty <- (symbol SymColon *> again.opExpr pdef fname indents)
                   <|> node (TmInfer (boundToFC fname pat))
           pure (rig, pat, ty, Explicit)
 
         implicitBind : Rule n True (RigCount, WithBounds (Id FTerm), Id FTerm, PiInfo (Id FTerm))
-        implicitBind = curly fname $ do
+        implicitBind = curly $ do
           rig <- multiplicity fname
           pat <- bounds (again.simpleExpr fname indents)
-          ty <- (decoratedSymbol fname SymColon *> again.opExpr pdef fname indents)
+          ty <- (symbol SymColon *> again.opExpr pdef fname indents)
                   <|> node (TmInfer (boundToFC fname pat))
           pure (rig, pat, ty, Implicit)
 
@@ -957,17 +904,17 @@ parameters {0 n : Nat} (again : Grammars True n)
                      Rule n r (RigCount, List1 (WithFC Name), Id FTerm)
     pibindListName fname indents
          = do rig <- multiplicity fname
-              ns <- sepBy1 (decoratedSymbol fname SymComma)
+              ns <- sepBy1 (symbol SymComma)
                            (fcBounds binderName)
-              decoratedSymbol fname SymColon
+              symbol SymColon
               ty <- again.typeExpr pdef fname indents
               atEnd indents
               pure (rig, ns, ty)
       where
         -- _ gets treated specially here, it means "I don't care about the name"
         binderName : Rule n r Name
-        binderName = decoratedSimpleBinderUName fname
-                 <|> decorate fname Bound (UN <$> symbol SymUnderscore $> Underscore)
+        binderName = userName
+                 <|> (UN <$> symbol SymUnderscore $> Underscore)
 
     ||| An explicit pi-type
     ||| BNF:
@@ -975,7 +922,7 @@ parameters {0 n : Nat} (again : Grammars True n)
     explicitPi : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     explicitPi fname indents
         = do b <- fcBounds (do
-                 bs <- bounds $ parens fname $ pibindListName fname indents
+                 bs <- bounds $ parens $ pibindListName fname indents
                  exp <- mustWorkBecause bs.bounds "Cannot return a named argument"
                           $ bindSymbol fname
                  scope <- mustWork $ again.typeExpr pdef fname indents
@@ -991,13 +938,13 @@ parameters {0 n : Nat} (again : Grammars True n)
     autoImplicitPi : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     autoImplicitPi fname indents
         = do b <- fcBounds (do
-                 bs <- bounds $ curly fname $ do
-                        decoratedKeyword fname KwAuto
+                 bs <- bounds $ curly $ do
+                        keyword KwAuto
                         commit
                         binders <- pibindListName fname indents
                         pure binders
                  mustWorkBecause bs.bounds "Cannot return an auto implicit argument"
-                   $ decoratedSymbol fname SymArrow
+                   $ symbol SymArrow
                  scope <- mustWork $ again.typeExpr pdef fname indents
                  pure (bs.val, scope))
              let (bound, scope) = b.val
@@ -1011,14 +958,14 @@ parameters {0 n : Nat} (again : Grammars True n)
     defaultImplicitPi : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     defaultImplicitPi fname indents
         = do b <- fcBounds (do
-                 bs <- bounds $ curly fname $ do
-                        decoratedKeyword fname KwDefault
+                 bs <- bounds $ curly $ do
+                        keyword KwDefault
                         commit
                         t <- again.simpleExpr fname indents
                         binders <- pibindListName fname indents
                         pure (t, binders)
                  mustWorkBecause bs.bounds "Cannot return a default implicit argument"
-                   $ decoratedSymbol fname SymArrow
+                   $ symbol SymArrow
                  scope <- mustWork $ again.typeExpr pdef fname indents
                  pure (bs.val, scope))
              let ((t, bound), scope) = b.val
@@ -1033,14 +980,14 @@ parameters {0 n : Nat} (again : Grammars True n)
     forall_ fname indents
         = do b <- fcBounds (do
                  bs <- bounds $ do
-                        decoratedKeyword fname KwForall
+                        keyword KwForall
                         commit
-                        ns <- sepBy1 (decoratedSymbol fname SymComma)
-                                     (fcBounds (decoratedSimpleBinderUName fname))
+                        ns <- sepBy1 (symbol SymComma)
+                                     (fcBounds (userName))
                         pure ns
                  b' <- bounds peek
                  mustWorkBecause b'.bounds "Expected ',' or '.'"
-                   $ decorate fname Keyword (exactSymbol KDot)
+                   $ (exactSymbol KDot)
                  scope <- mustWork $ again.typeExpr pdef fname indents
                  pure (bs.val, scope))
              node (TmForall b.fc (fst b.val) (snd b.val))
@@ -1051,9 +998,9 @@ parameters {0 n : Nat} (again : Grammars True n)
     implicitPi : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     implicitPi fname indents
         = do b <- fcBounds (do
-                 bs <- bounds $ curly fname $ pibindListName fname indents
+                 bs <- bounds $ curly $ pibindListName fname indents
                  mustWorkBecause bs.bounds "Cannot return an implicit argument"
-                  $ decoratedSymbol fname SymArrow
+                  $ symbol SymArrow
                  scope <- mustWork $ again.typeExpr pdef fname indents
                  pure (bs.val, scope))
              let (bound, scope) = b.val
@@ -1063,9 +1010,9 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     lam : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     lam fname indents
-        = do decoratedSymbol fname SymBackslash
+        = do symbol SymBackslash
              commit
-             switch <- optional (bounds $ decoratedKeyword fname KwCase)
+             switch <- optional (bounds $ keyword KwCase)
              case switch of
                Nothing => continueLamImpossible <|> continueLam
                Just endCase => continueLamCase endCase
@@ -1084,7 +1031,7 @@ parameters {0 n : Nat} (again : Grammars True n)
          continueLamImpossible : Rule n True (Id FTerm)
          continueLamImpossible = do
              lhs <- bounds (again.opExpr plhs fname indents)
-             end <- bounds (decoratedKeyword fname KwImpossible)
+             end <- bounds (keyword KwImpossible)
              let fc = boundToFC fname (mergeBounds lhs end)
              alt <- node (ClImpossible fc lhs.val)
              lamCase (boundToFC fname lhs) fc [alt]
@@ -1112,9 +1059,9 @@ parameters {0 n : Nat} (again : Grammars True n)
       letBinder : Rule n True LetBinder
       letBinder = do s <- bounds (MkPair <$> multiplicity fname <*> again.expr plhs fname indents)
                      (rig, pat) <- pure s.val
-                     ty <- (decoratedSymbol fname SymColon *> again.typeExpr (pnoeq pdef) fname indents)
+                     ty <- (symbol SymColon *> again.typeExpr (pnoeq pdef) fname indents)
                              <|> node (TmImplicit (virtualiseFC $ boundToFC fname s))
-                     (decoratedSymbol fname SymEquals <|> decoratedSymbol fname SymAssign)
+                     (symbol SymEquals <|> symbol SymAssign)
                      val <- again.typeExpr pnowith fname indents
                      alts <- block (patAlt fname)
                      pure (MkLetBinder rig pat ty val alts)
@@ -1124,7 +1071,7 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     let_ : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     let_ fname indents
-        = do decoratedKeyword fname KwLet
+        = do keyword KwLet
              commit
              res <- nonEmptyBlock (letBlock fname)
              commitKeyword fname indents KwIn
@@ -1134,7 +1081,7 @@ parameters {0 n : Nat} (again : Grammars True n)
     case_ : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     case_ fname indents
         = do opts <- many (fnDirectOpt fname)
-             b <- bounds (do decoratedKeyword fname KwCase
+             b <- bounds (do keyword KwCase
                              scr <- again.expr pdef fname indents
                              mustWork (commitKeyword fname indents KwOf)
                              alts <- block (caseAlt fname)
@@ -1151,20 +1098,20 @@ parameters {0 n : Nat} (again : Grammars True n)
     caseRHS : OriginDesc -> WithBounds t -> IndentInfo -> Id FTerm -> Rule n r (Id FClause)
     caseRHS fname start indents lhs
         = do rhs <- bounds $ do
-                      decoratedSymbol fname SymFatArrow
+                      symbol SymFatArrow
                       mustContinue indents Nothing
                       again.typeExpr pdef fname indents
              atEnd indents
              let fc = boundToFC fname (mergeBounds start rhs)
              node (ClPattern fc lhs rhs.val [])
-      <|> do end <- bounds (decoratedKeyword fname KwImpossible)
+      <|> do end <- bounds (keyword KwImpossible)
              atEnd indents
              node (ClImpossible (boundToFC fname (mergeBounds start end)) lhs)
       <|> fatalError ("Expected '=>' or 'impossible'")
 
     if_ : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     if_ fname indents
-        = do b <- bounds (do decoratedKeyword fname KwIf
+        = do b <- bounds (do keyword KwIf
                              commit
                              x <- again.expr pdef fname indents
                              commitKeyword fname indents KwThen
@@ -1182,7 +1129,7 @@ parameters {0 n : Nat} (again : Grammars True n)
              b <- (
                  withWarning oldSyntaxWarning (
                    bounds (do
-                     decoratedKeyword fname KwRecord
+                     keyword KwRecord
                      commit
                      body True
                    ))
@@ -1200,16 +1147,16 @@ parameters {0 n : Nat} (again : Grammars True n)
         -- The braces of an update, read after `record` or where the update
         -- begins.
         body : {0 rd : Bool} -> Bool -> Rule n rd (List1 (Id FUpdate))
-        body kw = curly fname $ do
+        body kw = curly $ do
           commit
-          sepBy1 (decoratedSymbol fname SymComma) (field kw fname indents)
+          sepBy1 (symbol SymComma) (field kw fname indents)
 
     field : Bool -> OriginDesc -> IndentInfo -> Rule n r (Id FUpdate)
     field kw fname indents
-        = do path <- [| fieldPart (decorate fname Function name) :: many (fieldPart recFieldCompat) |]
-             upd <- (ifThenElse kw (decoratedSymbol fname SymEquals) (decoratedSymbol fname SymAssign) $> UpSet)
+        = do path <- [| fieldPart (name) :: many (fieldPart recFieldCompat) |]
+             upd <- (ifThenElse kw (symbol SymEquals) (symbol SymAssign) $> UpSet)
                         <|>
-                    (decoratedSymbol fname SymUpdate $> UpApply)
+                    (symbol SymUpdate $> UpApply)
              val <- again.typeExpr plhs fname indents
              node (upd path val)
       where
@@ -1230,13 +1177,13 @@ parameters {0 n : Nat} (again : Grammars True n)
         -- this allows the dotted syntax .field
         -- but also the arrowed syntax ->field for compatibility with Idris 1
         recFieldCompat : {0 rd : Bool} -> Rule n rd Name
-        recFieldCompat = decorate fname Function postfixProj
-                    <|> (decoratedSymbol fname SymArrow
-                         *> decorate fname Function name)
+        recFieldCompat = postfixProj
+                    <|> (symbol SymArrow
+                         *> name)
 
     rewrite_ : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     rewrite_ fname indents
-        = do b <- bounds (do decoratedKeyword fname KwRewrite
+        = do b <- bounds (do keyword KwRewrite
                              rule <- again.expr pdef fname indents
                              commitKeyword fname indents KwIn
                              tm <- again.typeExpr pdef fname indents
@@ -1246,7 +1193,7 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     doBlock : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     doBlock fname indents
-        = do b <- bounds $ decoratedKeyword fname KwDo *> block (doAct fname)
+        = do b <- bounds $ keyword KwDo *> block (doAct fname)
              commit
              node (TmDoBlock (virtualiseFC $ boundToFC fname b) Nothing (concat b.val))
       <|> do nsdo <- bounds namespacedIdent
@@ -1268,23 +1215,23 @@ parameters {0 n : Nat} (again : Grammars True n)
                              -- If the name doesn't begin with a lower case letter, we should
                              -- treat this as a pattern, so fail
                              validPatternVar n.val
-                             ty <- optional (decoratedSymbol fname SymColon *> again.typeExpr (pnoeq pdef) fname indents)
-                             decoratedSymbol fname SymLeftArrow
+                             ty <- optional (symbol SymColon *> again.typeExpr (pnoeq pdef) fname indents)
+                             symbol SymLeftArrow
                              val <- again.expr pdef fname indents
                              pure (n, rig, ty, val))
              atEnd indents
              let (n, rig, ty, val) = b.val
              st <- node (StBind (boundToFC fname b) (boundToFC fname n) n.val rig ty val)
              pure [st]
-      <|> do decoratedKeyword fname KwLet
+      <|> do keyword KwLet
              commit
              res <- nonEmptyBlock (letBlock fname)
-             do b <- bounds (decoratedKeyword fname KwIn)
+             do b <- bounds (keyword KwIn)
                 fatalLoc {c = True} b.bounds "Let-in not supported in do block. Did you mean (let ... in ...)?"
                <|>
              do atEnd indents
                 build (mkDoLets fname res)
-      <|> do b <- bounds (decoratedKeyword fname KwRewrite *> again.expr pdef fname indents)
+      <|> do b <- bounds (keyword KwRewrite *> again.expr pdef fname indents)
              atEnd indents
              st <- node (StRewrite (boundToFC fname b) b.val)
              pure [st]
@@ -1292,8 +1239,8 @@ parameters {0 n : Nat} (again : Grammars True n)
              (do atEnd indents
                  st <- node (StExp (virtualiseFC $ boundToFC fname e) e.val)
                  pure [st])
-               <|> (do ty <- optional (decoratedSymbol fname SymColon *> again.typeExpr (pnoeq pdef) fname indents)
-                       b <- bounds $ decoratedSymbol fname SymLeftArrow *> [| (again.expr pnowith fname indents, block (patAlt fname)) |]
+               <|> (do ty <- optional (symbol SymColon *> again.typeExpr (pnoeq pdef) fname indents)
+                       b <- bounds $ symbol SymLeftArrow *> [| (again.expr pnowith fname indents, block (patAlt fname)) |]
                        atEnd indents
                        let (v, alts) = b.val
                        let fc = virtualiseFC $ boundToFC fname (mergeBounds e b)
@@ -1302,24 +1249,24 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     patAlt : OriginDesc -> IndentInfo -> Rule n r (Id FClause)
     patAlt fname indents
-        = do decoratedSymbol fname SymBar
+        = do symbol SymBar
              caseAlt fname indents
 
     lazy : OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     lazy fname indents
-        = do tm <- bounds (decorate fname Typ (exactIdent KLazy)
+        = do tm <- bounds ((exactIdent KLazy)
                            *> again.simpleExpr fname indents
                            <* mustFailBecause "Lazy only takes one argument" (continue indents >> again.simpleExpr fname indents))
              node (TmDelayed (boundToFC fname tm) LLazy tm.val)
-      <|> do tm <- bounds (decorate fname Typ (exactIdent KInf)
+      <|> do tm <- bounds ((exactIdent KInf)
                            *> again.simpleExpr fname indents
                            <* mustFailBecause "Inf only takes one argument" (continue indents >> again.simpleExpr fname indents))
              node (TmDelayed (boundToFC fname tm) LInf tm.val)
-      <|> do tm <- bounds (decorate fname Data (exactIdent KDelay)
+      <|> do tm <- bounds ((exactIdent KDelay)
                            *> again.simpleExpr fname indents
                            <* mustFailBecause "Delay only takes one argument" (continue indents >> again.simpleExpr fname indents))
              node (TmDelay (boundToFC fname tm) tm.val)
-      <|> do tm <- bounds (decorate fname Data (exactIdent KForce)
+      <|> do tm <- bounds ((exactIdent KForce)
                            *> again.simpleExpr fname indents
                            <* mustFailBecause "Force only takes one argument" (continue indents >> again.simpleExpr fname indents))
              node (TmForce (boundToFC fname tm) tm.val)
@@ -1357,10 +1304,8 @@ parameters {0 n : Nat} (again : Grammars True n)
     expr q fname indents
          = let_ fname indents
        <|> rewrite_ fname indents
-       <|> do b <- bounds $
-                     do decoratedPragma fname KwRunElab
-                        again.expr pdef fname indents
-              node (TmRunElab (boundToFC fname b) b.val)
+       <|> (bounds (pragma fname KwRunElab) >>= \x
+             => the (Rule _ _ (Id FTerm)) (fatalLoc x.bounds runElabRefused))
        <|> opExpr q fname indents
 
     interpBlock : ParseOpts -> OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
@@ -1368,7 +1313,7 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     singlelineStr : ParseOpts -> OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     singlelineStr q fname idents
-        = decorate fname Data $
+        =
           do b <- bounds $ do begin <- bounds strBegin
                               commit
                               xs <- many $ bounds $ (interpBlock q fname idents) <||> strLitLines
@@ -1388,7 +1333,7 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     multilineStr : ParseOpts -> OriginDesc -> IndentInfo -> Rule n r (Id FTerm)
     multilineStr q fname idents
-        = decorate fname Data $
+        =
           do b <- bounds $ do hashtag <- multilineBegin
                               commit
                               xs <- many $ bounds $ (interpBlock q fname idents) <||> strLitLines
@@ -1415,55 +1360,53 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     fnDirectOpt : OriginDesc -> Rule n r (Id FOpt)
     fnDirectOpt fname
-        = do decoratedPragma fname KwHint
+        = do pragma fname KwHint
              node (OpFn (Hint True))
-      <|> do decoratedPragma fname KwGlobalHint
+      <|> do pragma fname KwGlobalHint
              node (OpFn (GlobalHint False))
-      <|> do decoratedPragma fname KwDefaultHint
+      <|> do pragma fname KwDefaultHint
              node (OpFn (GlobalHint True))
-      <|> do decoratedPragma fname KwInline
+      <|> do pragma fname KwInline
              commit
              node (OpFn Inline)
-      <|> do decoratedPragma fname KwUnsafe
+      <|> do pragma fname KwUnsafe
              commit
              node (OpFn Unsafe)
-      <|> do decoratedPragma fname KwNoInline
+      <|> do pragma fname KwNoInline
              commit
              node (OpFn NoInline)
-      <|> do decoratedPragma fname KwDeprecate
+      <|> do pragma fname KwDeprecate
              commit
              node (OpFn Deprecate)
-      <|> do decoratedPragma fname KwTCInline
+      <|> do pragma fname KwTCInline
              commit
              node (OpFn TCInline)
-      <|> do decoratedPragma fname KwExtern
+      <|> do pragma fname KwExtern
              node (OpFn ExternFn)
-      <|> do decoratedPragma fname KwMacro
-             node (OpFn Macro)
-      <|> do decoratedPragma fname KwSpec
-             ns <- sepBy (decoratedSymbol fname SymComma) name
+      -- `%macro` makes a function an elaborator script run where it is
+      -- applied, which this compiler does not run.
+      <|> (bounds (pragma fname KwMacro) >>= \x
+            => the (Rule _ _ (Id FOpt)) (fatalLoc x.bounds
+                 "unsupported: the pragma %macro makes a function an elaborator script, run where it is applied, and this compiler runs no elaborator script"))
+      <|> do pragma fname KwSpec
+             ns <- sepBy (symbol SymComma) name
              node (OpFn (SpecArgs ns))
-      <|> do decoratedPragma fname KwForeign
+      <|> do pragma fname KwForeign
              cs <- block (again.expr pdef fname)
              node (OpForeign cs)
-      <|> do (decoratedPragma fname KwExport
-              <|> withWarning noMangleWarning
-                  (decoratedPragma fname KwNoMangle))
-             cs <- block (again.expr pdef fname)
-             node (OpForeignExport cs)
-      where
-        noMangleWarning : String
-        noMangleWarning = """
-        DEPRECATED: "%nomangle".
-          Use "%export" instead
-        """
+      -- `%export`, and `%nomangle`, its old spelling, name a function's
+      -- symbol for a foreign language to call; this compiler has no foreign
+      -- interface, so the pragma is refused where it is read.
+      <|> (bounds (pragma fname KwExport <|> pragma fname KwNoMangle) >>= \x
+            => the (Rule _ _ (Id FOpt)) (fatalLoc x.bounds
+                 "unsupported: the pragma %export names a function for a foreign language to call, and this compiler has no foreign interface"))
 
     ||| A binder with only one name and one type
     ||| BNF:
     ||| plainBinder := name ':' typeExpr
     plainBinder : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (Id FPlain)
-    plainBinder = do name <- fcBounds (decoratedSimpleBinderUName fname)
-                     decoratedSymbol fname SymColon
+    plainBinder = do name <- fcBounds (userName)
+                     symbol SymColon
                      ty <- again.typeExpr pdef fname indents
                      node (BnPlain name ty)
 
@@ -1473,18 +1416,18 @@ parameters {0 n : Nat} (again : Grammars True n)
     basicMultiBinder : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (Id FNames)
     basicMultiBinder
       = do rig <- multiplicity fname
-           names <- sepBy1 (decoratedSymbol fname SymComma)
-                         $ fcBounds (decoratedSimpleBinderUName fname)
-           decoratedSymbol fname SymColon
+           names <- sepBy1 (symbol SymComma)
+                         $ fcBounds (userName)
+           symbol SymColon
            ty <- again.typeExpr pdef fname indents
            node (BnNames rig names ty)
 
     tyDecls : Rule n r Name -> String -> OriginDesc -> IndentInfo -> Rule n r (Id FTyDecl)
     tyDecls declName predoc fname indents
         = do bs <- bounds $ do
-                      docns <- sepBy1 (decoratedSymbol fname SymComma)
+                      docns <- sepBy1 (symbol SymComma)
                                       [| (optDocumentation fname, fcBounds declName) |]
-                      b <- bounds $ decoratedSymbol fname SymColon
+                      b <- bounds $ symbol SymColon
                       mustWorkBecause b.bounds "Expected a type declaration" $ do
                         ty <- the (Rule _ _ (Id FTerm)) (again.typeExpr pdef fname indents)
                         pure (docns, ty)
@@ -1495,11 +1438,11 @@ parameters {0 n : Nat} (again : Grammars True n)
     withProblem : OriginDesc -> Int -> IndentInfo -> Rule n r (Id FWith)
     withProblem fname col indents
       = do rig <- multiplicity fname
-           start <- mustWork $ bounds (decoratedSymbol fname SymParen)
+           start <- mustWork $ bounds (symbol SymParen)
            wval <- bracketedExpr fname start indents
            prf <- optional $ do
-                    decoratedKeyword fname KwProof
-                    pure (!(multiplicity fname), !(decoratedSimpleBinderUName fname))
+                    keyword KwProof
+                    pure (!(multiplicity fname), !(userName))
            node (WpValue rig wval prf)
 
     parseRHS : (withArgs : Nat) ->
@@ -1507,7 +1450,7 @@ parameters {0 n : Nat} (again : Grammars True n)
                IndentInfo -> (lhs : (Id FTerm, List (FC, Id FTerm))) -> Rule n r (Id FClause)
     parseRHS withArgs fname start col indents lhs
          = do b <- bounds $ do
-                     decoratedSymbol fname SymEquals
+                     symbol SymEquals
                      mustWork $ do
                        continue indents
                        rhs <- again.typeExpr pdef fname indents
@@ -1520,10 +1463,10 @@ parameters {0 n : Nat} (again : Grammars True n)
               l <- withApplied lhs
               node (ClPattern fc l rhs ws)
        <|> do b <- bounds $ do
-                     decoratedKeyword fname KwWith
+                     keyword KwWith
                      commit
                      flags <- withFlags fname
-                     wps <- sepBy1 (decoratedSymbol fname SymBar) (withProblem fname col indents)
+                     wps <- sepBy1 (symbol SymBar) (withProblem fname col indents)
                      ws <- mustWork $ nonEmptyBlockAfter col
                                     $ again.clause (S (length wps.tail) + withArgs) (Just lhs) fname
                      pure (flags, wps, forget ws)
@@ -1531,7 +1474,7 @@ parameters {0 n : Nat} (again : Grammars True n)
               let fc = boundToFC fname (mergeBounds start b)
               l <- withApplied lhs
               node (ClWith fc l wps flags ws)
-       <|> do end <- bounds (decoratedKeyword fname KwImpossible)
+       <|> do end <- bounds (keyword KwImpossible)
               atEnd indents
               l <- withApplied lhs
               node (ClImpossible (boundToFC fname (mergeBounds start end)) l)
@@ -1571,14 +1514,14 @@ parameters {0 n : Nat} (again : Grammars True n)
 
         parseWithArg : Rule n True (FC, Id FTerm)
         parseWithArg
-            = do decoratedSymbol fname SymBar
+            = do symbol SymBar
                  tm <- bounds (again.expr plhs fname indents)
                  pure (boundToFC fname tm, tm.val)
 
     simpleCon : OriginDesc -> Id FTerm -> IndentInfo -> Rule n r (Id FTyDecl)
     simpleCon fname ret indents
         = do b <- bounds (do cdoc   <- optDocumentation fname
-                             cname  <- fcBounds $ decoratedDataConstructorName fname
+                             cname  <- fcBounds $ dataConstructorName
                              params <- the (EmptyRule _ _ $ List $ WithFC $ List ArgType)
                                          $ many (fcBounds $ argExpr plhs fname indents)
                              let Just args = traverse conArg (concat (map distribData params))
@@ -1592,15 +1535,15 @@ parameters {0 n : Nat} (again : Grammars True n)
     simpleData : OriginDesc -> WithBounds t ->
                  WithBounds Name -> IndentInfo -> Rule n r (Id FData)
     simpleData fname start tyName indents
-        = do b <- bounds (do params <- many (bounds $ decorate fname Bound name)
-                             tyend <- bounds (decoratedSymbol fname SymEquals)
+        = do b <- bounds (do params <- many (bounds $ name)
+                             tyend <- bounds (symbol SymEquals)
                              mustWork $ do
                                let tyfc = boundToFC fname (mergeBounds start tyend)
                                tyCon <- node (TmRef (boundToFC fname tyName) tyName.val)
                                args <- build (traverse (\ t => make (TmRef (boundToFC fname t) t.val)) params)
                                -- every constructor's return type, one node
                                conRetTy <- build (foldlM (\f, a => make (TmApp tyfc f a)) tyCon args)
-                               cons <- sepBy1 (decoratedSymbol fname SymBar) (simpleCon fname conRetTy indents)
+                               cons <- sepBy1 (symbol SymBar) (simpleCon fname conRetTy indents)
                                pure (params, tyfc, forget cons))
              (params, tyfc, cons) <- pure b.val
              tyConTy <- tyConType fname tyfc params
@@ -1612,9 +1555,9 @@ parameters {0 n : Nat} (again : Grammars True n)
         = do ty <- maybe (fail "Telescope is not optional in forward declaration") pure ty
              atEndIndent indents
              node (DtLater (boundToFC fname start) tyname ty)
-      <|> do b <- bounds (do (mustWork $ decoratedKeyword fname KwWhere)
+      <|> do b <- bounds (do (mustWork $ keyword KwWhere)
                              opts <- dataOpts fname
-                             cs <- blockAfter mincol (tyDecls (mustWork $ decoratedDataConstructorName fname) "" fname)
+                             cs <- blockAfter mincol (tyDecls (mustWork $ dataConstructorName) "" fname)
                              pure (opts, cs))
              (opts, cs) <- pure b.val
              node (DtBody (boundToFC fname (mergeBounds start b)) tyname ty opts cs)
@@ -1623,7 +1566,7 @@ parameters {0 n : Nat} (again : Grammars True n)
                WithBounds Name -> IndentInfo -> EmptyRule n r (Id FData)
     gadtData fname mincol start tyName indents
         = do ty <- optional $
-                     do decoratedSymbol fname SymColon
+                     do symbol SymColon
                         commit
                         again.typeExpr pdef fname indents
              dataBody fname mincol start tyName.val indents ty
@@ -1631,8 +1574,8 @@ parameters {0 n : Nat} (again : Grammars True n)
     dataDeclBody : OriginDesc -> IndentInfo -> Rule n r (Id FData)
     dataDeclBody fname indents
         = do b <- bounds (do col <- column
-                             decoratedKeyword fname KwData
-                             nm <- mustWork (bounds $ decoratedDataTypeName fname)
+                             keyword KwData
+                             nm <- mustWork (bounds $ dataTypeName)
                              pure (col, nm))
              (col, nm) <- pure b.val
              simpleData fname b nm indents <|> gadtData fname col b nm indents
@@ -1644,13 +1587,13 @@ parameters {0 n : Nat} (again : Grammars True n)
              dat         <- dataDeclBody fname indents
              pure (DcData doc vis mbTot dat)
 
-    directive : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (Directive' (Id FTerm))
+    directive : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r Directive
     directive
-        = do decoratedPragma fname KwHide
+        = do pragma fname KwHide
              n <- (fixityNS <|> (HideName <$> name))
              atEnd indents
              pure (Hide n)
-      <|> do decoratedPragma fname KwUnhide
+      <|> do pragma fname KwUnhide
              n <- name
              atEnd indents
              pure (Unhide n)
@@ -1658,84 +1601,85 @@ parameters {0 n : Nat} (again : Grammars True n)
     --          n <- name
     --          atEnd indents
     --          pure (Hide True n)
-      <|> do decoratedPragma fname KwLogging
+      <|> do pragma fname KwLogging
              lvl <- logLevel fname
              atEnd indents
              pure (Logging lvl)
-      <|> do decoratedPragma fname KwAutoLazy
+      <|> do pragma fname KwAutoLazy
              b <- onoff
              atEnd indents
              pure (LazyOn b)
-      <|> do decoratedPragma fname KwUnboundImplicits
+      <|> do pragma fname KwUnboundImplicits
              b <- onoff
              atEnd indents
              pure (UnboundImplicits b)
-      <|> do decoratedPragma fname KwPrefixRecordProjections
+      <|> do pragma fname KwPrefixRecordProjections
              b <- onoff
              atEnd indents
              pure (PrefixRecordProjections b)
-      <|> do decoratedPragma fname KwNfMetavarThreshold
-             dpt <- decorate fname Keyword $ intLit
+      <|> do pragma fname KwNfMetavarThreshold
+             dpt <-  intLit
              atEnd indents
              pure (NFMetavarThreshold (fromInteger dpt))
-      <|> do decoratedPragma fname KwPair
+      <|> do pragma fname KwPair
              ty <- name
              f <- name
              s <- name
              atEnd indents
              pure (PairNames ty f s)
-      <|> do decoratedPragma fname KwRewrite
+      <|> do pragma fname KwRewrite
              eq <- name
              rw <- name
              atEnd indents
              pure (RewriteName eq rw)
-      <|> do decoratedPragma fname KwIntegerLit
+      <|> do pragma fname KwIntegerLit
              n <- name
              atEnd indents
              pure (PrimInteger n)
-      <|> do decoratedPragma fname KwStringLit
+      <|> do pragma fname KwStringLit
              n <- name
              atEnd indents
              pure (PrimString n)
-      <|> do decoratedPragma fname KwCharLit
+      <|> do pragma fname KwCharLit
              n <- name
              atEnd indents
              pure (PrimChar n)
-      <|> do decoratedPragma fname KwDoubleLit
+      <|> do pragma fname KwDoubleLit
              n <- name
              atEnd indents
              pure (PrimDouble n)
-      <|> do decoratedPragma fname KwTTImpLit
+      <|> do pragma fname KwTTImpLit
              n <- name
              atEnd indents
              pure (PrimTTImp n)
-      <|> do decoratedPragma fname KwNameLit
+      <|> do pragma fname KwNameLit
              n <- name
              atEnd indents
              pure (PrimName n)
-      <|> do decoratedPragma fname KwDeclsLit
+      <|> do pragma fname KwDeclsLit
              n <- name
              atEnd indents
              pure (PrimDecls n)
-      <|> do decoratedPragma fname KwName
+      <|> do pragma fname KwName
              n <- name
-             ns <- sepBy1 (decoratedSymbol fname SymComma)
-                          (decoratedSimpleBinderUName fname)
+             ns <- sepBy1 (symbol SymComma)
+                          (userName)
              atEnd indents
              pure (Names n (forget (map nameRoot ns)))
-      <|> do decoratedPragma fname KwStart
-             e <- again.expr pdef fname indents
-             atEnd indents
-             pure (StartExpr e)
-      <|> do decoratedPragma fname KwAllowOverloads
+      -- `%start` names the expression a REPL session runs first; this
+      -- compiler runs no REPL, so the pragma is refused where it is read.
+      <|> (bounds (pragma fname KwStart) >>= \x
+            => the (Rule _ _ Directive) (fatalLoc x.bounds
+                 "unsupported: the pragma %start names an expression for a REPL session to run, and this compiler runs no REPL"))
+      <|> do pragma fname KwAllowOverloads
              n <- name
              atEnd indents
              pure (Overloadable n)
-      <|> do decoratedPragma fname KwLanguage
+      <|> do pragma fname KwLanguage
              e <- mustWork extension
              atEnd indents
              pure (Extension e)
-      <|> do decoratedPragma fname KwDefault
+      <|> do pragma fname KwDefault
              tot <- totalityOpt fname
              atEnd indents
              pure (DefaultTotality tot)
@@ -1750,28 +1694,26 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     transformDecl : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (DeclOf Id)
     transformDecl
-        = do decoratedPragma fname KwTransform
+        = do pragma fname KwTransform
              n <- simpleStr
              lhs <- again.expr plhs fname indents
-             decoratedSymbol fname SymEquals
+             symbol SymEquals
              rhs <- again.expr pnowith fname indents
              pure (DcTransform n lhs rhs)
 
-    runElabDecl : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (DeclOf Id)
+    runElabDecl : (fname : OriginDesc) => Rule n r (DeclOf Id)
     runElabDecl
-        = do
-             decoratedPragma fname KwRunElab
-             tm <- again.expr pnowith fname indents
-             pure (DcRunElab tm)
+        = bounds (pragma fname KwRunElab) >>= \x
+            => the (Rule _ _ (DeclOf Id)) (fatalLoc x.bounds runElabRefused)
 
     ||| failDecls := 'failing' simpleStr? nonEmptyBlock
     failDecls : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (DeclOf Id)
     failDecls
         = do
              col <- column
-             decoratedKeyword fname KwFailing
+             keyword KwFailing
              commit
-             msg <- optional (decorate fname Data (simpleMultiStr <|> simpleStr ))
+             msg <- optional ((simpleMultiStr <|> simpleStr ))
              ds <- nonEmptyBlockAfter col (again.topDecl fname)
              pure $ DcFail msg (forget ds)
 
@@ -1780,7 +1722,7 @@ parameters {0 n : Nat} (again : Grammars True n)
     mutualDecls
         = do
              col <- column
-             decoratedKeyword fname KwMutual
+             keyword KwMutual
              commit
              ds <- nonEmptyBlockAfter col (again.topDecl fname)
              pure (DcMutual (forget ds))
@@ -1788,14 +1730,14 @@ parameters {0 n : Nat} (again : Grammars True n)
     usingDecls : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (DeclOf Id)
     usingDecls
         = do col <- column
-             decoratedKeyword fname KwUsing
+             keyword KwUsing
              commit
-             decoratedSymbol fname SymParen
-             us <- sepBy (decoratedSymbol fname SymComma)
-                         (do n <- optional $ userName <* decoratedSymbol fname SymColon
+             symbol SymParen
+             us <- sepBy (symbol SymComma)
+                         (do n <- optional $ userName <* symbol SymColon
                              ty <- again.typeExpr pdef fname indents
                              pure (n, ty))
-             decoratedSymbol fname SymParenClose
+             symbol SymParenClose
              ds <- nonEmptyBlockAfter col (again.topDecl fname)
              pure (DcUsing us (forget ds))
 
@@ -1811,7 +1753,7 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     defImplicitField : OriginDesc -> IndentInfo -> Rule n r (PiInfo (Id FTerm))
     defImplicitField fname indents = do
-      decoratedKeyword fname KwDefault
+      keyword KwDefault
       commit
       t <- again.simpleExpr fname indents
       pure (DefImplicit t)
@@ -1824,14 +1766,14 @@ parameters {0 n : Nat} (again : Grammars True n)
         constraint : Rule n r (Maybe Name, Id FTerm)
         constraint
             = do tm <- appExpr pdef fname indents
-                 decoratedSymbol fname SymFatArrow
+                 symbol SymFatArrow
                  pure (Nothing, tm)
-          <|> do decoratedSymbol fname SymParen
-                 n <- decorate fname Bound name
-                 decoratedSymbol fname SymColon
+          <|> do symbol SymParen
+                 n <- name
+                 symbol SymColon
                  tm <- again.typeExpr pdef fname indents
-                 decoratedSymbol fname SymParenClose
-                 decoratedSymbol fname SymFatArrow
+                 symbol SymParenClose
+                 symbol SymFatArrow
                  pure (Just n, tm)
 
     -- An implementation's implicit parameters, one for each name bound, each
@@ -1845,7 +1787,7 @@ parameters {0 n : Nat} (again : Grammars True n)
       isDefaultImplicit _               = False
 
       binds : Rule n r (List (Id FImplicit))
-      binds = do decoratedSymbol fname SymBrace
+      binds = do symbol SymBrace
                  piInfo <- bounds $ option Implicit $ defImplicitField fname indents
                  when (not namedImpl && isDefaultImplicit piInfo.val) $
                    fatalLoc piInfo.bounds "Default implicits are allowed only for named implementations"
@@ -1859,11 +1801,11 @@ parameters {0 n : Nat} (again : Grammars True n)
     fieldDecl : (fname : OriginDesc) => IndentInfo -> Rule n r (Id FField)
     fieldDecl indents
           = do doc <- optDocumentation fname
-               decoratedSymbol fname SymBrace
+               symbol SymBrace
                commit
                impl <- option Implicit (autoImplicitField fname indents <|> defImplicitField fname indents)
                fs <- fieldBody doc impl
-               decoratedSymbol fname SymBraceClose
+               symbol SymBraceClose
                atEnd indents
                pure fs
         <|> do doc <- optDocumentation fname
@@ -1877,11 +1819,11 @@ parameters {0 n : Nat} (again : Grammars True n)
         fieldBody doc p
             = do b <- bounds $ do
                         rig <- multiplicity fname
-                        ns <- sepBy1 (decoratedSymbol fname SymComma)
-                                (fcBounds (decorate fname Function name
+                        ns <- sepBy1 (symbol SymComma)
+                                (fcBounds (name
                                    <|> (do b <- bounds (symbol SymUnderscore)
                                            fatalLoc {c = True} b.bounds "Fields have to be named")))
-                        decoratedSymbol fname SymColon
+                        symbol SymColon
                         ty <- again.typeExpr pdef fname indents
                         pure (rig, forget ns, ty)
                  let (rig, ns, ty) = b.val
@@ -1889,8 +1831,8 @@ parameters {0 n : Nat} (again : Grammars True n)
 
     ifaceParam : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (Id FNames)
     ifaceParam
-        = parens fname basicMultiBinder
-      <|> do n <- fcBounds (decorate fname Bound name)
+        = parens basicMultiBinder
+      <|> do n <- fcBounds (name)
              ty <- node (TmInfer n.fc)
              node (BnNames erased (singleton n) ty)
 
@@ -1899,16 +1841,16 @@ parameters {0 n : Nat} (again : Grammars True n)
         = do  doc   <- optDocumentation fname
               vis   <- visibility fname
               col   <- column
-              decoratedKeyword fname KwInterface
+              keyword KwInterface
               commit
               cons   <- constraints fname indents
-              n      <- decorate fname Typ name
+              n      <- name
               params <- many ifaceParam
               det    <- optional $ do
-                b <- bounds $ decoratedSymbol fname SymBar
+                b <- bounds $ symbol SymBar
                 mustWorkBecause b.bounds "Expected list of determining parameters" $
-                  sepBy1 (decoratedSymbol fname SymComma) (decorate fname Bound name)
-              decoratedKeyword fname KwWhere
+                  sepBy1 (symbol SymComma) (name)
+              keyword KwWhere
               dc <- optional (recordConstructor fname)
               body <- blockAfter col (again.topDecl fname)
               pure (DcInterface vis cons n doc params det dc body)
@@ -1920,17 +1862,17 @@ parameters {0 n : Nat} (again : Grammars True n)
              vis     <- getVisibility Nothing visOpts
              let opts = mapMaybe getRight visOpts
              col <- column
-             option () (decoratedKeyword fname KwImplementation)
-             iname  <- optional $ decoratedSymbol fname SymBracket
-                               *> decorate fname Function name
-                               <* decoratedSymbol fname SymBracketClose
+             option () (keyword KwImplementation)
+             iname  <- optional $ symbol SymBracket
+                               *> name
+                               <* symbol SymBracketClose
              impls  <- implBinds fname indents (isJust iname)
              cons   <- constraints fname indents
-             n      <- decorate fname Typ name
+             n      <- name
              params <- many (continue indents *> again.simpleExpr fname indents)
-             nusing <- option [] $ decoratedKeyword fname KwUsing
-                                *> forget <$> some (decorate fname Function name)
-             body <- optional $ decoratedKeyword fname KwWhere *> blockAfter col (again.topDecl fname)
+             nusing <- option [] $ keyword KwUsing
+                                *> forget <$> some (name)
+             body <- optional $ keyword KwWhere *> blockAfter col (again.topDecl fname)
              atEnd indents
              pure $
                 DcImplementation vis opts Single impls cons n params iname nusing body
@@ -1942,7 +1884,7 @@ parameters {0 n : Nat} (again : Grammars True n)
              vis     <- getVisibility Nothing visOpts
              let opts = mapMaybe getRight visOpts
              rig  <- multiplicity fname
-             cls  <- tyDecls (decorate fname Function name)
+             cls  <- tyDecls (name)
                              doc fname indents
              pure $ DcClaim rig vis opts cls
 
@@ -1950,17 +1892,17 @@ parameters {0 n : Nat} (again : Grammars True n)
     -- A Single binder with multiple names
     typedArg : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (Id FBinder)
     typedArg
-        = do params <- parens fname $ pibindListName fname indents
+        = do params <- parens $ pibindListName fname indents
              ns <- multiBinder params
              node (BnPi Explicit ns)
-      <|> do decoratedSymbol fname SymBrace
+      <|> do symbol SymBrace
              commit
              info <-
-                      (pure  AutoImplicit <* decoratedKeyword fname KwAuto
-                  <|> (decoratedKeyword fname KwDefault *> DefImplicit <$> again.simpleExpr fname indents)
+                      (pure  AutoImplicit <* keyword KwAuto
+                  <|> (keyword KwDefault *> DefImplicit <$> again.simpleExpr fname indents)
                   <|> pure      Implicit)
              params <- pibindListName fname indents
-             decoratedSymbol fname SymBraceClose
+             symbol SymBraceClose
              ns <- multiBinder params
              node (BnPi info ns)
 
@@ -1970,7 +1912,7 @@ parameters {0 n : Nat} (again : Grammars True n)
     recordParam : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (Id FBinder)
     recordParam
         = typedArg
-      <|> do n <- fcBounds (decoratedSimpleBinderUName fname)
+      <|> do n <- fcBounds (userName)
              ty <- node (TmInfer n.fc)
              ns <- node (BnNames top (singleton n) ty)
              node (BnPi Explicit ns)
@@ -1987,7 +1929,7 @@ parameters {0 n : Nat} (again : Grammars True n)
         = do atEndIndent indents
              rc <- node (RcLater nm params)
              pure (DcRecord doc vis mbtot rc)
-      <|> do mustWork $ decoratedKeyword fname KwWhere
+      <|> do mustWork $ keyword KwWhere
              opts <- dataOpts fname
              dcflds <- blockWithOptHeaderAfter col
                          (\ idt => recordConstructor fname <* atEnd idt)
@@ -2000,8 +1942,8 @@ parameters {0 n : Nat} (again : Grammars True n)
         = do doc         <- optDocumentation fname
              (vis,mbtot) <- dataVisOpt fname
              col         <- column
-             decoratedKeyword fname KwRecord
-             nm      <- mustWork (decoratedDataTypeName fname)
+             keyword KwRecord
+             nm      <- mustWork (dataTypeName)
              paramss <- many (continue indents >> recordParam)
              recordBody doc vis mbtot col nm paramss
 
@@ -2011,7 +1953,7 @@ parameters {0 n : Nat} (again : Grammars True n)
     paramDecls : (fname : OriginDesc) => (indents : IndentInfo) => Rule n r (DeclOf Id)
     paramDecls = do
              startCol <- column
-             b1 <- decoratedKeyword fname KwParameters
+             b1 <- keyword KwParameters
              commit
              args <- Right <$> newParamDecls
                  <|> Left <$> withWarning "DEPRECATED: old parameter syntax https://github.com/idris-lang/Idris2/issues/3447" oldParamDecls
@@ -2022,7 +1964,7 @@ parameters {0 n : Nat} (again : Grammars True n)
       where
         oldParamDecls : Rule n True (List1 (Id FPlain))
         oldParamDecls
-            = parens fname $ sepBy1 (decoratedSymbol fname SymComma) plainBinder
+            = parens $ sepBy1 (symbol SymComma) plainBinder
 
         newParamDecls : Rule n True (List1 (Id FBinder))
         newParamDecls = some typedArg

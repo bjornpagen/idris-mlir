@@ -117,8 +117,7 @@ mutual
        PQuoteName : FC -> Name -> PTerm' nm
        PQuoteDecl : FC -> List (PDecl' nm) -> PTerm' nm
        PUnquote : FC -> PTerm' nm -> PTerm' nm
-       PRunElab : FC -> PTerm' nm -> PTerm' nm
-       PHole : FC -> (bracket : Bool) -> (holename : Ident) -> PTerm' nm
+       PHole : FC -> (holename : Ident) -> PTerm' nm
        PType : FC -> PTerm' nm
        PAs : FC -> (nameFC : FC) -> Name -> (pattern : PTerm' nm) -> PTerm' nm
        PDotted : FC -> PTerm' nm -> PTerm' nm
@@ -190,8 +189,7 @@ mutual
   getPTermLoc (PQuoteName fc _) = fc
   getPTermLoc (PQuoteDecl fc _) = fc
   getPTermLoc (PUnquote fc _) = fc
-  getPTermLoc (PRunElab fc _) = fc
-  getPTermLoc (PHole fc _ _) = fc
+  getPTermLoc (PHole fc _) = fc
   getPTermLoc (PType fc) = fc
   getPTermLoc (PAs fc _ _ _) = fc
   getPTermLoc (PDotted fc _) = fc
@@ -332,16 +330,6 @@ mutual
   papply fc f [] = f
   papply fc f (a :: as) = papply fc (PApp fc f a) as
 
-  export
-  applyArgs : PTerm' nm -> List (FC, PTerm' nm) -> PTerm' nm
-  applyArgs f [] = f
-  applyArgs f ((fc, a) :: args) = applyArgs (PApp fc f a) args
-
-  export
-  applyWithArgs : PTerm' nm -> List (FC, PTerm' nm) -> PTerm' nm
-  applyWithArgs f [] = f
-  applyWithArgs f ((fc, a) :: args) = applyWithArgs (PWithApp fc f a) args
-
   public export
   PTypeDecl : Type
   PTypeDecl = PTypeDecl' Name
@@ -389,11 +377,6 @@ mutual
                         (params : List (PBinder' nm)) ->
                         PRecordDecl' nm
 
-  export
-  getPDataDeclLoc : PDataDecl' nm -> FC
-  getPDataDeclLoc (MkPData fc _ _ _ _) = fc
-  getPDataDeclLoc (MkPLater fc _ _) = fc
-
   public export
   PWithProblem : Type
   PWithProblem = PWithProblem' Name
@@ -418,42 +401,29 @@ mutual
                       List WithFlag -> List (PClause' nm) -> PClause' nm
        MkImpossible : FC -> (lhs : PTerm' nm) -> PClause' nm
 
-  export
-  getPClauseLoc : PClause -> FC
-  getPClauseLoc (MkPatClause fc _ _ _) = fc
-  getPClauseLoc (MkWithClause fc _ _ _ _) = fc
-  getPClauseLoc (MkImpossible fc _) = fc
-
-  ||| A directive, its `%start` expression a `tm`: the node of the parse tree
-  ||| for one while parsing, a term once the tree is decoded.
   public export
-  data Directive' : Type -> Type where
-       Hide : HidingDirective -> Directive' tm
-       Unhide : Name -> Directive' tm
-       Logging : Maybe LogLevel -> Directive' tm
-       LazyOn : Bool -> Directive' tm
-       UnboundImplicits : Bool -> Directive' tm
-       PairNames : Name -> Name -> Name -> Directive' tm
-       RewriteName : Name -> Name -> Directive' tm
-       PrimInteger : Name -> Directive' tm
-       PrimString : Name -> Directive' tm
-       PrimChar : Name -> Directive' tm
-       PrimDouble : Name -> Directive' tm
-       PrimTTImp : Name -> Directive' tm
-       PrimName : Name -> Directive' tm
-       PrimDecls : Name -> Directive' tm
-       CGAction : String -> String -> Directive' tm
-       Names : Name -> List String -> Directive' tm
-       StartExpr : tm -> Directive' tm
-       Overloadable : Name -> Directive' tm
-       Extension : LangExt -> Directive' tm
-       DefaultTotality : TotalReq -> Directive' tm
-       PrefixRecordProjections : Bool -> Directive' tm
-       NFMetavarThreshold : Nat -> Directive' tm
-
-  public export
-  Directive : Type
-  Directive = Directive' (PTerm' Name)
+  data Directive : Type where
+       Hide : HidingDirective -> Directive
+       Unhide : Name -> Directive
+       Logging : Maybe LogLevel -> Directive
+       LazyOn : Bool -> Directive
+       UnboundImplicits : Bool -> Directive
+       PairNames : Name -> Name -> Name -> Directive
+       RewriteName : Name -> Name -> Directive
+       PrimInteger : Name -> Directive
+       PrimString : Name -> Directive
+       PrimChar : Name -> Directive
+       PrimDouble : Name -> Directive
+       PrimTTImp : Name -> Directive
+       PrimName : Name -> Directive
+       PrimDecls : Name -> Directive
+       CGAction : String -> String -> Directive
+       Names : Name -> List String -> Directive
+       Overloadable : Name -> Directive
+       Extension : LangExt -> Directive
+       DefaultTotality : TotalReq -> Directive
+       PrefixRecordProjections : Bool -> Directive
+       NFMetavarThreshold : Nat -> Directive
 
   public export
   PField : Type
@@ -480,7 +450,6 @@ mutual
   data PFnOpt' : Type -> Type where
        IFnOpt : FnOpt' nm -> PFnOpt' nm
        PForeign : List (PTerm' nm) -> PFnOpt' nm
-       PForeignExport : List (PTerm' nm) -> PFnOpt' nm
 
   public export
   PClaimData : Type
@@ -552,7 +521,6 @@ mutual
        PFixity : PFixityData -> PDeclNoFC' nm
        PNamespace : Namespace -> List (PDecl' nm) -> PDeclNoFC' nm
        PTransform : String -> PTerm' nm -> PTerm' nm -> PDeclNoFC' nm
-       PRunElabDecl : PTerm' nm -> PDeclNoFC' nm
        PDirective : Directive -> PDeclNoFC' nm
        PBuiltin : BuiltinType -> Name -> PDeclNoFC' nm
 
@@ -564,10 +532,6 @@ mutual
   PDecl' : Type -> Type
   PDecl' x = WithFC (PDeclNoFC' x)
 
-  export
-  getPDeclLoc : PDecl' nm -> FC
-  getPDeclLoc x = x.fc
-
 export
 isStrInterp : PStr -> Maybe FC
 isStrInterp (StrInterp fc _) = Just fc
@@ -577,34 +541,6 @@ export
 isStrLiteral : PStr -> Maybe (FC, String)
 isStrLiteral (StrInterp {}) = Nothing
 isStrLiteral (StrLiteral fc str) = Just (fc, str)
-
-||| A directive with its `%start` expression changed by `g`, the one term a
-||| directive holds.
-export
-traverseDirective : Applicative f => (a -> f b) -> Directive' a -> f (Directive' b)
-traverseDirective g (Hide h) = pure (Hide h)
-traverseDirective g (Unhide n) = pure (Unhide n)
-traverseDirective g (Logging l) = pure (Logging l)
-traverseDirective g (LazyOn b) = pure (LazyOn b)
-traverseDirective g (UnboundImplicits b) = pure (UnboundImplicits b)
-traverseDirective g (PairNames ty l r) = pure (PairNames ty l r)
-traverseDirective g (RewriteName eq rw) = pure (RewriteName eq rw)
-traverseDirective g (PrimInteger n) = pure (PrimInteger n)
-traverseDirective g (PrimString n) = pure (PrimString n)
-traverseDirective g (PrimChar n) = pure (PrimChar n)
-traverseDirective g (PrimDouble n) = pure (PrimDouble n)
-traverseDirective g (PrimTTImp n) = pure (PrimTTImp n)
-traverseDirective g (PrimName n) = pure (PrimName n)
-traverseDirective g (PrimDecls n) = pure (PrimDecls n)
-traverseDirective g (CGAction cg dir) = pure (CGAction cg dir)
-traverseDirective g (Names n ns) = pure (Names n ns)
-traverseDirective g (StartExpr e) = StartExpr <$> g e
-traverseDirective g (Overloadable n) = pure (Overloadable n)
-traverseDirective g (Extension e) = pure (Extension e)
-traverseDirective g (DefaultTotality t) = pure (DefaultTotality t)
-traverseDirective g (PrefixRecordProjections b) = pure (PrefixRecordProjections b)
-traverseDirective g (NFMetavarThreshold n) = pure (NFMetavarThreshold n)
-
 
 definedInData : PDataDecl -> List Name
 definedInData (MkPData _ n _ _ cons) = n :: concatMap (.nameList) cons
@@ -783,9 +719,8 @@ parameters {0 nm : Type} (toName : nm -> Name)
   showPTermPrec d (PQuoteName _ n) = "`{" ++ showPrec d n ++ "}"
   showPTermPrec d (PQuoteDecl _ tm) = "`[ <<declaration>> ]"
   showPTermPrec d (PUnquote _ tm) = "~(" ++ showPTermPrec d tm ++ ")"
-  showPTermPrec d (PRunElab _ tm) = "%runElab " ++ showPTermPrec d tm
   showPTermPrec d (PPrimVal _ c) = showPrec d c
-  showPTermPrec _ (PHole _ _ n) = "?" ++ n.text
+  showPTermPrec _ (PHole _ n) = "?" ++ n.text
   showPTermPrec _ (PType _) = "Type"
   showPTermPrec d (PAs _ _ n p) = showPrec d n ++ "@" ++ showPTermPrec d p
   showPTermPrec d (PDotted _ p) = "." ++ showPTermPrec d p
@@ -890,22 +825,12 @@ record SyntaxInfo where
   ||| precedence, and the file context where that fixity was defined.
   fixities : ANameMap FixityInfo
   -- info about modules
-  saveMod : List ModuleIdent -- current module name
-  modDocstrings : SortedMap ModuleIdent String
-  modDocexports : SortedMap ModuleIdent (List Import) -- keeping the imports that happen to be reexports
   -- info about interfaces
   saveIFaces : List Name -- interfaces defined in current session, to save
                          -- to ttc
   ifaces : ANameMap IFaceInfo
   -- info about definitions
-  saveDocstrings : NameMap () -- names defined in current session
-  defDocstrings : ANameMap String
-  bracketholes : List Name -- hole names in argument position (so need
-                           -- to be bracketed when solved)
-                           -- TODO: use Set instead List
   usingImpl : List (Maybe Name, RawImp)
-  startExpr : RawImp
-  holeNames : List Ident -- hole names in the file
 
 export
 prefixes : SyntaxInfo -> ANameMap (FC, Nat)
@@ -951,13 +876,9 @@ HasNames a => HasNames (ANameMap a) where
 export
 HasNames SyntaxInfo where
   full gam syn
-      = pure $ { ifaces := !(full gam (ifaces syn))
-               , bracketholes := !(traverse (full gam) (bracketholes syn))
-               } syn
+      = pure $ { ifaces := !(full gam (ifaces syn)) } syn
   resolved gam syn
-      = pure $ { ifaces := !(resolved gam (ifaces syn))
-               , bracketholes := !(traverse (resolved gam) (bracketholes syn))
-               } syn
+      = pure $ { ifaces := !(resolved gam (ifaces syn)) } syn
 
 export
 initSyntax : SyntaxInfo
@@ -965,14 +886,6 @@ initSyntax
     = MkSyntax initFixities
                []
                empty
-               empty
-               []
-               empty
-               initSaveDocStrings
-               initDocStrings
-               []
-               []
-               (IVar EmptyFC (knownUN Kmain))
                []
 
   where
@@ -985,12 +898,6 @@ initSyntax
       , (knownUN KEquals, MkFixityInfo EmptyFC Export NotBinding Infix 0)
       ]
 
-    initDocStrings : ANameMap String
-    initDocStrings = empty
-
-    initSaveDocStrings : NameMap ()
-    initSaveDocStrings = empty
-
 -- A label for Syntax info in the global state
 export
 data Syn : Type where
@@ -998,16 +905,6 @@ data Syn : Type where
 export
 withSyn : {auto s : Ref Syn SyntaxInfo} -> Core a -> Core a
 withSyn = wrapRef Syn (\_ => pure ())
-
--- Add a list of reexports for a module name
-export
-addModDocInfo : {auto s : Ref Syn SyntaxInfo} ->
-                ModuleIdent -> String -> List Import ->
-                Core ()
-addModDocInfo mi doc reexpts
-    = update Syn { saveMod $= (mi ::)
-                 , modDocexports $= insert mi reexpts
-                 , modDocstrings $= insert mi doc }
 
 ||| Remove a fixity from the context
 export
@@ -1079,7 +976,6 @@ Show PDeclNoFC where
   show (PFixity {}) = "PFixity"
   show (PNamespace {}) = "PNamespace"
   show (PTransform {}) = "PTransform"
-  show (PRunElabDecl {}) = "PRunElabDecl"
   show (PDirective {}) = "PDirective"
   show (PBuiltin {}) = "PBuiltin"
 

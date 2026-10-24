@@ -175,9 +175,6 @@ data Error : Type where
      BadDotPattern : {vars : _} ->
                      FC -> Env Term vars -> DotReason -> Term vars -> Term vars -> Error
      BadImplicit : FC -> String -> Error
-     BadRunElab : {vars : _} ->
-                  FC -> Env Term vars -> Term vars -> (description : String) -> Error
-     RunElabFail : Error -> Error
      GenericMsg : FC -> String -> Error
      GenericMsgSol : FC -> (message : String) ->
                            (solutionHeader : String) -> (solutions : List String) -> Error
@@ -201,7 +198,6 @@ data Error : Type where
      InternalError : String -> Error
      UserError : String -> Error
      ||| Contains list of specifiers for which foreign call cannot be resolved
-     NoForeignCC : FC -> List String -> Error
      BadMultiline : FC -> String -> Error
      FailingDidNotFail : FC -> Error
      FailingWrongError : FC -> String -> List1 Error -> Error
@@ -223,230 +219,6 @@ Show TTCErrorMsg where
         "TTC data is in an " ++ age ++ " format, file: " ++ file ++ ", expected version: " ++ show exp ++ ", actual version: " ++ show ver
   show (EndOfBuffer when) = "End of buffer when reading " ++ when
   show (Corrupt ty) = "Corrupt TTC data for " ++ ty
-
--- Simplest possible display - higher level languages should unelaborate names
--- and display annotations appropriately
-
-export
-Show Warning where
-    show (ParserWarning fc msg) = show fc ++ msg
-    show (UnreachableClause fc _ _) = show fc ++ ":Unreachable clause"
-    show (ShadowingGlobalDefs fc _) = show fc ++ ":Shadowing names"
-    show (IncompatibleVisibility fc _ _ _) = show fc ++ ":Incompatible Visibility"
-    show (ShadowingLocalBindings fc _) = show fc ++ ":Shadowing names"
-    show (Deprecated fc name _) = show fc ++ ":Deprecated " ++ name
-    show (GenericWarn fc msg) = show fc ++ msg
-
-
--- An error is shown by a function of its own, with the lists of errors it
--- holds shown by functions of their own, so that every recursive call is on
--- a part of its argument; each shows what the instances of the parts would.
-mutual
-  -- A list as its instance shows one, from its elements' texts.
-  showListOf : List String -> String
-  showListOf xs = "[" ++ concat (intersperse ", " xs) ++ "]"
-
-  showAlts : List (Maybe Name, Error) -> List String
-  showAlts [] = []
-  showAlts ((n, err) :: rest) = ("(" ++ show n ++ ", " ++ showError err ++ ")") :: showAlts rest
-
-  showErrors : List Error -> List String
-  showErrors [] = []
-  showErrors (err :: errs) = showError err :: showErrors errs
-
-  total
-  showError : Error -> String
-  showError (Fatal err) = showError err
-  showError (CantConvert fc _ env x y)
-      = show fc ++ ":Type mismatch: " ++ show x ++ " and " ++ show y
-  showError (CantSolveEq fc _ env x y)
-      = show fc ++ ":" ++ show x ++ " and " ++ show y ++ " are not equal"
-  showError (PatternVariableUnifies fc fct env n x)
-      = show fc ++ ":Pattern variable " ++ show n ++ " unifies with " ++ show x
-  showError (CyclicMeta fc env n tm)
-      = show fc ++ ":Cycle detected in metavariable solution " ++ show n
-             ++ " = " ++ show tm
-  showError (WhenUnifying fc _ _ x y err)
-      = show fc ++ ":When unifying: " ++ show x ++ " and " ++ show y ++ "\n\t" ++ showError err
-  showError (ValidCase fc _ prob)
-      = show fc ++ ":" ++
-           case prob of
-             Left tm => show tm ++ " is not a valid impossible pattern because it typechecks"
-             Right err => "Not a valid impossible pattern:\n\t" ++ showError err
-  showError (UndefinedName fc x)
-    = show fc ++ ":Undefined name " ++ show x
-  showError (InvisibleName fc x (Just ns))
-       = show fc ++ ":Name " ++ show x ++ " is inaccessible since " ++
-         show ns ++ " is not explicitly imported"
-  showError (InvisibleName fc x _) = show fc ++ ":Name " ++ show x ++ " is private"
-  showError (BadTypeConType fc n)
-       = show fc ++ ":Return type of " ++ show n ++ " must be Type"
-  showError (BadDataConType fc n fam)
-       = show fc ++ ":Return type of " ++ show n ++ " must be in " ++ show fam
-  showError (NotCovering fc n cov)
-       = show fc ++ ":" ++ show n ++ " is not covering:\n\t" ++
-            case cov of
-                 IsCovering => "Oh yes it is (Internal error!)"
-                 MissingCases cs => "Missing cases:\n\t" ++
-                                           showSep "\n\t" (map show cs)
-                 NonCoveringCall ns => "Calls non covering function"
-                                           ++ (case ns of
-                                                   [fn] => " " ++ show fn
-                                                   _ => "s: " ++ showSep ", " (map show ns))
-
-  showError (NotTotal fc n r)
-       = show fc ++ ":" ++ show n ++ " is not total"
-  showError ImpossibleCase
-       = "Case is impossible (not an error)"
-  showError (LinearUsed fc count n)
-      = show fc ++ ":There are " ++ show count ++ " uses of linear name " ++ show n
-  showError (LinearMisuse fc n exp ctx)
-      = show fc ++ ":Trying to use " ++ showRig exp ++ " name " ++ show n ++
-                   " in " ++ showRel ctx ++ " context"
-     where
-       showRig : RigCount -> String
-       showRig = elimSemi
-         "irrelevant"
-         "linear"
-         (const "unrestricted")
-
-       showRel : RigCount -> String
-       showRel = elimSemi
-         "irrelevant"
-         "relevant"
-         (const "non-linear")
-  showError (BorrowPartial fc env t arg)
-      = show fc ++ ":" ++ show t ++ " borrows argument " ++ show arg ++
-                   " so must be fully applied"
-  showError (BorrowPartialType fc env t)
-      = show fc ++ ":" ++ show t ++ " borrows, so must return a concrete type"
-
-  showError (AmbiguousName fc ns) = show fc ++ ":Ambiguous name " ++ show ns
-  showError (AmbiguousElab fc env ts) = show fc ++ ":Ambiguous elaboration " ++ show (map snd ts)
-  showError (AmbiguousSearch fc env tgt ts) = show fc ++ ":Ambiguous search " ++ show ts
-  showError (AllFailed ts) = "No successful elaboration: " ++ showListOf (showAlts ts)
-  showError (RecordTypeNeeded fc env)
-      = show fc ++ ":Can't infer type of record to update"
-  showError (DuplicatedRecordUpdatePath fc ps)
-      = show fc ++ ":Duplicated record update paths: " ++ show ps
-  showError (NotRecordField fc fld Nothing)
-      = show fc ++ ":" ++ fld ++ " is not part of a record type"
-  showError (NotRecordField fc fld (Just ty))
-      = show fc ++ ":Record type " ++ show ty ++ " has no field " ++ fld
-  showError (NotRecordType fc ty)
-      = show fc ++ ":" ++ show ty ++ " is not a record type"
-  showError (IncompatibleFieldUpdate fc flds)
-      = show fc ++ ":Field update " ++ showSep "->" flds ++ " not compatible with other updates"
-  showError (InvalidArgs fc env ns tm)
-     = show fc ++ ":" ++ show ns ++ " are not valid arguments in " ++ show tm
-  showError (TryWithImplicits fc env imps)
-     = show fc ++ ":Need to bind implicits "
-          ++ showSep "," (map (\x => show (fst x) ++ " : " ++ show (snd x)) imps)
-          ++ "\n(The front end should probably have done this for you. Please report!)"
-  showError (BadUnboundImplicit fc env n ty)
-      = show fc ++ ":Can't bind name " ++ nameRoot n ++
-                   " with type " ++ show ty
-  showError (CantSolveGoal fc gam env g cause)
-      = show fc ++ ":Can't solve goal " ++ show g
-  showError (DeterminingArg fc n i env g)
-      = show fc ++ ":Can't solve goal " ++ show g ++
-                " since argument " ++ show n ++ " can't be inferred"
-  showError (GrowingSearch fc gam earlier later hints)
-      = show fc ++ ":Search grows from " ++ show earlier ++ " to " ++ show later ++
-                " through " ++ show hints
-  showError (UnsolvedHoles hs) = "Unsolved holes " ++ show hs
-  showError (CantInferArgType fc env n h ty)
-      = show fc ++ ":Can't infer type for " ++ show n ++
-                   " (got " ++ show ty ++ " with hole " ++ show h ++ ")"
-  showError (SolvedNamedHole fc _ h _) = show fc ++ ":Named hole " ++ show h ++ " is solved by unification"
-  showError (VisibilityError fc vx x vy y)
-      = show fc ++ ":" ++ show vx ++ " " ++ show x ++ " cannot refer to "
-                       ++ show vy ++ " " ++ show y
-  showError (NonLinearPattern fc n) = show fc ++ ":Non linear pattern variable " ++ show n
-  showError (BadPattern fc n) = show fc ++ ":Pattern not allowed here: " ++ show n
-  showError (NoDeclaration fc x) = show fc ++ ":No type declaration for " ++ show x
-  showError (AlreadyDefined fc x) = show fc ++ ":" ++ show x ++ " is already defined"
-  showError (NotFunctionType fc env tm) = show fc ++ ":Not a function type: " ++ show tm
-  showError (RewriteNoChange fc env rule ty)
-      = show fc ++ ":Rewriting by " ++ show rule ++ " did not change type " ++ show ty
-  showError (NotRewriteRule fc env rule)
-      = show fc ++ ":" ++ show rule ++ " is not a rewrite rule type"
-  showError (CaseCompile fc n DifferingArgNumbers)
-      = show fc ++ ":Patterns for " ++ show n ++ " have different numbers of arguments"
-  showError (CaseCompile fc n DifferingTypes)
-      = show fc ++ ":Patterns for " ++ show n ++ " require matching on different types"
-  showError (CaseCompile fc n UnknownType)
-      = show fc ++ ":Can't infer type to match in " ++ show n
-  showError (CaseCompile fc n (MatchErased (_ ** (env, tm))))
-      = show fc ++ ":Attempt to match on erased argument " ++ show tm ++
-                   " in " ++ show n
-  showError (CaseCompile fc n (NotFullyApplied c))
-      = show fc ++ ":Constructor " ++ show c ++ " is not fully applied"
-  showError (MatchTooSpecific fc env tm)
-      = show fc ++ ":Can't match on " ++ show tm ++ " as it is has a polymorphic type"
-  showError (BadDotPattern fc env reason x y)
-      = show fc ++ ":Can't match on " ++ show x ++
-           " (" ++ show reason ++ ")" ++
-           " - it elaborates to " ++ show y
-  showError (BadImplicit fc str) = show fc ++ ":" ++ str ++ " can't be bound here"
-  showError (BadRunElab fc env script desc) = show fc ++ ":Bad elaborator script " ++ show script ++ " (" ++ desc ++ ")"
-  showError (RunElabFail e) = "Error during reflection: " ++ showError e
-  showError (GenericMsg fc str) = show fc ++ ":" ++ str
-  showError (GenericMsgSol fc msg solutionHeader sols) = show fc ++ ":" ++ msg ++ " \{solutionHeader}: " ++ show sols
-  showError (TTCError msg) = "Error in TTC file: " ++ show msg
-  showError (FileErr fname err) = "File error (" ++ fname ++ "): " ++ show err
-  showError (CantFindPackage fname) = "Can't find package " ++ fname
-  showError (LazyImplicitFunction fc) = "Implicit lazy functions are not yet supported"
-  showError (LazyPatternVar fc) = "Defining lazy functions via pattern matching is not yet supported"
-  showError (LitFail fc) = show fc ++ ":Can't parse literate"
-  showError (LexFail fc err) = show fc ++ ":Lexer error (" ++ show err ++ ")"
-  showError (ParseFail errs) = "Parse errors (" ++ show errs ++ ")"
-  showError (ModuleNotFound fc ns)
-      = show fc ++ ":" ++ show ns ++ " not found"
-  showError (CyclicImports ns)
-      = "Module imports form a cycle: " ++ showSep " -> " (map show ns)
-  showError ForceNeeded = "Internal error when resolving implicit laziness"
-  showError (InternalError str) = "INTERNAL ERROR: " ++ str
-  showError (UserError str) = "Error: " ++ str
-  showError (NoForeignCC fc specs) = show fc ++
-       ":The given specifier " ++ show specs ++ " was not accepted by any available backend."
-  showError (BadMultiline fc str) = "Invalid multiline string: " ++ str
-
-  showError (FailingDidNotFail _) = "Failing block did not fail"
-  showError (FailingWrongError fc msg (err ::: errs))
-       = show fc ++ ":Failing block failed with the wrong error:\n" ++
-         "Expected: " ++ msg ++ "\n" ++
-         "but got: " ++ showListOf (showError err :: showErrors errs)
-
-  showError (InType fc n err)
-       = show fc ++ ":When elaborating type of " ++ show n ++ ":\n" ++
-         showError err
-  showError (InCon n err)
-       = show n.fc ++ ":When elaborating type of constructor " ++ show n.val ++ ":\n" ++
-         showError err
-  showError (InLHS fc n err)
-       = show fc ++ ":When elaborating left hand side of " ++ show n ++ ":\n" ++
-         showError err
-  showError (InRHS fc n err)
-       = show fc ++ ":When elaborating right hand side of " ++ show n ++ ":\n" ++
-         showError err
-
-  showError (MaybeMisspelling err ns)
-       = showError err ++ "\nDid you mean" ++ case ns of
-           (n ::: []) => ": " ++ n ++ "?"
-           _ => " any of: " ++ showSep ", " (map show (forget ns)) ++ "?"
-  showError (WarningAsError w) = show w
-  showError (OperatorBindingMismatch fc (DeclaredFixity expected) actual opName rhs _)
-       = show fc ++ ": Operator " ++ show opName ++ " is " ++ show expected
-       ++ " but used as a " ++ show actual ++ " operator"
-  showError (OperatorBindingMismatch fc UndeclaredFixity actual opName rhs _)
-       = show fc ++ ": Operator " ++ show opName ++ " has no declared fixity"
-       ++ " but used as a " ++ show actual ++ " operator"
-
-
-export
-Show Error where
-  show = showError
 
 export
 getWarningLoc : Warning -> FC
@@ -510,8 +282,6 @@ getErrorLoc (CaseCompile loc _ _) = Just loc
 getErrorLoc (MatchTooSpecific loc _ _) = Just loc
 getErrorLoc (BadDotPattern loc _ _ _ _) = Just loc
 getErrorLoc (BadImplicit loc _) = Just loc
-getErrorLoc (BadRunElab loc _ _ _) = Just loc
-getErrorLoc (RunElabFail e) = getErrorLoc e
 getErrorLoc (GenericMsg loc _) = Just loc
 getErrorLoc (GenericMsgSol loc _ _ _) = Just loc
 getErrorLoc (TTCError _) = Nothing
@@ -527,7 +297,6 @@ getErrorLoc (CyclicImports _) = Nothing
 getErrorLoc ForceNeeded = Nothing
 getErrorLoc (InternalError _) = Nothing
 getErrorLoc (UserError _) = Nothing
-getErrorLoc (NoForeignCC loc _) = Just loc
 getErrorLoc (BadMultiline loc _) = Just loc
 getErrorLoc (InType _ _ err) = getErrorLoc err
 getErrorLoc (InCon _ err) = getErrorLoc err
@@ -600,8 +369,6 @@ killErrorLoc (CaseCompile fc x y) = CaseCompile emptyFC x y
 killErrorLoc (MatchTooSpecific fc x y) = MatchTooSpecific emptyFC x y
 killErrorLoc (BadDotPattern fc x y z w) = BadDotPattern emptyFC x y z w
 killErrorLoc (BadImplicit fc x) = BadImplicit emptyFC x
-killErrorLoc (BadRunElab fc x y description) = BadRunElab emptyFC x y description
-killErrorLoc (RunElabFail e) = RunElabFail $ killErrorLoc e
 killErrorLoc (GenericMsg fc x) = GenericMsg emptyFC x
 killErrorLoc (GenericMsgSol fc x y z) = GenericMsgSol emptyFC x y z
 killErrorLoc (TTCError x) = TTCError x
@@ -617,7 +384,6 @@ killErrorLoc (CyclicImports xs) = CyclicImports xs
 killErrorLoc ForceNeeded = ForceNeeded
 killErrorLoc (InternalError x) = InternalError x
 killErrorLoc (UserError x) = UserError x
-killErrorLoc (NoForeignCC fc xs) = NoForeignCC emptyFC xs
 killErrorLoc (BadMultiline fc x) = BadMultiline emptyFC x
 killErrorLoc (FailingDidNotFail fc) = FailingDidNotFail emptyFC
 killErrorLoc (FailingWrongError fc x errs) = FailingWrongError emptyFC x (map killErrorLoc errs)
@@ -853,11 +619,6 @@ traverseList1 f xxs
     = let x = head xxs
           xs = tail xxs in
           [| f x ::: traverse f xs |]
-
-export
-traverseSnocList : (a -> Core b) -> SnocList a -> Core (SnocList b)
-traverseSnocList f [<] = pure [<]
-traverseSnocList f (as :< a) = [| traverseSnocList f as :< f a |]
 
 export
 traverseVect : (a -> Core b) -> Vect n a -> Core (Vect n b)
@@ -1098,12 +859,6 @@ export
 cond : List (Lazy Bool, Lazy a) -> Lazy a -> a
 cond [] def = def
 cond ((x, y) :: xs) def = if x then y else cond xs def
-
-export
-condC : List (Core Bool, Core a) -> Core a -> Core a
-condC [] def = def
-condC ((x, y) :: xs) def
-    = if !x then y else condC xs def
 
 export
 writeFile : (fname : String) -> (content : String) -> Core ()

@@ -3,7 +3,6 @@
 module TTImp.Elab.Lazy
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 import Core.Value
 
@@ -19,7 +18,6 @@ import TTImp.TTImp
 export
 checkDelayed : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
-               {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
@@ -41,7 +39,6 @@ checkDelayed rig elabinfo nest env fc r tm exp
 export
 checkDelayAt : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
-               {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
@@ -65,7 +62,6 @@ checkDelayAt rig elabinfo nest env fc d tm under
 -- in the lambda would capture checkDelay's cell.
 checkDelayDelayed : {vars : _} ->
                     {auto c : Ref Ctxt Defs} ->
-                    {auto m : Ref MD Metadata} ->
                     {auto u : Ref UST UState} ->
                     {auto dl : Ref DLY DelayedElabs} ->
                     {auto e : Ref EST (EState vars)} ->
@@ -84,7 +80,6 @@ checkDelayDelayed rig elabinfo nest env fc tm expected
 export
 checkDelay : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->
@@ -116,7 +111,6 @@ checkDelay rig elabinfo nest env fc tm mexpected
 export
 checkForce : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto e : Ref EST (EState vars)} ->

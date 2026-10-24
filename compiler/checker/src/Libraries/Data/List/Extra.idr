@@ -40,37 +40,8 @@ findAndDeleteBy f xs
       (pre, Just x, post) => Just (x, pre ++ post)
       _                   => Nothing
 
-||| Compute the difference of two lists by the given predicate.
-||| Lists are treated as bags.
-export
-diffBy : (a -> a -> Bool)
-      -> List a
-      -> List a
-      -> List a
-diffBy f [] ys = []
-diffBy f (x :: xs) ys =
-  let whole@(pre, mb, post) = findBy' (f x) ys
-      ys' = pre ++ post in
-  case mb of
-    Just _  =>      diffBy f xs ys'
-    Nothing => x :: diffBy f xs ys'
-
 ||| Remove adjacent duplicates
 export
 dedup : Eq a => List a -> List a
 dedup (a :: xs@(b :: _)) = if a == b then dedup xs else a :: dedup xs
 dedup xs                = xs
-
-||| O(n * log(n)). Sort a list and remove duplicates
-export
-sortedNub : Ord a => List a -> List a
-sortedNub = dedup . sort
-
-||| `List.length` is distributive over appending
-export
-lengthDistributesOverAppend
-  : (xs, ys : List a)
-  -> length (xs ++ ys) = length xs + length ys
-lengthDistributesOverAppend [] ys = Refl
-lengthDistributesOverAppend (x :: xs) ys =
-  cong S $ lengthDistributesOverAppend xs ys

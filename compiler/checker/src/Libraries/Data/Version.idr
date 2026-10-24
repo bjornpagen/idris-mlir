@@ -66,43 +66,6 @@ Eq VersionTokenKind where
 VersionToken : Type
 VersionToken = Token VersionTokenKind
 
-versionTokens : Tokenizer VersionToken
-versionTokens = tokenKinds $
-      (is '.', VersionDot)
-  ::: [ (is '-', VersionDash)
-      , (digits, VersionNum)
-      , (some alphaNum, VersionText)
-      ]
-
-lexVersion : String -> List (Located VersionToken)
-lexVersion str = fst (lex versionTokens str)
-
-
 -- A number: its text, read as a natural.
 number : Grammar () VersionToken n r True Nat
 number = stringToNatOrZ <$> match VersionNum
-
-versionParser : Grammar () VersionToken n r True Version
-versionParser = do
-  maj <- number
-  ignore $ match VersionDot
-  min <- number
-  ignore $ match VersionDot
-  patch <- number
-  optTag <- optional $ match VersionDash *> match VersionText
-  pure $ MkVersion (maj, min, patch) optTag
-
-||| Parse given string into a proper `Version` record
-|||
-||| Expected format must be:
-||| ```
-||| <major>.<minor>.<patch>(-<tag>)?
-||| ```
-||| where <major>, <minor> and <patch> are natural integers and tag is an optional
-||| alpha-numeric string.
-export
-parseVersion : String -> Maybe Version
-parseVersion str =
-  case parse (versionParser <* eof) (columns (lexVersion str)) of
-    Right (_, version) => Just version
-    _ => Nothing

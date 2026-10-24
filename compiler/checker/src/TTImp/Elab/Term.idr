@@ -5,7 +5,6 @@ module TTImp.Elab.Term
 import Libraries.Data.UserNameMap
 
 import Core.Env
-import Core.Metadata
 import Core.UnifyState
 import Core.Value
 
@@ -27,7 +26,6 @@ import TTImp.Elab.Prim
 import TTImp.Elab.Quote
 import TTImp.Elab.Record
 import TTImp.Elab.Rewrite
-import TTImp.Elab.RunElab
 import TTImp.TTImp
 
 %default covering
@@ -114,7 +112,6 @@ insertImpLam env tm _ = pure tm
 -- Implements 'checkImp' in TTImp.Elab.Check
 checkTerm : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->
@@ -206,8 +203,6 @@ checkTerm rig elabinfo nest env (IQuoteDecl fc ds) exp
     = checkQuoteDecl rig elabinfo nest env fc ds exp
 checkTerm rig elabinfo nest env (IUnquote fc tm) exp
     = throw (GenericMsg fc "Can't escape outside a quoted term")
-checkTerm rig elabinfo nest env (IRunElab fc re tm) exp
-    = checkRunElab rig elabinfo nest env fc re tm exp
 checkTerm {vars} rig elabinfo nest env (IPrimVal fc c) exp
     = do let (cval, cty) = checkPrim {vars} fc c
          checkExp rig elabinfo env fc cval (gnf env cty) exp
@@ -257,9 +252,8 @@ checkTerm rig elabinfo nest env (IWithUnambigNames fc ns rhs) exp
     resolveNames fc [] = pure empty
     resolveNames fc ((nfc, n) :: ns) =
       case userNameRoot n of
-        -- The parser writes a user's name here, but a term an elaborator
-        -- script builds may hold any name: one that is no user's is
-        -- refused.
+        -- The parser writes a user's name here; a name that is no user's
+        -- is refused.
         Nothing => throw $ GenericMsg nfc $ "A name made unambiguous by `with` is a name written by a user, which " ++ show n ++ " is not"
         Just nRoot => do
           -- this will always be a global name
@@ -267,20 +261,12 @@ checkTerm rig elabinfo nest env (IWithUnambigNames fc ns rhs) exp
           ctxt <- get Ctxt
           rns <- lookupCtxtName n (gamma ctxt)
           case rns of
-            [rn@(_, _, def)] =>
-                do whenJust (isConcreteFC nfc) $ \nfc => do
-                     let nt = getDefNameType def
-                     let decor = nameDecoration def.fullname nt
-                     log "ide-mode.highlight" 7
-                       $ "`with' unambiguous name is adding " ++ show decor ++ ": " ++ show def.fullname
-                     addSemanticDecorations [(nfc, decor, Just def.fullname)]
-                   insert nRoot rn <$> resolveNames fc ns
+            [rn] => insert nRoot rn <$> resolveNames fc ns
             rns  => ambiguousName fc n (map fst rns)
 
 -- Declared in TTImp.Elab.Check
 -- check : {vars : _} ->
 --         {auto c : Ref Ctxt Defs} ->
---         {auto m : Ref MD Metadata} ->
 --         {auto u : Ref UST UState} ->
 --         {auto e : Ref EST (EState vars)} ->
 --         {auto s : Ref Syn SyntaxInfo} ->
@@ -315,7 +301,6 @@ onLHS _ = False
 -- As above, but doesn't add any implicit lambdas, forces, delays, etc
 -- checkImp : {vars : _} ->
 --            {auto c : Ref Ctxt Defs} ->
---            {auto m : Ref MD Metadata} ->
 --            {auto u : Ref UST UState} ->
 --            {auto e : Ref EST (EState vars)} ->
 --            {auto s : Ref Syn SyntaxInfo} ->

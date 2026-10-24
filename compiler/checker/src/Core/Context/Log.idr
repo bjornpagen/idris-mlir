@@ -21,20 +21,6 @@ logString "" n msg = coreLift $ putStrLn
 logString str n msg = coreLift $ putStrLn
     $ "LOG " ++ str ++ ":" ++ show n ++ ": " ++ msg
 
-%inline
-export
-logString' : LogLevel -> String -> Core ()
-logString' lvl =
-  logString (fastConcat (intersperse "." (topics lvl)) ++ ":")
-            (verbosity lvl)
-
-export
-logging' : {auto c : Ref Ctxt Defs} ->
-           LogLevel -> Core Bool
-logging' lvl = do
-    opts <- getSession
-    pure $ verbosity lvl == 0 || (logEnabled opts && keepLog lvl (logLevel opts))
-
 export
 unverifiedLogging : {auto c : Ref Ctxt Defs} ->
                     String -> Nat -> Core Bool
@@ -58,13 +44,6 @@ logTerm s n msg tm
     = when !(logging s n)
         $ do tm' <- toFullNames tm
              logString s.topic n $ msg ++ ": " ++ show tm'
-
-export
-log' : {auto c : Ref Ctxt Defs} ->
-       LogLevel -> Lazy String -> Core ()
-log' lvl msg
-    = when !(logging' lvl)
-        $ logString' lvl msg
 
 ||| Log a message with the given log level. Use increasingly
 ||| high log level numbers for more granular logging.
@@ -115,20 +94,6 @@ showSeconds time
     addZeros str = pack str
 
 export
-logTimeOver : Integer -> Core String -> Core a -> Core a
-logTimeOver nsecs str act
-    = do clock <- coreLift (clockTime Process)
-         let t = seconds clock * nano + nanoseconds clock
-         res <- act
-         clock <- coreLift (clockTime Process)
-         let t' = seconds clock * nano + nanoseconds clock
-         let time = t' - t
-         when (time > nsecs) $
-           do str' <- str
-              coreLift $ putStrLn $ "TIMING " ++ str' ++ ": " ++ showSeconds time
-         pure res
-
-export
 logTimeWhen : {auto c : Ref Ctxt Defs} ->
               Bool -> Nat -> Lazy String -> Core a -> Core a
 logTimeWhen p lvl str act
@@ -144,50 +109,6 @@ logTimeWhen p lvl str act
                    putStrLn $ header ++ str ++ ": " ++ showSeconds time
                  pure res
          else act
-
-logTimeRecord' : {auto c : Ref Ctxt Defs} ->
-                 String -> Core a -> Core a
-logTimeRecord' key act
-    = do clock <- coreLift (clockTime Process)
-         let t = seconds clock * nano + nanoseconds clock
-         res <- act
-         clock <- coreLift (clockTime Process)
-         let t' = seconds clock * nano + nanoseconds clock
-         let time = t' - t
-         defs <- get Ctxt
-         let tot = case lookup key (timings defs) of
-                        Nothing => 0
-                        Just (_, t) => t
-         put Ctxt ({ timings $= insert key (False, tot + time) } defs)
-         pure res
-
--- for ad-hoc profiling, record the time the action takes and add it
--- to the time for the given category
-export
-logTimeRecord : {auto c : Ref Ctxt Defs} ->
-                String -> Core a -> Core a
-logTimeRecord key act
-    = do defs <- get Ctxt
-         -- Only record if we're not currently recording that key
-         case lookup key (timings defs) of
-              Just (True, t) => act
-              Just (False, t)
-                => do put Ctxt ({ timings $= insert key (True, t) } defs)
-                      logTimeRecord' key act
-              Nothing
-                => logTimeRecord' key act
-
-export
-showTimeRecord : {auto c : Ref Ctxt Defs} ->
-                 Core ()
-showTimeRecord
-    = do defs <- get Ctxt
-         traverse_ showTimeLog (toList (timings defs))
-  where
-    showTimeLog : (String, (Bool, Integer)) -> Core ()
-    showTimeLog (key, (_, time))
-        = do coreLift $ putStr (key ++ ": ")
-             coreLift $ putStrLn $ showSeconds time
 
 export
 logTime : {auto c : Ref Ctxt Defs} ->

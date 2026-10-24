@@ -4,7 +4,6 @@ module Idris.ModTree
 
 import Core.Binary
 import Core.Directory
-import Core.Metadata
 import Core.InitPrimitives
 import Core.UnifyState
 
@@ -224,7 +223,6 @@ buildMod loc num len mod
 
         u <- newRef UST initUState
         dl <- newRef DLY (the DelayedElabs [])
-        m <- newRef MD (initMetadata (PhysicalIdrSrc modNamespace))
         put Syn initSyntax
 
         errs <- ifThenElse (not rebuild) (pure []) $
@@ -236,7 +234,7 @@ buildMod loc num len mod
                   = pretty0 mod.buildNS
                     <++> parens (pretty0 sourceFile)
               log "import.file" 10 $ "Processing " ++ sourceFile
-              process {u} {dl} {m} msgPrefix buildMsg sourceFile modNamespace ttcFile
+              process {u} {dl} msgPrefix buildMsg sourceFile modNamespace ttcFile
 
         ws <- emitWarningsAndErrors (if null errs then ferrs else errs)
         pure (ws ++ if null errs then ferrs else ferrs ++ errs)
@@ -263,7 +261,6 @@ data Built = NotBuilt (List1 Error) | Reloaded Loaded
 export
 buildDeps : {auto c : Ref Ctxt Defs} ->
             {auto s : Ref Syn SyntaxInfo} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto o : Ref ROpts REPLOpts} ->
             (mainModule : ModuleIdent) -> (mainFile : String) ->
@@ -274,19 +271,17 @@ buildDeps mainModule fname
          ok <- buildMods EmptyFC 1 (length mods) mods
          case ok of
               [] => do -- On success, reload the main ttc in a clean context
-                       put MD (initMetadata (PhysicalIdrSrc mainModule))
                        mainttc <- moduleFileName mainModule "ttc"
                        log "import" 10 $ "Reloading " ++ show mainttc ++ " from " ++ fname
                        Reloaded <$> readAsMain mainModule mainttc
               (e :: es) => pure (NotBuilt (e ::: es)) -- Error happened, give up
 
 ||| The main file and every module it imports, built in a session of their
-||| own: a unification state, delayed elaborators and metadata made here,
-||| and the context reset to the main module's origin, before `buildDeps`.
-||| A driver that only builds a program never holds the session's state.
-||| The main module is the one the main file's path names, which the
-||| driver names once, before the build, and gives here with the path: the
-||| one reloaded, and the origin the context is reset to.
+||| own: a unification state and delayed elaborators made here, and the
+||| context reset, before `buildDeps`. A driver that only builds a program
+||| never holds the session's state. The main module is the one the main
+||| file's path names, which the driver names once, before the build, and
+||| gives here with the path: the one reloaded.
 export
 buildMain : {auto c : Ref Ctxt Defs} ->
             {auto s : Ref Syn SyntaxInfo} ->
@@ -296,8 +291,7 @@ buildMain : {auto c : Ref Ctxt Defs} ->
 buildMain mainModule mainFile
     = do u <- newRef UST initUState
          dl <- newRef DLY (the DelayedElabs [])
-         m <- newRef MD (initMetadata (PhysicalIdrSrc mainModule))
-         resetContext (PhysicalIdrSrc mainModule)
+         resetContext
          buildDeps mainModule mainFile
 
 getAllBuildMods : {auto c : Ref Ctxt Defs} ->

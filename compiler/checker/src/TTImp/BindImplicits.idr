@@ -210,16 +210,3 @@ bindTypeNamesUsed fc used env tm
          then do ns <- findUniqueBindableNames fc True env used tm
                  pure (doBind ns tm)
          else pure tm
-
-export
-piBindNames : {auto c : Ref Ctxt Defs} ->
-              FC -> List Name -> RawImp -> Core RawImp
-piBindNames loc env tm
-    = do ns <- findUniqueBindableNames loc True env [] tm
-         pure $ piBind (map fst ns) tm
-  where
-    piBind : List Name -> RawImp -> RawImp
-    piBind [] ty = ty
-    piBind (n :: ns) ty
-       = IPi loc erased Implicit (Just n) (Implicit loc False)
-       $ piBind ns ty

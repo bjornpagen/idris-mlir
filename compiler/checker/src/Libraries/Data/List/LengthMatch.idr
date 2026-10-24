@@ -16,8 +16,3 @@ checkLengthMatch [] (x :: xs) = Nothing
 checkLengthMatch (x :: xs) [] = Nothing
 checkLengthMatch (x :: xs) (y :: ys)
     = Just (ConsMatch !(checkLengthMatch xs ys))
-
-export
-lengthsMatch : LengthMatch xs ys -> (length xs) = (length ys)
-lengthsMatch NilMatch = Refl
-lengthsMatch (ConsMatch x) = cong (S) (lengthsMatch x)

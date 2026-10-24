@@ -347,11 +347,6 @@ isCurrentHole : {auto u : Ref UST UState} ->
 isCurrentHole i = isJust . lookup i <$> getCurrentHoles
 
 export
-setConstraint : {auto u : Ref UST UState} ->
-                Int -> Constraint -> Core ()
-setConstraint cid c = update UST { constraints $= insert cid c }
-
-export
 deleteConstraint : {auto u : Ref UST UState} ->
                 Int -> Core ()
 deleteConstraint cid = update UST { constraints $= delete cid }
@@ -403,44 +398,6 @@ mkConstantAppArgs {done} {vars = x :: xs} lets fc (b :: env) wkns
              then mkLocal fc b :: rec
              else rec
 
-mkConstantAppArgsSub : {vars : _} ->
-                       Bool -> FC -> Env Term vars ->
-                       Thin smaller vars ->
-                       (wkns : SnocList Name) ->
-                       List (Term (wkns <>> (vars ++ done)))
-mkConstantAppArgsSub lets fc [] p wkns = []
-mkConstantAppArgsSub {done} {vars = x :: xs}
-                        lets fc (b :: env) Refl wkns
-    = mkConstantAppArgs lets fc env (wkns :< x)
-mkConstantAppArgsSub {done} {vars = x :: xs}
-                        lets fc (b :: env) (Drop p) wkns
-    = mkConstantAppArgsSub lets fc env p (wkns :< x)
-mkConstantAppArgsSub {done} {vars = x :: xs}
-                        lets fc (b :: env) (Keep p) wkns
-    = let rec = mkConstantAppArgsSub {done} lets fc env p (wkns :< x) in
-          if lets || not (isLet b)
-             then mkLocal fc b :: rec
-             else rec
-
-mkConstantAppArgsOthers : {vars : _} ->
-                          Bool -> FC -> Env Term vars ->
-                          Thin smaller vars ->
-                          (wkns : SnocList Name) ->
-                          List (Term (wkns <>> (vars ++ done)))
-mkConstantAppArgsOthers lets fc [] p wkns = []
-mkConstantAppArgsOthers {done} {vars = x :: xs}
-                        lets fc (b :: env) Refl wkns
-    = mkConstantAppArgsOthers lets fc env Refl (wkns :< x)
-mkConstantAppArgsOthers {done} {vars = x :: xs}
-                        lets fc (b :: env) (Keep p) wkns
-    = mkConstantAppArgsOthers lets fc env p (wkns :< x)
-mkConstantAppArgsOthers {done} {vars = x :: xs}
-                        lets fc (b :: env) (Drop p) wkns
-    = let rec = mkConstantAppArgsOthers {done} lets fc env p (wkns :< x) in
-          if lets || not (isLet b)
-             then mkLocal fc b :: rec
-             else rec
-
 export
 applyTo : {vars : _} ->
           FC -> Term vars -> Env Term vars -> Term vars
@@ -453,22 +410,6 @@ applyToFull : {vars : _} ->
               FC -> Term vars -> Env Term vars -> Term vars
 applyToFull fc tm env
   = let args = reverse (mkConstantAppArgs {done = Scope.empty} True fc env [<]) in
-        apply fc tm (rewrite sym (appendNilRightNeutral vars) in args)
-
-export
-applyToSub : {vars : _} ->
-             FC -> Term vars -> Env Term vars ->
-             Thin smaller vars -> Term vars
-applyToSub fc tm env sub
-  = let args = reverse (mkConstantAppArgsSub {done = Scope.empty} True fc env sub [<]) in
-        apply fc tm (rewrite sym (appendNilRightNeutral vars) in args)
-
-export
-applyToOthers : {vars : _} ->
-                FC -> Term vars -> Env Term vars ->
-                Thin smaller vars -> Term vars
-applyToOthers fc tm env sub
-  = let args = reverse (mkConstantAppArgsOthers {done = Scope.empty} True fc env sub [<]) in
         apply fc tm (rewrite sym (appendNilRightNeutral vars) in args)
 
 -- Create a new metavariable with the given name and return type,
@@ -623,19 +564,6 @@ handleUnify elab1 elab2
                | Left err => elab2 err
          pure ok
 
--- As tryUnify and handleUnify, around a computation that elaborates: the
--- delayed elaborators are part of the state a failure restores.
-export
-tryUnifyElab : {auto c : Ref Ctxt Defs} ->
-               {auto u : Ref UST UState} ->
-               {auto dl : Ref DLY DelayedElabs} ->
-               Core a -> Core a -> Core a
-tryUnifyElab elab1 elab2
-    = do dls <- get DLY
-         tryUnify elab1 $
-           do put DLY dls
-              elab2
-
 export
 handleUnifyElab : {auto c : Ref Ctxt Defs} ->
                   {auto u : Ref UST UState} ->
@@ -731,18 +659,6 @@ checkUserHolesAfter base now
   where
     nameEq : (a, b, Name) -> (a, b, Name) -> Bool
     nameEq (_, _, x) (_, _, y) = x == y
-
-export
-checkUserHoles : {auto u : Ref UST UState} ->
-                 {auto c : Ref Ctxt Defs} ->
-                 Bool -> Core ()
-checkUserHoles = checkUserHolesAfter 0
-
-export
-checkNoGuards : {auto u : Ref UST UState} ->
-                {auto c : Ref Ctxt Defs} ->
-                Core ()
-checkNoGuards = checkUserHoles False
 
 export
 dumpHole : {auto u : Ref UST UState} ->

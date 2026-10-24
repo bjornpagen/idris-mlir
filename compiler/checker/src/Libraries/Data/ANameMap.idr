@@ -86,11 +86,6 @@ export
 toList : ANameMap a -> List (Name, a)
 toList dict = toList (exactNames dict)
 
-||| Export the list of name which are ambiguous without their namespace
-export
-toAmbiguousList : ANameMap a -> List (UserName, List a)
-toAmbiguousList dict = map (mapSnd (map snd)) (toList dict.hierarchy)
-
 export
 fromList : List (Name, a) -> ANameMap a
 fromList = fromList' empty

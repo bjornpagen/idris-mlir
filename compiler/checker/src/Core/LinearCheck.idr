@@ -101,37 +101,6 @@ mutual
       = do ignore $ updateHoleUsageArgs False var zs as
            pure ty
 
-  updateHoleUsagePats : {auto c : Ref Ctxt Defs} ->
-                        {auto u : Ref UST UState} ->
-                        (useInHole : Bool) ->
-                        Var vars -> List (Term vars) ->
-                        (vs ** (Env Term vs, Term vs, Term vs)) ->
-                        Core Bool
-  updateHoleUsagePats {vars} useInHole var args (vs ** (env, lhs, rhs))
-      = do -- Find the argument which corresponds to var
-           let argpos = findArg Z args
-           log "quantity.hole" 10 $ "At positions " ++ show argpos
-           -- Find what it's position is in env by looking at the lhs args
-           let vars = mapMaybe (findLocal (getArgs lhs)) argpos
-           hs <- traverse (\vsel => updateHoleUsage useInHole vsel [] rhs)
-                          vars
-           pure (elem True hs)
-    where
-      findArg : Nat -> List (Term vars) -> List Nat
-      findArg i [] = []
-      findArg i (Local _ _ idx vel :: els)
-          = if idx == varIdx var
-               then i :: findArg (1 + i) els
-               else findArg (1 + i) els
-      findArg i (_ :: els) = findArg (1 + i) els
-
-      findLocal : List (Term vs) -> Nat -> Maybe (Var vs)
-      findLocal (Local _ _ _ p :: _) Z = Just (MkVar p)
-      findLocal (As _ _ (Local _ _ _ p) _ :: _) Z = Just (MkVar p)
-      findLocal (As _ _ _ (Local _ _ _ p) :: _) Z = Just (MkVar p)
-      findLocal (_ :: els) (S k) = findLocal els k
-      findLocal _ _ = Nothing
-
   updateHoleUsage : {0 vars : _} ->
                     {auto c : Ref Ctxt Defs} ->
                     {auto u : Ref UST UState} ->

@@ -94,29 +94,11 @@ isNonEmptyFC (MkFC fn start end) = Just (fn, start, end)
 isNonEmptyFC (MkVirtualFC fn start end) = Just (fn, start, end)
 isNonEmptyFC EmptyFC = Nothing
 
-||| A view checking whether an arbitrary FC originates from a source location
-export
-isConcreteFC : FC -> Maybe NonEmptyFC
-isConcreteFC (MkFC fn start end) = Just (fn, start, end)
-isConcreteFC _ = Nothing
-
 ||| Turn an FC into a virtual one
 export
 virtualiseFC : FC -> FC
 virtualiseFC (MkFC fn start end) = MkVirtualFC fn start end
 virtualiseFC fc = fc
-
-export
-defaultFC : NonEmptyFC
-defaultFC = (Virtual Interactive, (0, 0), (0, 0))
-
-export
-replFC : FC
-replFC = justFC defaultFC
-
-export
-toNonEmptyFC : FC -> NonEmptyFC
-toNonEmptyFC = fromMaybe defaultFC . isNonEmptyFC
 
 ------------------------------------------------------------------------
 -- Projections
@@ -177,13 +159,6 @@ export
 within : FilePos -> NonEmptyFC -> Bool
 within (x, y) (_, start, end)
    = (x, y) >= start && (x, y) <= end
-
--- Return whether a given line is on the same line as the file context (assuming
--- we're in the right file)
-export
-onLine : Int -> NonEmptyFC -> Bool
-onLine x (_, start, end)
-   = x >= fst start && x <= fst end
 
 ------------------------------------------------------------------------
 -- Constant values

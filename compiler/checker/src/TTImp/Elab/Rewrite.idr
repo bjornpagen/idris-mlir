@@ -4,7 +4,6 @@ module TTImp.Elab.Rewrite
 
 import Core.Env
 import Core.GetType
-import Core.Metadata
 import Core.Unify
 import Core.Value
 
@@ -108,7 +107,6 @@ elabRewrite loc env expected rulety
 -- binds, so one used in the lambda would capture checkRewrite's cell.
 checkRewriteDelayed : {vars : _} ->
                       {auto c : Ref Ctxt Defs} ->
-                      {auto m : Ref MD Metadata} ->
                       {auto u : Ref UST UState} ->
                       {auto dl : Ref DLY DelayedElabs} ->
                       {auto e : Ref EST (EState vars)} ->
@@ -161,7 +159,6 @@ checkRewriteDelayed {vars} rigc elabinfo nest env ifc rule tm delayed expected
 export
 checkRewrite : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
-               {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->

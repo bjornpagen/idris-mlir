@@ -252,11 +252,6 @@ export
 isAbsolute : String -> Bool
 isAbsolute = hasRoot . parse
 
-||| Returns true if the path is relative.
-export
-isRelative : String -> Bool
-isRelative = not . isAbsolute
-
 ||| Appends the right path to the left path.
 |||
 ||| If the path on the right is absolute, it replaces the left path.
@@ -328,23 +323,6 @@ covering
 parents : String -> List String
 parents = map show . List.iterate parent' . parse
 
-||| Determines whether the base is one of the parents of target.
-|||
-||| Trailing separator is ignored.
-|||
-||| ```idris example
-||| "/etc" `isBaseOf` "/etc/kernel"
-||| ```
-export
-isBaseOf : (base : String) -> (target : String) -> Bool
-isBaseOf base target =
-  let
-    MkPath baseRoot baseBody _ = parse base
-    MkPath targetRoot targetBody _ = parse target
-  in
-       baseRoot == targetRoot
-    && (baseBody `isPrefixOf` targetBody)
-
 ||| Returns a path that, when appended to base, yields target.
 |||
 ||| Returns Nothing if the base is not a prefix of the target.
@@ -373,18 +351,6 @@ export
 fileName : String -> Maybe String
 fileName  = fileName' . parse
 
-||| Extracts the file name in the path without extension.
-|||
-||| The stem is:
-|||
-||| - Nothing, if there is no file name;
-||| - The entire file name if there is no embedded ".";
-||| - The entire file name if the file name begins with a "." and has no other ".";
-||| - Otherwise, the portion of the file name before the last ".".
-export
-fileStem : String -> Maybe String
-fileStem path = pure $ fst $ splitFileName !(fileName path)
-
 ||| Extracts the extension of the file name in the path.
 |||
 ||| The extension is:
@@ -408,14 +374,6 @@ extension path = fileName path >>=
 export
 extensions : String -> Maybe (List String)
 extensions path = snd . splitExtensions <$> fileName path
-
-||| Updates the file name in the path.
-|||
-||| If there is no file name, it appends the name to the path;
-||| otherwise, it appends the name to the parent of the path.
-export
-setFileName : (name : String) -> String -> String
-setFileName name path = show $ setFileName' name (parse path)
 
 ||| Appends a extension to the path.
 |||
@@ -464,12 +422,6 @@ export
         let (stem, _) = splitExtensions name in
           show $ setFileName' (stem ++ ext) path'
       Nothing => path
-
-
-||| Drops the extension of the path.
-export
-dropExtension : String -> String
-dropExtension path = path <.> ""
 
 ||| Drops all of the extensions of a path.
 ||| ```idris example

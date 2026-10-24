@@ -26,26 +26,6 @@ hexDigit 14 = 'e'
 hexDigit 15 = 'f'
 hexDigit _ = 'X' -- TMP HACK: Ideally we'd have a bounds proof, generated below
 
-||| Convert a Bits64 value into a list of (lower case) hexadecimal characters
-export
-asHex : Bits64 -> String
-asHex 0 = "0"
-asHex n = pack $ asHex' 16 n []
-  where
-    -- A Bits64 is sixteen hex digits, so the digits not yet read bound the
-    -- loop: after sixteen shifts by four nothing is left of the value.
-    asHex' : (digits : Nat) -> Bits64 -> List Char -> List Char
-    asHex' Z _ hex = hex
-    asHex' (S _) 0 hex = hex
-    asHex' (S k) n hex = asHex' k (n `shiftR` 4) (hexDigit (n .&. 0xf) :: hex)
-
-export
-leftPad : Char -> Nat -> String -> String
-leftPad paddingChar padToLength str =
-  if length str < padToLength
-    then pack (List.replicate (minus padToLength (length str)) paddingChar) ++ str
-    else str
-
 export
 fromHexDigit : Char -> Maybe Int
 fromHexDigit '0' = Just 0

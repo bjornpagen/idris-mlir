@@ -9,9 +9,7 @@ import Core.AutoSearch
 import Core.Binary
 import Core.Directory
 import Core.Env
-import Core.Hash
 import Core.InitPrimitives
-import Core.Metadata
 import Core.Unify
 
 import Parser.Unlit
@@ -29,7 +27,6 @@ import Idris.Syntax
 import Idris.Syntax.Tree
 import Idris.Syntax.TTC
 import Idris.Pretty
-import Idris.Doc.String
 
 import Data.List
 import Data.SortedMap
@@ -43,7 +40,6 @@ processDecls : {auto c : Ref Ctxt Defs} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto s : Ref Syn SyntaxInfo} ->
-               {auto m : Ref MD Metadata} ->
                {auto o : Ref ROpts REPLOpts} ->
                List PDecl -> Core (List Error)
 
@@ -51,7 +47,6 @@ processDecl : {auto c : Ref Ctxt Defs} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
-              {auto m : Ref MD Metadata} ->
               {auto o : Ref ROpts REPLOpts} ->
               PDecl -> Core (List Error)
 
@@ -100,7 +95,7 @@ readModule full loc vis imp as
          Right checked <- nsToPath loc imp
                | Left err => throw err
          let loading = MkLoaded checked.path checked.foundIn imp vis as
-         Just (syn, hash, more) <- readFromTTC False {extra = SyntaxInfo} loc loading
+         Just (syn, more) <- readFromTTC False {extra = SyntaxInfo} loc loading
               | Nothing => do when vis (setVisible (miAsNamespace imp)) -- already loaded, just set visibility
                               pure loading
          extendSyn syn
@@ -124,37 +119,9 @@ readImport full imp
     = do ignore $ readModule full (loc imp) True (path imp) (nameAs imp)
          addImported imp
 
-||| Adds new import to the namespace without changing the current top-level namespace
-export
-addImport : {auto c : Ref Ctxt Defs} ->
-            {auto u : Ref UST UState} ->
-            {auto s : Ref Syn SyntaxInfo} ->
-            Import -> Core ()
-addImport imp
-    = do topNS <- getNS
-         readImport True imp
-         setNS topNS
-
-readImportMeta : {auto c : Ref Ctxt Defs} ->
-                 Import -> Core (Bool, (Namespace, Int))
-readImportMeta imp
-    = do Right checked <- nsToPath (loc imp) (path imp)
-               | Left err => throw err
-         interfaceHash <- readHashes checked.path
-         pure (reexport imp, (nameAs imp, interfaceHash))
-
 prelude : Import
 prelude = MkImport (MkFC (Virtual Interactive) (0, 0) (0, 0)) False
                      (nsAsModuleIdent preludeNS) preludeNS
-
-export
-readPrelude : {auto c : Ref Ctxt Defs} ->
-              {auto u : Ref UST UState} ->
-              {auto s : Ref Syn SyntaxInfo} ->
-              Bool -> Core ()
-readPrelude full
-    = do readImport full prelude
-         setNS mainNS
 
 -- Import a TTC for use as the main file (e.g. at the REPL), and give the
 -- module as the session read it. It is read into a clean context, which
@@ -172,7 +139,7 @@ readAsMain : {auto c : Ref Ctxt Defs} ->
 readAsMain mainIdent fname
     = do clearCtxt; addPrimitives
          let loading = MkLoaded fname InBuild mainIdent True (miAsNamespace mainIdent)
-         (syn, _, more) <- readTTCAs {extra = SyntaxInfo} True EmptyFC loading
+         (syn, more) <- readTTCAs {extra = SyntaxInfo} True EmptyFC loading
 
          replNS <- getNS
          replNestedNS <- getNestedNS
@@ -219,21 +186,13 @@ readHeader path origin
          -- Stop at the first :, that's definitely not part of the header, to
          -- save lexing the whole file unnecessarily
          setCurrentElabSource res -- for error printing purposes
-         Right (ws, decor, mod) <-
+         Right (ws, _, mod) <-
              runParserTo (PhysicalIdrSrc origin)
                          (isLitFile path) (is ':') res
                          (progHdr (PhysicalIdrSrc origin))
             | Left err => throw err
          traverse_ recordWarning ws
          pure mod
-
-export
-addPublicHash : {auto c : Ref Ctxt Defs} ->
-                (Bool, (Namespace, Int)) -> Core ()
-addPublicHash (True, (mod, h)) = do addHash mod
-                                    addHash h
-                                    log "module.hash" 15 "Adding hash for a public import of \{show mod}"
-addPublicHash _ = pure ()
 
 ||| Determine if the TTC is outdated based on any of the given
 ||| source or dependency source file names.
@@ -251,28 +210,25 @@ isTTCOutdated ttcFile sourceFiles
            :: zipWith (\ src, tm => "\{src} : \{show tm}") sourceFiles srcTimes
        pure $ any (>= ttcTime) srcTimes
 
-||| Process everything in the module; return the syntax information which
-||| needs to be written to the TTC (e.g. exported infix operators)
-||| Returns 'Nothing' if it didn't reload anything
+||| Process everything in the module, which the build decided to rebuild
+||| (`needsBuilding`), and give the errors found.
 processMod : {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto s : Ref Syn SyntaxInfo} ->
-             {auto m : Ref MD Metadata} ->
              {auto o : Ref ROpts REPLOpts} ->
              (sourceFileName : String) ->
              (ttcFileName : String) ->
              (msg : Doc IdrisAnn) ->
              (sourcecode : String) ->
              (origin : ModuleIdent) ->
-             Core (Maybe (List Error))
+             Core (List Error)
 processMod sourceFileName ttcFileName msg sourcecode origin
     = catch (do
         setCurrentElabSource sourcecode
         session <- getSession
 
-        -- Just read the header to start with (this is to get the imports and
-        -- see if we can avoid rebuilding if none have changed)
+        -- The header gives the imports.
         moduleHeader <- readHeader sourceFileName origin
         let ns = moduleNS moduleHeader
 
@@ -282,85 +238,42 @@ processMod sourceFileName ttcFileName msg sourcecode origin
              then imports moduleHeader
              else addPrelude $ imports moduleHeader
 
-        importMetas <- traverse readImportMeta allImports
-        let importInterfaceHashes = snd <$> importMetas
+        iputStrLn msg
+        Right (ws, uses, mod) <-
+            logTime 2 ("Parsing " ++ sourceFileName) $
+              runParser (PhysicalIdrSrc origin)
+                        (isLitFile sourceFileName)
+                        sourcecode
+                        (do p <- prog (PhysicalIdrSrc origin); eoi; pure p)
+          | Left err => pure [err]
+        traverse_ recordWarning ws
 
-        defs <- get Ctxt
-        log "module.hash" 5 $ "Interface hash of " ++ show ns ++ ": " ++ show (ifaceHash defs)
-        log "module.hash" 5 $ "Import Interface hashes of " ++ show ns ++ " hashes:\n" ++
-          show (sort importInterfaceHashes)
-        storedImportInterfaceHashes <- readImportHashes ttcFileName
-        log "module.hash" 5 $ "Stored interface hashes of " ++ ttcFileName ++ ":\n" ++
-          show (sort storedImportInterfaceHashes)
+        setPragmaUses uses
 
-        sourceUnchanged <- not <$> isTTCOutdated ttcFileName [sourceFileName]
+        resetNextVar
+        when (ns /= nsAsModuleIdent mainNS) $
+              when (ns /= origin) $
+                  throw (GenericMsg mod.headerLoc
+                           ("Module name " ++ show ns ++
+                            " does not match file name " ++ show sourceFileName))
 
-        -- If neither the source nor the interface hashes of imports have changed then no rebuilding is needed
-        if (sourceUnchanged && sort importInterfaceHashes == sort storedImportInterfaceHashes)
-           then -- Hashes the same, source up to date, just set the ns
-                -- for the REPL
-                do setNS (miAsNamespace ns)
-                   pure Nothing
-           else -- needs rebuilding
-             do iputStrLn msg
-                Right (ws, MkState decor hnames uses, mod) <-
-                    logTime 2 ("Parsing " ++ sourceFileName) $
-                      runParser (PhysicalIdrSrc origin)
-                                (isLitFile sourceFileName)
-                                sourcecode
-                                (do p <- prog (PhysicalIdrSrc origin); eoi; pure p)
-                  | Left err => pure (Just [err])
-                traverse_ recordWarning ws
+        -- read import ttcs in full here
+        -- Note: We should only import .ttc - assumption is that there's
+        -- a phase before this which builds the dependency graph
+        logTime 2 "Reading imports" $
+           traverse_ (readImport False) allImports
 
-                -- save the doc info for the current module
-                log "doc.module" 10 $ unlines
-                  [ "Recording doc", documentation moduleHeader
-                  , "and imports " ++ show (imports moduleHeader)
-                  , "for module " ++ show (moduleNS moduleHeader)
-                  ]
-                addModDocInfo
-                  (moduleNS moduleHeader)
-                  (documentation moduleHeader)
-                  (filter reexport $ imports moduleHeader)
-
-                addSemanticDecorations decor
-                update Syn { holeNames := hnames }
-                setPragmaUses uses
-
-                initHash
-                traverse_ addPublicHash (sort importMetas)
-                resetNextVar
-                when (ns /= nsAsModuleIdent mainNS) $
-                      when (ns /= origin) $
-                          throw (GenericMsg mod.headerLoc
-                                   ("Module name " ++ show ns ++
-                                    " does not match file name " ++ show sourceFileName))
-
-                -- read import ttcs in full here
-                -- Note: We should only import .ttc - assumption is that there's
-                -- a phase before this which builds the dependency graph
-                -- (also that we only build child dependencies if rebuilding
-                -- changes the interface - will need to store a hash in .ttc!)
-                logTime 2 "Reading imports" $
-                   traverse_ (readImport False) allImports
-
-                -- Before we process the source, make sure the "hide_everywhere"
-                -- names are set to private (TODO, maybe if we want this?)
---                 defs <- get Ctxt
---                 traverse (\x => setVisibility emptyFC x Private) (hiddenNames defs)
-                setNS (miAsNamespace ns)
-                errs <- logTime 2 "Processing decls" $
-                            processDecls (decls mod)
-                totErrs <- logTime 3 ("Totality check overall")
-                            getTotalityErrors
-                let errs = errs ++ totErrs
-
-                -- Save the import hashes for the imports we just read.
-                -- If they haven't changed next time, and the source
-                -- file hasn't changed, no need to rebuild.
-                update Ctxt { importHashes := importInterfaceHashes }
-                pure (Just errs))
-          (\err => pure (Just [err]))
+        -- Before we process the source, make sure the "hide_everywhere"
+        -- names are set to private (TODO, maybe if we want this?)
+--         defs <- get Ctxt
+--         traverse (\x => setVisibility emptyFC x Private) (hiddenNames defs)
+        setNS (miAsNamespace ns)
+        errs <- logTime 2 "Processing decls" $
+                    processDecls (decls mod)
+        totErrs <- logTime 3 ("Totality check overall")
+                    getTotalityErrors
+        pure (errs ++ totErrs))
+          (\err => pure [err])
 
 -- Process a file. Returns any errors, rather than throwing them, because there
 -- might be lots of errors collected across a whole file. The file's module
@@ -368,7 +281,6 @@ processMod sourceFileName ttcFileName msg sourcecode origin
 -- is only the source read.
 export
 process : {auto c : Ref Ctxt Defs} ->
-          {auto m : Ref MD Metadata} ->
           {auto u : Ref UST UState} ->
           {auto dl : Ref DLY DelayedElabs} ->
           {auto s : Ref Syn SyntaxInfo} ->
@@ -382,12 +294,10 @@ process : {auto c : Ref Ctxt Defs} ->
 process msgPrefix buildMsg sourceFileName ident ttcFileName
     = do Right res <- coreLift (readFile sourceFileName)
                | Left err => pure [FileErr sourceFileName err]
-         catch (do Just errs <- logTime 1 ("Elaborating " ++ sourceFileName) $
-                                   processMod sourceFileName ttcFileName
-                                              (msgPrefix <++> "Building" <++> buildMsg)
-                                              res ident
-                     | Nothing => do log "module" 10 $ show $ msgPrefix <++> "Skipping" <++> buildMsg
-                                     pure [] -- skipped it
+         catch (do errs <- logTime 1 ("Elaborating " ++ sourceFileName) $
+                              processMod sourceFileName ttcFileName
+                                         (msgPrefix <++> "Building" <++> buildMsg)
+                                         res ident
                    if isNil errs
                       then
                         do makeBuildDirectory ident

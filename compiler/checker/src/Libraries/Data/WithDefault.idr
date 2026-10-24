@@ -16,16 +16,6 @@ defaulted : WithDefault a def
 defaulted = DefaultedValue
 
 export
-specifyValue : a -> WithDefault a def -> WithDefault a def
-specifyValue v DefaultedValue = SpecifiedValue v
-specifyValue _ v              = v
-
-export
-replaceSpecified : WithDefault a def -> WithDefault a def'
-replaceSpecified DefaultedValue     = DefaultedValue
-replaceSpecified (SpecifiedValue v) = SpecifiedValue v
-
-export
 collapseDefault : {def : a} -> WithDefault a def -> a
 collapseDefault DefaultedValue     = def
 collapseDefault (SpecifiedValue v) = v
@@ -55,11 +45,6 @@ export
 isDefaulted : WithDefault a def -> Bool
 isDefaulted DefaultedValue = True
 isDefaulted _              = False
-
-export
-isSpecified : WithDefault a def -> Bool
-isSpecified DefaultedValue = False
-isSpecified _              = True
 
 public export
 Eq a => Eq (WithDefault a def) where

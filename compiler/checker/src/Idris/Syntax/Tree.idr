@@ -107,8 +107,7 @@ data DeclOf : (Form -> Type) -> Type where
   DcFixity : PFixityData -> DeclOf c
   DcNamespace : Namespace -> List (c FDecl) -> DeclOf c
   DcTransform : String -> c FTerm -> c FTerm -> DeclOf c
-  DcRunElab : c FTerm -> DeclOf c
-  DcDirective : Directive' (c FTerm) -> DeclOf c
+  DcDirective : Directive -> DeclOf c
   DcBuiltin : BuiltinType -> Name -> DeclOf c
 
 ||| A node of the parse tree, each child the node of its form: an id while
@@ -146,8 +145,7 @@ data NodeOf : (Form -> Type) -> Type where
   TmQuoteName : FC -> Name -> NodeOf c
   TmQuoteDecl : FC -> List (c FDecl) -> NodeOf c
   TmUnquote : FC -> c FTerm -> NodeOf c
-  TmRunElab : FC -> c FTerm -> NodeOf c
-  TmHole : FC -> (bracket : Bool) -> (holename : Ident) -> NodeOf c
+  TmHole : FC -> (holename : Ident) -> NodeOf c
   TmType : FC -> NodeOf c
   TmAs : FC -> (nameFC : FC) -> Name -> (pattern : c FTerm) -> NodeOf c
   TmDotted : FC -> c FTerm -> NodeOf c
@@ -207,7 +205,6 @@ data NodeOf : (Form -> Type) -> Type where
   -- A function's options
   OpFn : FnOpt' Name -> NodeOf c
   OpForeign : List (c FTerm) -> NodeOf c
-  OpForeignExport : List (c FTerm) -> NodeOf c
   -- The bodies of data and record declarations
   DtBody : FC -> (tyname : Name) -> (tycon : Maybe (c FTerm)) -> (opts : List DataOpt) ->
            (datacons : List (c FTyDecl)) -> NodeOf c
@@ -277,8 +274,7 @@ traverseDecl g (DcMutual ds) = DcMutual <$> traverse g ds
 traverseDecl g (DcFixity fx) = pure (DcFixity fx)
 traverseDecl g (DcNamespace ns ds) = DcNamespace ns <$> traverse g ds
 traverseDecl g (DcTransform n l r) = DcTransform n <$> g l <*> g r
-traverseDecl g (DcRunElab e) = DcRunElab <$> g e
-traverseDecl g (DcDirective d) = DcDirective <$> traverseDirective g d
+traverseDecl g (DcDirective d) = pure (DcDirective d)
 traverseDecl g (DcBuiltin ty n) = pure (DcBuiltin ty n)
 
 -- Every child of a node, each changed by `g` at its form.
@@ -308,8 +304,7 @@ traverseNode g (TmQuote fc e) = TmQuote fc <$> g e
 traverseNode g (TmQuoteName fc n) = pure (TmQuoteName fc n)
 traverseNode g (TmQuoteDecl fc ds) = TmQuoteDecl fc <$> traverse g ds
 traverseNode g (TmUnquote fc e) = TmUnquote fc <$> g e
-traverseNode g (TmRunElab fc e) = TmRunElab fc <$> g e
-traverseNode g (TmHole fc b n) = pure (TmHole fc b n)
+traverseNode g (TmHole fc n) = pure (TmHole fc n)
 traverseNode g (TmType fc) = pure (TmType fc)
 traverseNode g (TmAs fc nfc n e) = TmAs fc nfc n <$> g e
 traverseNode g (TmDotted fc e) = TmDotted fc <$> g e
@@ -361,7 +356,6 @@ traverseNode g (UpSet path e) = UpSet path <$> g e
 traverseNode g (UpApply path e) = UpApply path <$> g e
 traverseNode g (OpFn o) = pure (OpFn o)
 traverseNode g (OpForeign es) = OpForeign <$> traverse g es
-traverseNode g (OpForeignExport es) = OpForeignExport <$> traverse g es
 traverseNode g (DtBody fc n ty opts cons)
     = (\ty', cons' => DtBody fc n ty' opts cons') <$> traverse g ty <*> traverse g cons
 traverseNode g (DtLater fc n ty) = DtLater fc n <$> g ty
@@ -527,22 +521,6 @@ export
 make : NodeOf Id -> Build (Id x)
 make nd = MkBuild (madeNode nd)
 
--- The builder with the hole at `place` bracketed, where it is the node
--- made last: a builder with a node made has made `S newest` of them, the
--- last at `newest`.
-bracketedLast : (place : Nat) -> (1 b : Builder) -> Stepped Builder ()
-bracketedLast place (MkBuilder (S newest) (AddCell col (TmHole fc bracketed n)) sizes)
-    = MkStepped (if place == newest
-                    then MkBuilder (S newest) (AddCell col (TmHole fc True n)) sizes
-                    else MkBuilder (S newest) (AddCell col (TmHole fc bracketed n)) sizes) ()
-bracketedLast place (MkBuilder made built sizes) = MkStepped (MkBuilder made built sizes) ()
-
-||| A hole written as an argument is bracketed. The argument is the node made
-||| last, so the hole's node is replaced where it is.
-export
-bracketHole : Id FTerm -> Build ()
-bracketHole i = MkBuild (bracketedLast i.place)
-
 -- Where `_` is written, if the node at `place` is the one made last and is
 -- `_`, the builder given back.
 implicitLast : (place : Nat) -> (1 b : Builder) -> Stepped Builder (Maybe FC)
@@ -555,17 +533,6 @@ implicitLast place (MkBuilder made built sizes) = MkStepped (MkBuilder made buil
 export
 implicitAt : Id FTerm -> Build (Maybe FC)
 implicitAt i = MkBuild (implicitLast i.place)
-
-||| The names of the holes a parse wrote, in the order it wrote them, read
-||| from its hole nodes.
-export
-holesWritten : Builder -> List Ident
-holesWritten (MkBuilder _ built _)
-    = let Element nds _ = cells built in mapMaybe holeName nds
-  where
-    holeName : NodeOf Id -> Maybe Ident
-    holeName (TmHole _ _ n) = Just n
-    holeName _ = Nothing
 
 ------------------------------------------------------------------------------
 -- The frozen tree
@@ -805,12 +772,6 @@ mutual
   stringLines t m acc [] = Just []
   stringLines t m acc (l :: ls) = (::) <$> traverse (childStr t m acc) l <*> stringLines t m acc ls
 
-  directiveOf : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
-              Directive' (Within (nodeCount t) FTerm) -> Maybe Directive
-  directiveOf t m acc (StartExpr e) = StartExpr <$> childTerm t m acc e
-  -- Every other directive holds no term, so traversing it decodes nothing.
-  directiveOf t m acc d = traverseDirective (const Nothing) d
-
   decodeTerm : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
          Node (nodeCount t) -> Maybe PTerm
   decodeTerm t m acc (TmRef fc n) = Just (PRef fc n)
@@ -851,8 +812,7 @@ mutual
   decodeTerm t m acc (TmQuoteName fc n) = Just (PQuoteName fc n)
   decodeTerm t m acc (TmQuoteDecl fc ds) = PQuoteDecl fc <$> declBlock t m acc ds
   decodeTerm t m acc (TmUnquote fc e) = PUnquote fc <$> childTerm t m acc e
-  decodeTerm t m acc (TmRunElab fc e) = PRunElab fc <$> childTerm t m acc e
-  decodeTerm t m acc (TmHole fc b n) = Just (PHole fc b n)
+  decodeTerm t m acc (TmHole fc n) = Just (PHole fc n)
   decodeTerm t m acc (TmType fc) = Just (PType fc)
   decodeTerm t m acc (TmAs fc nfc n e) = PAs fc nfc n <$> childTerm t m acc e
   decodeTerm t m acc (TmDotted fc e) = PDotted fc <$> childTerm t m acc e
@@ -945,8 +905,7 @@ mutual
   decodeDeclOf t m acc (DcNamespace ns ds) = PNamespace ns <$> declBlock t m acc ds
   decodeDeclOf t m acc (DcTransform n l r)
       = PTransform n <$> childTerm t m acc l <*> childTerm t m acc r
-  decodeDeclOf t m acc (DcRunElab e) = PRunElabDecl <$> childTerm t m acc e
-  decodeDeclOf t m acc (DcDirective d) = PDirective <$> directiveOf t m acc d
+  decodeDeclOf t m acc (DcDirective d) = Just (PDirective d)
   decodeDeclOf t m acc (DcBuiltin ty n) = Just (PBuiltin ty n)
 
   decodeStatement : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->
@@ -980,7 +939,6 @@ mutual
           Node (nodeCount t) -> Maybe PFnOpt
   decodeOpt t m acc (OpFn o) = Just (IFnOpt o)
   decodeOpt t m acc (OpForeign es) = PForeign <$> traverse (childTerm t m acc) es
-  decodeOpt t m acc (OpForeignExport es) = PForeignExport <$> traverse (childTerm t m acc) es
   decodeOpt t m acc _ = Nothing
 
   decodeData : (t : ParseTree) -> (m : Nat) -> (0 _ : Accessible LT m) ->

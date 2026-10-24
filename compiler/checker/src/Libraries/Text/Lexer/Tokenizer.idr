@@ -70,11 +70,6 @@ tokenRules ((l, f) ::: rest) = rulesFrom (Match l f) rest
     rulesFrom first [] = first
     rulesFrom first ((l', f') :: more) = Alt first (rulesFrom (Match l' f') more)
 
-||| Each lexer's text as a token of its kind, the lexers tried in order.
-export
-tokenKinds : List1 (Lexer, k) -> Tokenizer (Token k)
-tokenKinds = tokenRules . map (\lk => (fst lk, Tok (snd lk)))
-
 ||| Why tokenizing stopped: at the end of the input, at a character no rule
 ||| reads, or in a group whose end never came.
 ||| @ ComposeNotClosing carries the span of the group's begin lexeme, as

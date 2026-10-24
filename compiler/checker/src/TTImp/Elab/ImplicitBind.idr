@@ -6,7 +6,6 @@ module TTImp.Elab.ImplicitBind
 
 import Core.Coverage
 import Core.Env
-import Core.Metadata
 import Core.Unify
 import Core.Value
 
@@ -276,16 +275,6 @@ bindImplVars {vars} fc mode gam env imps_in scope scty
               (Bind fc _ (PLet fc c bpat' bty') tm',
                Bind fc _ (PLet fc c bpat' bty') ty')
 
-normaliseHolesScope : {auto c : Ref Ctxt Defs} ->
-                      {vars : _} ->
-                      Defs -> Env Term vars -> Term vars -> Core (Term vars)
-normaliseHolesScope defs env (Bind fc n b sc)
-    = pure $ Bind fc n b
-                  !(normaliseHolesScope defs
-                   -- use Lam because we don't want it reducing in the scope
-                   (Lam fc (multiplicity b) Explicit (binderType b) :: env) sc)
-normaliseHolesScope defs env tm = normaliseHoles defs env tm
-
 export
 bindImplicits : {vars : _} ->
                 FC -> BindMode ->
@@ -414,7 +403,6 @@ getToBind {vars} fc elabmode impmode env excepts
 export
 checkBindVar : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
-               {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
@@ -439,11 +427,6 @@ checkBindVar rig elabinfo nest env fc nm topexp
          notePatVar n
          est <- get EST
 
-         whenJust (isConcreteFC fc) $ \nfc => do
-           log "ide-mode.highlight" 7 $ "getNameType is adding Bound: " ++ show n
-           addSemanticDecorations [(nfc, Bound, Just n)]
-
-
          case lookup n (boundNames est) of
               Nothing =>
                 do (tm, exp, bty) <- mkPatternHole fc rig n env
@@ -457,10 +440,6 @@ checkBindVar rig elabinfo nest env fc nm topexp
                    update EST { boundNames $= ((n, NameBinding fc rig Explicit tm exp) ::),
                                 toBind $= ((n, NameBinding fc rig Explicit tm bty) :: ) }
 
-                   log "metadata.names" 7 $ "checkBindVar is adding ↓"
-                   addNameType fc nm env exp
-                   addNameLoc fc nm
-
                    checkExp rig elabinfo env fc tm (gnf env exp) topexp
               Just bty =>
                 do -- Check rig is consistent with the one in bty, and
@@ -468,10 +447,6 @@ checkBindVar rig elabinfo nest env fc nm topexp
                    combine nm rig (bindingRig bty)
                    let tm = bindingTerm bty
                    let ty = bindingType bty
-
-                   log "metadata.names" 7 $ "checkBindVar is adding ↓"
-                   addNameType fc nm env ty
-                   addNameLoc fc nm
 
                    checkExp rig elabinfo env fc tm (gnf env ty) topexp
   where
@@ -530,7 +505,6 @@ solvePolyConstraint (MkPolyConstraint fc env arg x y)
 export
 checkBindHere : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
-                {auto m : Ref MD Metadata} ->
                 {auto u : Ref UST UState} ->
                 {auto dl : Ref DLY DelayedElabs} ->
                 {auto e : Ref EST (EState vars)} ->

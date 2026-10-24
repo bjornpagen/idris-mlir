@@ -3,7 +3,6 @@
 module TTImp.Elab.As
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 
 import Idris.REPL.Opts
@@ -32,7 +31,6 @@ rigAs UseRight rig = if isLinear rig then linear else rig
 export
 bindAs : {vars : _} ->
          {auto c : Ref Ctxt Defs} ->
-         {auto m : Ref MD Metadata} ->
          {auto u : Ref UST UState} ->
          {auto e : Ref EST (EState vars)} ->
          RigCount -> ElabInfo -> Env Term vars ->
@@ -51,16 +49,11 @@ bindAs rig elabinfo env fc nameFC side n_in (pattm, patty) topexp
          (ntm, nty) <- checkExp rig elabinfo env nameFC tm (gnf env exp)
                                 (Just patty)
 
-         -- Add the name type to the metadata
-         log "metadata.names" 7 $ "checkAs is adding ↓"
-         addNameType nameFC n_in env !(getTerm nty)
-
          pure (As fc side ntm pattm, patty)
 
 export
 checkAs : {vars : _} ->
           {auto c : Ref Ctxt Defs} ->
-          {auto m : Ref MD Metadata} ->
           {auto u : Ref UST UState} ->
           {auto dl : Ref DLY DelayedElabs} ->
           {auto e : Ref EST (EState vars)} ->

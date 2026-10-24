@@ -5,7 +5,6 @@ module TTImp.Elab.Delayed
 import Core.Case.CaseTree
 import Core.Context.Log
 import Core.Env
-import Core.Metadata
 import Core.Normalise
 import Core.Unify
 import Core.Value
@@ -68,7 +67,6 @@ withNoSolve nos elab
 export
 delayOnFailure : {vars : _} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto dl : Ref DLY DelayedElabs} ->
                  {auto e : Ref EST (EState vars)} ->
@@ -92,7 +90,7 @@ delayOnFailure fc rig env expected pred pri elab
                          logGlueNF "elab.delay" 5 ("Postponing elaborator " ++ show nm ++
                                       " at " ++ show fc ++
                                       " for") env expected
-                         log "elab.delay" 10 ("Due to error " ++ show err)
+                         log "elab.delay" 10 ("Due to an error at " ++ show (getErrorLoc err))
                          defs <- get Ctxt
                          update DLY
                                  ((pri, ci, localHints defs,
@@ -113,7 +111,6 @@ delayOnFailure fc rig env expected pred pri elab
 export
 delayElab : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->
@@ -297,7 +294,6 @@ knownFailure fs i now
 -- that failed recoverably
 retryDelayed' : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
-                {auto m : Ref MD Metadata} ->
                 {auto u : Ref UST UState} ->
                 {auto dl : Ref DLY DelayedElabs} ->
                 {auto e : Ref EST (EState vars)} ->
@@ -330,7 +326,7 @@ retryDelayed' errmode p fs acc (d@(_, i, hints, elab) :: ds)
     failed : Failed -> Core (Bool, Failures, DelayedElabs)
     failed f
         = do logC "elab" 5 $ do pure $ show errmode ++ ":Error in " ++ show !(getFullName (Resolved i))
-                                       ++ "\n" ++ show (failure f)
+                                       ++ " at " ++ show (getErrorLoc (failure f))
              case errmode of
                RecoverableErrors =>
                   if not !(recoverable (failure f))
@@ -356,7 +352,7 @@ retryDelayed' errmode p fs acc (d@(_, i, hints, elab) :: ds)
                let ds' = reverse nested ++ ds
 
                updateDef (Resolved i) (const (Just
-                    (PMDef (MkPMDefInfo NotHole True False)
+                    (PMDef (MkPMDefInfo NotHole True)
                            Scope.empty (LiveBody (STerm 0 tm) [] []))))
                logTerm "elab.update" 5 ("Resolved delayed hole " ++ show i) tm
                logTermNF "elab.update" 5 ("Resolved delayed hole NF " ++ show i) Env.empty tm
@@ -367,7 +363,6 @@ retryDelayed' errmode p fs acc (d@(_, i, hints, elab) :: ds)
 export
 retryDelayed : {vars : _} ->
                {auto c : Ref Ctxt Defs} ->
-               {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
                {auto dl : Ref DLY DelayedElabs} ->
                {auto e : Ref EST (EState vars)} ->
@@ -394,7 +389,6 @@ retryDelayed mode ds = go IntMap.empty ds
 export
 runDelays : {vars : _} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto dl : Ref DLY DelayedElabs} ->
             {auto e : Ref EST (EState vars)} ->

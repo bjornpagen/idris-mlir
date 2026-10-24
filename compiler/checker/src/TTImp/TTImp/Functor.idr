@@ -56,10 +56,8 @@ parameters {0 a : Type} {0 b : Type} (f : a -> b)
   renameFnOpt (GlobalHint fallback) = GlobalHint fallback
   renameFnOpt ExternFn = ExternFn
   renameFnOpt (ForeignFn ts) = ForeignFn (renameRawImps ts)
-  renameFnOpt (ForeignExport ts) = ForeignExport (renameRawImps ts)
   renameFnOpt Invertible = Invertible
   renameFnOpt (Totality tot) = Totality tot
-  renameFnOpt Macro = Macro
   renameFnOpt (SpecArgs ns) = SpecArgs ns
 
   renameFnOpts : List (FnOpt' a) -> List (FnOpt' b)
@@ -119,7 +117,6 @@ parameters {0 a : Type} {0 b : Type} (f : a -> b)
   renameImpDecl (INamespace fc ns ds) = INamespace fc ns (renameImpDecls ds)
   renameImpDecl (ITransform fc n lhs rhs)
     = ITransform fc n (renameRawImp lhs) (renameRawImp rhs)
-  renameImpDecl (IRunElabDecl fc t) = IRunElabDecl fc (renameRawImp t)
   renameImpDecl (IPragma fc xs k) = IPragma fc xs k
   renameImpDecl (ILog x) = ILog x
   renameImpDecl (IBuiltin fc ty n) = IBuiltin fc ty n
@@ -197,8 +194,6 @@ parameters {0 a : Type} {0 b : Type} (f : a -> b)
     = IQuoteDecl fc (renameImpDecls ds)
   renameRawImp (IUnquote fc t)
     = IUnquote fc (renameRawImp t)
-  renameRawImp (IRunElab fc re t)
-    = IRunElab fc re (renameRawImp t)
   renameRawImp (IPrimVal fc c)
     = IPrimVal fc c
   renameRawImp (IType fc)

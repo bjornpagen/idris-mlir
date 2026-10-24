@@ -4,13 +4,11 @@ module Idris.Desugar
 
 import Core.CompileExpr
 import Core.Env
-import Core.Metadata
 import Core.Unify
 
 import Libraries.Data.List.Extra
 import Libraries.Data.ANameMap
 
-import Idris.Doc.String
 import Idris.Error
 import Idris.Pretty
 import Idris.REPL.Opts
@@ -95,24 +93,13 @@ extendSyn : {auto s : Ref Syn SyntaxInfo} ->
             SyntaxInfo -> Core ()
 extendSyn newsyn
     = do syn <- get Syn
-         log "doc.module" 20 $ unlines
-           [ "Old (" ++ unwords (map show $ saveMod syn) ++ "): "
-              ++ show (modDocstrings syn)
-           , "New (" ++ unwords (map show $ saveMod newsyn) ++ "): "
-              ++ show (modDocstrings newsyn)
-           ]
-
          -- Before we merge the two syntax environement, we remove the
          -- private fixities from the one we are importing.
          -- We keep the local private fixities since they are visible in the
          -- current file.
          let filteredFixities = removePrivate (fixities newsyn)
          put Syn ({ fixities $= merge filteredFixities,
-                    ifaces $= merge (ifaces newsyn),
-                    modDocstrings $= mergeLeft (modDocstrings newsyn),
-                    modDocexports $= mergeLeft (modDocexports newsyn),
-                    defDocstrings $= merge (defDocstrings newsyn),
-                    bracketholes $= sortedNub . ((bracketholes newsyn) ++) }
+                    ifaces $= merge (ifaces newsyn) }
                   syn)
   where
     removePrivate : ANameMap FixityInfo -> ANameMap FixityInfo
@@ -356,7 +343,6 @@ mutual
   desugarB : {auto s : Ref Syn SyntaxInfo} ->
              {auto b : Ref Bang BangData} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto o : Ref ROpts REPLOpts} ->
              Side -> List Name -> PTerm -> Core RawImp
@@ -405,9 +391,7 @@ mutual
                                  !(desugarB side ps' retTy)
   desugarB side ps (PLam fc rig p pat@(PRef prefFC n@(UN nm)) argTy scope)
       =  if isPatternVariable nm
-           then do whenJust (isConcreteFC prefFC) $ \nfc
-                     => addSemanticDecorations [(nfc, Bound, Just n)]
-                   pure $ ILam fc rig !(traverse (desugar AnyExpr ps) p)
+           then pure $ ILam fc rig !(traverse (desugar AnyExpr ps) p)
                            (Just n) !(desugarB AnyExpr ps argTy)
                                     !(desugar AnyExpr (n :: ps) scope)
            else pure $ ILam EmptyFC rig !(traverse (desugar AnyExpr ps) p)
@@ -428,10 +412,8 @@ mutual
                  ICase fc [] (IVar EmptyFC (MN (known Klamc) 0)) (Implicit fc False)
                      [snd !(desugarClause ps True (MkPatClause fc pat scope []))]
   desugarB side ps (PLet fc rig (PRef prefFC n) nTy nVal scope [])
-      = do whenJust (isConcreteFC prefFC) $ \nfc =>
-             addSemanticDecorations [(nfc, Bound, Just n)]
-           pure $ ILet fc prefFC rig n !(desugarB side ps nTy) !(desugarB side ps nVal)
-                                       !(desugar side (n :: ps) scope)
+      = pure $ ILet fc prefFC rig n !(desugarB side ps nTy) !(desugarB side ps nVal)
+                                    !(desugar side (n :: ps) scope)
   desugarB side ps (PLet fc rig pat nTy nVal scope alts)
       = pure $ ICase fc [] !(desugarB side ps nVal) !(desugarB side ps nTy)
                         !(traverse (map snd . desugarClause ps True)
@@ -542,11 +524,8 @@ mutual
                 _ => pure dls
   desugarB side ps (PUnquote fc tm)
       = pure $ IUnquote fc !(desugarB side ps tm)
-  desugarB side ps (PRunElab fc tm)
-      = pure $ IRunElab fc True !(desugarB side ps tm)
-  desugarB side ps (PHole fc br holename)
-      = do when br $ update Syn { bracketholes $= ((UN (Basic holename)) ::) }
-           pure $ IHole fc holename
+  desugarB side ps (PHole fc holename)
+      = pure $ IHole fc holename
   desugarB side ps (PType fc) = pure $ IType fc
   desugarB side ps (PAs fc nameFC vname pattern)
       = pure $ IAs fc nameFC UseRight vname !(desugarB side ps pattern)
@@ -599,8 +578,6 @@ mutual
            pure $ ITypeOrValue fc (PairOf l' r')
   desugarB side ps (PDPair fc opFC (PRef nameFC n@(UN _)) (PImplicit _) r)
       = do r' <- desugarB side ps r
-           whenJust (isConcreteFC nameFC) $ \nfc =>
-             addSemanticDefault (nfc, Bound, Just n)
            pure $ ITypeOrValue fc (DPairOf opFC nameFC n r')
   desugarB side ps (PDPair fc opFC (PRef namefc n@(UN _)) ty r)
       = do ty' <- desugarB side ps ty
@@ -661,7 +638,6 @@ mutual
                   {auto b : Ref Bang BangData} ->
                   {auto c : Ref Ctxt Defs} ->
                   {auto u : Ref UST UState} ->
-                  {auto m : Ref MD Metadata} ->
                   {auto o : Ref ROpts REPLOpts} ->
                   Side -> List Name -> PFieldUpdate -> Core IFieldUpdate
   desugarUpdate side ps (PSetField p v)
@@ -673,7 +649,6 @@ mutual
                {auto b : Ref Bang BangData} ->
                {auto c : Ref Ctxt Defs} ->
                {auto u : Ref UST UState} ->
-               {auto m : Ref MD Metadata} ->
                {auto o : Ref ROpts REPLOpts} ->
                Side -> List Name ->
                (nilFC : FC) -> List (FC, PTerm) -> Core RawImp
@@ -687,7 +662,6 @@ mutual
                {auto b : Ref Bang BangData} ->
                {auto c : Ref Ctxt Defs} ->
                {auto u : Ref UST UState} ->
-               {auto m : Ref MD Metadata} ->
                {auto o : Ref ROpts REPLOpts} ->
                Side -> List Name -> (nilFC : FC) ->
                SnocList (FC, PTerm) -> Core RawImp
@@ -707,7 +681,6 @@ mutual
   expandString : {auto s : Ref Syn SyntaxInfo} ->
                  {auto b : Ref Bang BangData} ->
                  {auto c : Ref Ctxt Defs} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto u : Ref UST UState} ->
                  {auto o : Ref ROpts REPLOpts} ->
                  Side -> List Name -> FC -> Nat -> List PStr -> Core RawImp
@@ -805,7 +778,6 @@ mutual
   expandDo : {auto s : Ref Syn SyntaxInfo} ->
              {auto c : Ref Ctxt Defs} ->
              {auto u : Ref UST UState} ->
-             {auto m : Ref MD Metadata} ->
              {auto o : Ref ROpts REPLOpts} ->
              Side -> List Name -> FC -> Maybe Namespace -> List PDo -> Core RawImp
   expandDo side ps fc ns [] = throw (GenericMsg fc "Do block cannot be empty")
@@ -819,7 +791,6 @@ mutual
            pure $ seqFun fc ns tm' rest'
   expandDo side ps topfc ns (DoBind fc nameFC n rig ty tm :: rest)
       = do tm' <- desugarDo side ps ns tm
-           whenJust (isConcreteFC nameFC) $ \nfc => addSemanticDecorations [(nfc, Bound, Just n)]
            ty' <- maybe (pure $ Implicit (virtualiseFC fc) False)
                         (\ty => desugarDo side ps ns ty) ty
            -- `x <- v; e` is `v >>= \x => e`, so `x` is bound in `e` as a
@@ -853,8 +824,6 @@ mutual
            ty' <- desugarDo side ps ns ty
            -- `let x = v; e` is `let x = v in e`, which binds `x` in `e`
            rest' <- expandDo side (n :: ps) topfc ns rest
-           whenJust (isConcreteFC lhsFC) $ \nfc =>
-             addSemanticDecorations [(nfc, Bound, Just n)]
            let bind = ILet fc lhsFC rig n ty' tm' rest'
            bd <- get Bang
            pure $ bindBangs (bangNames bd) ns bind
@@ -958,13 +927,11 @@ mutual
   desugarType : {auto s : Ref Syn SyntaxInfo} ->
                 {auto c : Ref Ctxt Defs} ->
                 {auto u : Ref UST UState} ->
-                {auto m : Ref MD Metadata} ->
                 {auto o : Ref ROpts REPLOpts} ->
                 List Name -> PTypeDecl -> Core (List ImpTy)
   desugarType ps pty@(MkFCVal _ $ MkPTy names d ty)
-      = flip Core.traverse (forget names) $ \(doc, n) : (String, WithFC Name) =>
-          do addDocString n.val (d ++ doc)
-             syn <- get Syn
+      = flip Core.traverse (forget names) $ \(_, n) : (String, WithFC Name) =>
+          do syn <- get Syn
              pure $ MkWithFCTyName pty.fc n !(bindTypeNames pty.fc (usingImpl syn)
                                                  ps !(desugar AnyExpr ps ty))
 
@@ -981,7 +948,6 @@ mutual
 
   desugarLHS : {auto s : Ref Syn SyntaxInfo} ->
                {auto c : Ref Ctxt Defs} ->
-               {auto m : Ref MD Metadata} ->
                {auto u : Ref UST UState} ->
                {auto o : Ref ROpts REPLOpts} ->
                List Name -> (arg : Bool) -> PTerm ->
@@ -1008,7 +974,6 @@ mutual
     {auto s : Ref Syn SyntaxInfo} ->
     {auto c : Ref Ctxt Defs} ->
     {auto u : Ref UST UState} ->
-    {auto m : Ref MD Metadata} ->
     {auto o : Ref ROpts REPLOpts} ->
     List Name -> PWithProblem ->
     Core (RigCount, RawImp, Maybe (RigCount, Name))
@@ -1018,7 +983,6 @@ mutual
   desugarClause : {auto s : Ref Syn SyntaxInfo} ->
                   {auto c : Ref Ctxt Defs} ->
                   {auto u : Ref UST UState} ->
-                  {auto m : Ref MD Metadata} ->
                   {auto o : Ref ROpts REPLOpts} ->
                   List Name -> (arg : Bool) -> PClause ->
                   Core (IMaybe (not arg) Name, ImpClause)
@@ -1048,13 +1012,11 @@ mutual
   desugarData : {auto s : Ref Syn SyntaxInfo} ->
                 {auto c : Ref Ctxt Defs} ->
                 {auto u : Ref UST UState} ->
-                {auto m : Ref MD Metadata} ->
                 {auto o : Ref ROpts REPLOpts} ->
                 List Name -> (doc : String) ->
                 PDataDecl -> Core ImpData
   desugarData ps doc (MkPData fc n tycon opts datacons)
-      = do addDocString n doc
-           syn <- get Syn
+      = do syn <- get Syn
            mm <- traverse (desugarType ps) datacons
            pure $ MkImpData fc n
                    !(flip traverseOpt tycon $ \ tycon => do
@@ -1063,22 +1025,18 @@ mutual
                    opts
                    (concat mm)
   desugarData ps doc (MkPLater fc n tycon)
-      = do addDocString n doc
-           syn <- get Syn
+      = do syn <- get Syn
            pure $ MkImpLater fc n !(bindTypeNames fc (usingImpl syn)
                                                   ps !(desugar AnyExpr ps tycon))
 
   desugarField : {auto s : Ref Syn SyntaxInfo} ->
                  {auto c : Ref Ctxt Defs} ->
                  {auto u : Ref UST UState} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto o : Ref ROpts REPLOpts} ->
                  List Name -> Namespace -> PField ->
                  Core (List IField)
   desugarField ps ns field
       = flip Core.traverse field.names $ \n : WithFC Name => do
-           addDocStringNS ns n.val field.doc
-           addDocStringNS ns (toRF n.val) field.doc
            syn <- get Syn
            p' <- traverse (desugar AnyExpr ps) field.val.info
            ty' <- bindTypeNames field.fc (usingImpl syn) ps !(desugar AnyExpr ps field.val.boundType)
@@ -1093,22 +1051,17 @@ mutual
   desugarFnOpt : {auto s : Ref Syn SyntaxInfo} ->
                  {auto c : Ref Ctxt Defs} ->
                  {auto u : Ref UST UState} ->
-                 {auto m : Ref MD Metadata} ->
                  {auto o : Ref ROpts REPLOpts} ->
                  List Name -> PFnOpt -> Core FnOpt
   desugarFnOpt ps (IFnOpt f) = pure f
   desugarFnOpt ps (PForeign tms)
       = do tms' <- traverse (desugar AnyExpr ps) tms
            pure (ForeignFn tms')
-  desugarFnOpt ps (PForeignExport tms)
-      = do tms' <- traverse (desugar AnyExpr ps) tms
-           pure (ForeignExport tms')
 
   %inline
   mapDesugarPiInfo : {auto s : Ref Syn SyntaxInfo} ->
                      {auto c : Ref Ctxt Defs} ->
                      {auto u : Ref UST UState} ->
-                     {auto m : Ref MD Metadata} ->
                      {auto o : Ref ROpts REPLOpts} ->
                      List Name -> PiInfo PTerm -> Core (PiInfo RawImp)
   mapDesugarPiInfo ps = PiInfo.traverse (desugar AnyExpr ps)
@@ -1159,7 +1112,6 @@ mutual
   desugarDecl : {auto s : Ref Syn SyntaxInfo} ->
                 {auto c : Ref Ctxt Defs} ->
                 {auto u : Ref UST UState} ->
-                {auto m : Ref MD Metadata} ->
                 {auto o : Ref ROpts REPLOpts} ->
                 List Name -> PDecl -> Core (List ImpDecl)
   desugarDecl ps claim@(MkFCVal _ (PClaim (MkPClaim rig vis fnopts ty)))
@@ -1228,8 +1180,7 @@ mutual
            update Syn { usingImpl := oldu }
            pure (concat uds')
   desugarDecl ps int@(MkFCVal _ $ PInterface vis cons_in tn doc params det conname body)
-      = do addDocString tn doc
-           let paramNames = concatMap (map val . forget . names) params
+      = do let paramNames = concatMap (map val . forget . names) params
 
            let cons = concatMap expandConstraint cons_in
            cons' <- traverse (\ ntm => do tm' <- desugar AnyExpr (ps ++ paramNames)
@@ -1318,8 +1269,7 @@ mutual
       mkRecType (MkPBinder p (MkBasicMultiBinder c (n ::: x :: xs) t) :: ts)
         = PPi rec.fc c p (Just n.val) t (mkRecType (MkPBinder p (MkBasicMultiBinder c (x ::: xs) t) :: ts))
   desugarDecl ps rec@(MkFCVal _ $ PRecord doc vis mbtot (MkPRecord tn params opts conname_in fields))
-      = do addDocString tn doc
-           params' : List ImpParameter <-
+      = do params' : List ImpParameter <-
               map concat $ for params $ \ (MkPBinder info (MkBasicMultiBinder rig names tm)) =>
                  do tm' <- desugar AnyExpr ps tm
                     p'  <- mapDesugarPiInfo ps info
@@ -1340,7 +1290,6 @@ mutual
            fields' : List (List IField) <- for fields (desugarField (ps ++ fnames ++ paramNames)
                                                                     recNS)
            conname <- maybe (mkConName tn) (pure . val) conname_in
-           whenJust ((.doc) <$> conname_in) (addDocString conname)
            pure [IRecord rec.fc (Just recNS)
                          vis mbtot (MkFCVal rec.fc $ MkImpRecord (MkWithName (NoFC tn) paramsb) (MkWithNameOpts (NoFC conname) opts (concat fields')))]
     where
@@ -1391,7 +1340,6 @@ mutual
   desugarDecl ps d@(MkFCVal _ $ PFail mmsg ds)
       = do -- save the state: the content of a failing block should be discarded
            ust <- get UST
-           md <- get MD
            opts <- get ROpts
            syn <- get Syn
            defs <- branch
@@ -1409,7 +1357,9 @@ mutual
                          let Just msg = mmsg
                              | _ => pure (Left Nothing)
                          -- otherwise have a look at the displayed message
-                         log "desugar.failing" 10 $ "Failing block based on \{show msg} failed with \{show err}"
+                         logC "desugar.failing" 10 $
+                           do text <- errorText err
+                              pure "Failing block based on \{show msg} failed with \{text}"
                          test <- checkError msg err
                          pure $ Left $ do
                               -- Unless the error is the expected one
@@ -1418,7 +1368,6 @@ mutual
                               pure (FailingWrongError d.fc msg (err ::: [])))
            -- Reset the state
            put UST ust
-           put MD md
            put Syn syn
            put Ctxt defs
            -- either fail or return the block that should fail during the elab phase
@@ -1438,9 +1387,6 @@ mutual
       = do (bound, blhs) <- bindNames False !(desugar LHS ps lhs)
            rhs' <- desugar AnyExpr (bound ++ ps) rhs
            pure [ITransform ts.fc (UN $ Basic !(intern n)) blhs rhs']
-  desugarDecl ps el@(MkFCVal _ $ PRunElabDecl tm)
-      = do tm' <- desugar AnyExpr ps tm
-           pure [IRunElabDecl el.fc tm']
   desugarDecl ps dir@(MkFCVal _ $ PDirective d)
       = let fc = dir.fc in case d of
              Hide (HideName n) => pure [IPragma fc [] (HideNamePragma n)]
@@ -1463,12 +1409,14 @@ mutual
              PrimTTImp n => pure [IPragma fc [] (PrimTTImpPragma n)]
              PrimName n => pure [IPragma fc [] (PrimNamePragma n)]
              PrimDecls n => pure [IPragma fc [] (PrimDeclsPragma n)]
-             CGAction cg dir => pure [IPragma fc [] (CGActionPragma cg dir)]
-             Names n ns => pure [IPragma fc [] (NamesPragma n ns)]
-             -- `%start` names the expression a REPL session runs first;
-             -- this compiler runs no REPL, so the pragma has nothing to
-             -- name and is refused where it is written.
-             StartExpr _ => throw (GenericMsg fc "unsupported: the pragma %start names an expression for a REPL session to run, and this compiler runs no REPL")
+             -- A `%cg` directive addresses one of upstream's code
+             -- generators, which read their own; this compiler has none of
+             -- them, so it is a directive to a back end that is not this
+             -- one, which a back end passes over.
+             CGAction _ _ => pure []
+             -- `%name` suggests names for the REPL's case split, which
+             -- this compiler does not have, so it holds nothing to keep.
+             Names _ _ => pure []
              Overloadable n => pure [IPragma fc [] (OverloadablePragma n)]
              Extension e => pure [IPragma fc [] (ExtensionPragma e)]
              DefaultTotality tot => pure [IPragma fc [] (DefaultTotalityPragma tot)]
@@ -1477,7 +1425,6 @@ mutual
   export
   desugarDo : {auto s : Ref Syn SyntaxInfo} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto o : Ref ROpts REPLOpts} ->
               Side -> List Name -> Maybe Namespace -> PTerm -> Core RawImp
@@ -1490,7 +1437,6 @@ mutual
   export
   desugar : {auto s : Ref Syn SyntaxInfo} ->
             {auto c : Ref Ctxt Defs} ->
-            {auto m : Ref MD Metadata} ->
             {auto u : Ref UST UState} ->
             {auto o : Ref ROpts REPLOpts} ->
             Side -> List Name -> PTerm -> Core RawImp
@@ -1501,7 +1447,6 @@ mutual
 -- the pragma's action, run with the cells process holds.
 interpretPragma : {vars : _} ->
                   {auto c : Ref Ctxt Defs} ->
-                  {auto m : Ref MD Metadata} ->
                   {auto u : Ref UST UState} ->
                   {auto dl : Ref DLY DelayedElabs} ->
                   {auto s : Ref Syn SyntaxInfo} ->
@@ -1528,8 +1473,6 @@ interpretPragma _ _ _ (PrimDoublePragma n) = setFromDouble n
 interpretPragma _ _ _ (PrimTTImpPragma n) = setFromTTImp n
 interpretPragma _ _ _ (PrimNamePragma n) = setFromName n
 interpretPragma _ _ _ (PrimDeclsPragma n) = setFromDecls n
-interpretPragma _ _ _ (CGActionPragma cg dir) = addDirective cg dir
-interpretPragma fc _ _ (NamesPragma n ns) = addNameDirective fc n ns
 interpretPragma fc _ _ (OverloadablePragma n) = setNameFlag fc n Overloadable
 interpretPragma _ _ _ (ExtensionPragma e) = setExtension e
 interpretPragma _ _ _ (DefaultTotalityPragma tot) = setDefaultTotalityOption tot

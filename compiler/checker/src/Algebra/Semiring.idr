@@ -52,9 +52,5 @@ branchZero : (Semiring a, Eq a) => Lazy b -> Lazy b -> a -> b
 branchZero yes no rig = if isErased rig then yes else no
 
 export
-branchOne : (Semiring a, Eq a) => Lazy b -> Lazy b -> a -> b
-branchOne yes no rig = if isLinear rig then yes else no
-
-export
 branchVal : (Semiring a, Eq a) => Lazy b -> Lazy b -> a -> b
 branchVal yes no rig = if isRigOther rig then yes else no

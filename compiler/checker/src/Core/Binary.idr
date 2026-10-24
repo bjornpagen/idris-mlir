@@ -37,7 +37,7 @@ import public Libraries.Utils.Binary
 ||| blob (`writeTTCFile`), which upstream's do not.
 export
 ttcVersion : Int
-ttcVersion = 1_2026_10_23_01
+ttcVersion = 1_2026_10_24_01
 
 export
 checkTTCVersion : String -> Int -> Int -> Core ()
@@ -48,10 +48,7 @@ record TTCFile extra where
   constructor MkTTCFile
   version : Int
   totalReq : TotalReq
-  ifaceHash : Int
-  importHashes : List (Namespace, Int)
   context : List (Name, Binary)
-  userHoles : List Name
   autoHints : List (Name, Bool)
   typeHints : List (Name, Name, Bool)
   imported : List Import
@@ -62,9 +59,6 @@ record TTCFile extra where
   pairnames : Maybe PairNames
   rewritenames : Maybe RewriteNames
   primnames : PrimNames
-  namedirectives : List (Name, List String)
-  cgdirectives : List (CG, String)
-  foreignExports : List (Name, (List (String, String)))
   extraData : extra
 
 HasNames a => HasNames (List a) where
@@ -95,24 +89,20 @@ HasNames (Name, Name, Bool) where
   resolved c (n1, n2, b) = pure (!(resolved c n1), !(resolved c n2), b)
 
 HasNames e => HasNames (TTCFile e) where
-  full gam (MkTTCFile version totalReq ifaceHash iHashes
-                      context userHoles
+  full gam (MkTTCFile version totalReq
+                      context
                       autoHints typeHints
                       imported pragmaUses nextVar currentNS nestedNS
                       pairnames rewritenames primnames
-                      namedirectives cgdirectives
-                      fexp extra)
-      = pure $ MkTTCFile version totalReq ifaceHash iHashes
-                         context userHoles
+                      extra)
+      = pure $ MkTTCFile version totalReq
+                         context
                          !(traverse (full gam) autoHints)
                          !(traverse (full gam) typeHints)
                          imported pragmaUses nextVar currentNS nestedNS
                          !(fullPair gam pairnames)
                          !(fullRW gam rewritenames)
                          !(fullPrim gam primnames)
-                         !(full gam namedirectives)
-                         cgdirectives
-                         !(full gam fexp)
                          !(full gam extra)
     where
       fullPair : Context -> Maybe PairNames -> Core (Maybe PairNames)
@@ -139,24 +129,20 @@ HasNames e => HasNames (TTCFile e) where
   -- I don't think we ever actually want to call this, because after we read
   -- from the file we're going to add them to learn what the resolved names
   -- are supposed to be! But for completeness, let's do it right.
-  resolved gam (MkTTCFile version totalReq ifaceHash iHashes
-                      context userHoles
+  resolved gam (MkTTCFile version totalReq
+                      context
                       autoHints typeHints
                       imported pragmaUses nextVar currentNS nestedNS
                       pairnames rewritenames primnames
-                      namedirectives cgdirectives
-                      fexp extra)
-      = pure $ MkTTCFile version totalReq ifaceHash iHashes
-                         context userHoles
+                      extra)
+      = pure $ MkTTCFile version totalReq
+                         context
                          !(traverse (resolved gam) autoHints)
                          !(traverse (resolved gam) typeHints)
                          imported pragmaUses nextVar currentNS nestedNS
                          !(resolvedPair gam pairnames)
                          !(resolvedRW gam rewritenames)
                          !(resolvedPrim gam primnames)
-                         !(resolved gam namedirectives)
-                         cgdirectives
-                         !(resolved gam fexp)
                          !(resolved gam extra)
     where
       resolvedPair : Context -> Maybe PairNames -> Core (Maybe PairNames)
@@ -211,15 +197,12 @@ writeTTCFile b file_in
            toBuf "TT2"
            toBuf @{Wasteful} (version file)
            toBuf (totalReq file)
-           toBuf (ifaceHash file)
-           toBuf (importHashes file)
            toBuf (imported file)
            toBuf (pragmaUses file)
            -- The extra data is a blob of its own, so that a reader that
            -- does not know its type passes over it (`readDefinitions`).
            toBuf !(encodeBlob (extraData file))
            toBuf (context file)
-           toBuf (userHoles file)
            toBuf (autoHints file)
            toBuf (typeHints file)
            toBuf (nextVar file)
@@ -228,9 +211,6 @@ writeTTCFile b file_in
            toBuf (pairnames file)
            toBuf (rewritenames file)
            toBuf (primnames file)
-           toBuf (namedirectives file)
-           toBuf (cgdirectives file)
-           toBuf (foreignExports file)
 
 ||| The fields of a TTC file, in order, the extra data read by
 ||| `readExtra` from its blob. Without `readall`, only up to the extra data.
@@ -246,22 +226,18 @@ readTTCFileWith readExtra readall file as b
            ver <- fromBuf @{Wasteful}
            checkTTCVersion file ver ttcVersion
            totalReq <- fromBuf
-           ifaceHash <- fromBuf
-           importHashes <- fromBuf
            imp <- fromBuf
            uses <- fromBuf
            ex <- readExtra !fromBuf
            if not readall
               then pure (MkTTCFile ver totalReq
-                                   ifaceHash importHashes
-                                   [] [] [] [] [] []
+                                   [] [] [] [] []
                                    0 emptyNS [] Nothing
                                    Nothing
                                    (MkPrimNs Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
-                                   [] [] [] ex)
+                                   ex)
               else do
                  defs <- fromBuf
-                 uholes <- fromBuf
                  autohs <- fromBuf
                  typehs <- fromBuf
                  nextv <- fromBuf
@@ -270,14 +246,10 @@ readTTCFileWith readExtra readall file as b
                  pns <- fromBuf
                  rws <- fromBuf
                  prims <- fromBuf
-                 nds <- fromBuf
-                 cgds <- fromBuf
-                 fexp <- fromBuf
                  pure (MkTTCFile ver totalReq
-                                 ifaceHash importHashes
-                                 (map (replaceNS cns) defs) uholes
+                                 (map (replaceNS cns) defs)
                                  autohs typehs imp uses nextv cns nns
-                                 pns rws prims nds cgds fexp ex)
+                                 pns rws prims ex)
   where
     -- We don't store full names in 'defs' - we remove the namespace if it's
     -- the same as the current namespace. So, this puts it back.
@@ -382,15 +354,10 @@ writeToTTC extradata sourceFileName ttcFileName
          ust <- get UST
          gdefs <- getSaveDefs (currentNS defs) (keys (toSave defs)) [] defs
          totalReq <- getDefaultTotalityOption
-         log "ttc.write" 5 $ unwords
-           [ "Writing", ttcFileName
-           , "with interface hash", show (ifaceHash defs)
-           ]
+         log "ttc.write" 5 $ "Writing " ++ ttcFileName
          writeTTCFile bin
                    (MkTTCFile ttcVersion totalReq
-                              (ifaceHash defs) (importHashes defs)
                               gdefs
-                              (keys (userHoles defs))
                               (saveAutoHints defs)
                               (saveTypeHints defs)
                               (imported defs)
@@ -401,9 +368,6 @@ writeToTTC extradata sourceFileName ttcFileName
                               (pairnames (options defs))
                               (rewritenames (options defs))
                               (primnames (options defs))
-                              (NameMap.toList (namedirectives defs))
-                              (cgdirectives defs)
-                              (NameMap.toList (foreignExports defs))
                               extradata)
 
          Right ok <- coreLift $ writeToFile ttcFileName !(get Bin)
@@ -476,31 +440,9 @@ export
 updatePrims : {auto c : Ref Ctxt Defs} -> PrimNames -> Core ()
 updatePrims p = update Ctxt { options->primnames $= updatePrimNames p }
 
-export
-updateNameDirectives : {auto c : Ref Ctxt Defs} ->
-                       List (Name, List String) -> Core ()
-updateNameDirectives [] = pure ()
-updateNameDirectives ((t, ns) :: nds)
-    = do update Ctxt { namedirectives $= insert t ns }
-         updateNameDirectives nds
-
-export
-updateCGDirectives : {auto c : Ref Ctxt Defs} ->
-                     List (CG, String) -> Core ()
-updateCGDirectives cgs = update Ctxt { cgdirectives $= nub . (cgs ++) }
-
-export
-updateFExports : {auto c : Ref Ctxt Defs} ->
-                 List (Name, (List (String, String))) -> Core ()
-updateFExports [] = pure ()
-updateFExports ((n, conv) :: ns)
-    = do defs <- get Ctxt
-         put Ctxt ({ foreignExports $= insert n conv } defs)
-         updateFExports ns
-
 -- Add definitions from a binary file to the current context
--- Returns the "extra" section of the file (user defined data), the interface
--- hash and the list of additional TTCs that need importing
+-- Returns the "extra" section of the file (user defined data) and the list
+-- of additional TTCs that need importing
 -- (we need to return these, rather than do it here, because after loading
 -- the data that's when we process the extra data...)
 -- The module is given as the session records it once read (`Loaded`): its
@@ -516,7 +458,7 @@ readTTCAs : TTC extra =>
             Bool -> -- set nested namespaces (for records, to use at the REPL)
             FC ->
             Loaded ->
-            Core (extra, Int, List Import)
+            Core (extra, List Import)
 readTTCAs nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
     = do defs <- get Ctxt
          put Ctxt ({ allImported $= (loading ::) } defs)
@@ -534,12 +476,11 @@ readTTCAs nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
          if alreadyDone modNS importAs (allImported defs)
             then do ttc <- readTTCFile False fname as bin
                     let ex = extraData ttc
-                    pure (ex, ifaceHash ttc, imported ttc)
+                    pure (ex, imported ttc)
             else do
                ttc <- readTTCFile True fname as bin
                let ex = extraData ttc
                traverse_ (addGlobalDef modNS (currentNS ttc) as) (context ttc)
-               traverse_ (addUserHole True) (userHoles ttc)
                setNS (currentNS ttc)
                when nestedns $ setNestedNS (nestedNS ttc)
                -- Only do the next batch if the module hasn't been loaded
@@ -552,9 +493,6 @@ readTTCAs nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
                     updatePair (pairnames ttc)
                     updateRewrite (rewritenames ttc)
                     updatePrims (primnames ttc)
-                    updateNameDirectives (reverse (namedirectives ttc))
-                    updateCGDirectives (cgdirectives ttc)
-                    updateFExports (foreignExports ttc)
 
                when (not reexp) clearSavedHints
                resetFirstEntry
@@ -562,7 +500,7 @@ readTTCAs nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
                -- Finally, update the unification state with the holes from the
                -- ttc
                update UST { nextName := nextVar ttc }
-               pure (ex, ifaceHash ttc, imported ttc)
+               pure (ex, imported ttc)
   where
     alreadyDone : ModuleIdent -> Namespace -> List Loaded -> Bool
     alreadyDone modns importAs [] = False
@@ -583,7 +521,7 @@ readFromTTC : TTC extra =>
               Bool -> -- set nested namespaces (for records, to use at the REPL)
               FC ->
               Loaded ->
-              Core (Maybe (extra, Int, List Import))
+              Core (Maybe (extra, List Import))
 readFromTTC nestedns loc loading@(MkLoaded fname _ modNS reexp importAs)
     = do defs <- get Ctxt
          -- If it's already in the context, with the same visibility flag,
@@ -609,24 +547,6 @@ getTotalReq file b
          checkTTCVersion file ver ttcVersion
          fromBuf -- `totalReq`
 
--- Implements a portion of @readTTCFile@. The fields must be read in order.
--- This reads everything up to and including `interfaceHash`.
-export
-getHashes : {auto ids : Ref Interned Idents} ->
-            String -> Ref Bin Binary -> Core Int
-getHashes file b
-    = do ignore $ getTotalReq file b
-         fromBuf -- `interfaceHash`
-
--- Implements a portion of @readTTCFile@. The fields must be read in order.
--- This reads everything up to and including `importHashes`.
-getImportHashes : {auto ids : Ref Interned Idents} ->
-                  String -> Ref Bin Binary ->
-                  Core (List (Namespace, Int))
-getImportHashes file b
-    = do ignore $ getHashes file b
-         fromBuf -- `importHashes`
-
 export
 readTotalReq : {auto c : Ref Ctxt Defs} ->
                (fileName : String) -> -- file containing the module
@@ -638,28 +558,3 @@ readTotalReq fileName
          b <- newRef Bin buffer
          catch (Just <$> getTotalReq fileName b)
                (\err => pure Nothing)
-
-export
-readHashes : {auto c : Ref Ctxt Defs} ->
-             (fileName : String) -> -- file containing the module
-             Core Int
-readHashes fileName
-    = withIdents $ do
-         Right buffer <- coreLift $ readFromFile fileName
-            | Left err => pure 0
-         b <- newRef Bin buffer
-         catch (getHashes fileName b)
-               (\err => pure 0)
-
-export
-readImportHashes : {auto c : Ref Ctxt Defs} ->
-                   (fname : String) -> -- file containing the module
-                   Core (List (Namespace, Int))
-readImportHashes fname
-    = withIdents $ do
-         Right buffer <- coreLift $ readFromFile fname
-            | Left err => pure []
-         b <- newRef Bin buffer
-         catch (do res <- getImportHashes fname b
-                   pure res)
-               (\err => pure [])

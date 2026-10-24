@@ -92,14 +92,6 @@ export
 onLHS : EvalOpts
 onLHS = { removeAs := False } defaultOpts
 
-export
-cbn : EvalOpts
-cbn = defaultOpts
-
-export
-cbv : EvalOpts
-cbv = { strategy := CBV } defaultOpts
-
 mutual
   -- TODO swap arguments and type as `Scope -> Scoped`
   public export

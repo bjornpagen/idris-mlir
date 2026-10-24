@@ -30,20 +30,6 @@ hex 'f' = Just 15
 hex _ = Nothing
 
 export
-dec : Char -> Maybe Int
-dec '0' = Just 0
-dec '1' = Just 1
-dec '2' = Just 2
-dec '3' = Just 3
-dec '4' = Just 4
-dec '5' = Just 5
-dec '6' = Just 6
-dec '7' = Just 7
-dec '8' = Just 8
-dec '9' = Just 9
-dec _ = Nothing
-
-export
 oct : Char -> Maybe Int
 oct '0' = Just 0
 oct '1' = Just 1

@@ -2,7 +2,6 @@
 -- Copyright (c) 2020 Edwin Brady
 module Idris.Pretty
 
-import Core.Metadata
 import Data.String
 
 import public Idris.Pretty.Annotations
@@ -20,16 +19,6 @@ import Idris.Syntax
 %hide Symbols.semi
 
 export
-syntaxToDecoration : IdrisSyntax -> Maybe Decoration
-syntaxToDecoration Hole     = Nothing
-syntaxToDecoration (TCon {}) = pure Typ
-syntaxToDecoration (DCon {}) = pure Data
-syntaxToDecoration (Fun {})  = pure Function
-syntaxToDecoration Bound    = pure Bound
-syntaxToDecoration Keyword  = pure Keyword
-syntaxToDecoration Pragma   = Nothing
-
-export
 kindAnn : KindedName -> Maybe IdrisSyntax
 kindAnn (MkKindedName mcat fn nm) = do
     cat <- mcat
@@ -38,10 +27,6 @@ kindAnn (MkKindedName mcat fn nm) = do
       Func       => Fun fn
       DataCon {} => DCon (Just fn)
       TyCon {}   => TCon (Just fn)
-
-export
-showCategory : (IdrisSyntax -> ann) -> GlobalDef -> Doc ann -> Doc ann
-showCategory embed def = annotateM (embed <$> kindAnn (gDefKindedName def))
 
 public export
 data IdrisAnn
@@ -52,33 +37,6 @@ data IdrisAnn
   | Code
   | Meta
   | Syntax IdrisSyntax
-  | UserDocString
-
-export
-annToDecoration : IdrisAnn -> Maybe Decoration
-annToDecoration (Syntax syn) = syntaxToDecoration syn
-annToDecoration _ = Nothing
-
-export
-syntaxAnn : IdrisSyntax -> AnsiStyle
-syntaxAnn Hole = color BrightGreen
-syntaxAnn (TCon {}) = color BrightBlue
-syntaxAnn (DCon {}) = color BrightRed
-syntaxAnn (Fun {})  = color BrightGreen
-syntaxAnn Bound    = italic
-syntaxAnn Keyword  = color BrightWhite
-syntaxAnn Pragma   = color BrightMagenta
-
-export
-colorAnn : IdrisAnn -> AnsiStyle
-colorAnn Warning = color Yellow <+> bold
-colorAnn Error = color BrightRed <+> bold
-colorAnn ErrorDesc = bold
-colorAnn FileCtxt = color BrightBlue
-colorAnn Code = color Magenta
-colorAnn Meta = color Green
-colorAnn (Syntax syn) = syntaxAnn syn
-colorAnn UserDocString = []
 
 export
 warning : Doc IdrisAnn -> Doc IdrisAnn
@@ -347,9 +305,8 @@ mutual
       parenthesise (d > startPrec) $
          "`" <+> brackets (angles (angles "declaration"))
     prettyPrec d (PUnquote _ tm) = parenthesise (d > startPrec) $ "~" <+> parens (pretty tm)
-    prettyPrec d (PRunElab _ tm) = parenthesise (d > startPrec) $ pragma "%runElab" <++> pretty tm
     prettyPrec d (PPrimVal _ c) = pretty c
-    prettyPrec d (PHole _ _ n) = hole (pretty0 (strCons '?' n.text))
+    prettyPrec d (PHole _ n) = hole (pretty0 (strCons '?' n.text))
     prettyPrec d (PType _) = annotate (TCon Nothing) "Type"
     prettyPrec d (PAs _ _ n p) = pretty0 n <+> "@" <+> prettyPrec d p
     prettyPrec d (PDotted _ p) = dot <+> prettyPrec d p
@@ -434,26 +391,3 @@ mutual
     prettyPrec d (PWithUnambigNames fc ns rhs) =
       parenthesise (d > startPrec) $ group $
         with_ <++> cast (prettyList $ map snd ns) <+> line <+> pretty rhs
-
-export
-render : {auto o : Ref ROpts REPLOpts} -> Doc IdrisAnn -> Core String
-render = render colorAnn
-
-export
-renderWithDecorations :
-  {auto o : Ref ROpts REPLOpts} ->
-  (ann -> Maybe ann') ->
-  Doc ann ->
-  Core (String, List (Span ann'))
-renderWithDecorations f doc =
-  do (str, mspans) <- Render.renderWithSpans doc
-     let spans = mapMaybe (traverse f) mspans
-     pure (str, spans)
-
-export
-prettyImport : Import -> Doc IdrisSyntax
-prettyImport (MkImport loc reexport path nameAs)
-  = keyword "import"
-    <+> ifThenElse reexport (space <+> keyword "public") ""
-    <++> pretty0 path
-    <+> ifThenElse (miAsNamespace path /= nameAs) (space <+> keyword "as" <++> pretty0 nameAs) ""

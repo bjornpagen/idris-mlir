@@ -70,31 +70,10 @@ export
 TTC SyntaxInfo where
   toBuf syn
       = do toBuf (ANameMap.toList (fixities syn))
-           toBuf (filter (\n => elemBy (==) (fst n) (saveMod syn))
-                           (SortedMap.toList $ modDocstrings syn))
-           toBuf (filter (\n => elemBy (==) (fst n) (saveMod syn))
-                           (SortedMap.toList $ modDocexports syn))
            toBuf (filter (\n => fst n `elem` saveIFaces syn)
                            (ANameMap.toList (ifaces syn)))
-           toBuf (filter (\n => isJust (lookup (fst n) (saveDocstrings syn)))
-                           (ANameMap.toList (defDocstrings syn)))
-           toBuf (bracketholes syn)
-           toBuf (startExpr syn)
-           toBuf (holeNames syn)
 
   fromBuf
       = do fix <- fromBuf
-           moddstr <- fromBuf
-           modexpts <- fromBuf
            ifs <- fromBuf
-           defdstrs <- fromBuf
-           bhs <- fromBuf
-           start <- fromBuf
-           hnames <- fromBuf
-           pure $ MkSyntax (fromList fix)
-                   [] (fromList moddstr) (fromList modexpts)
-                   [] (fromList ifs)
-                   empty (fromList defdstrs)
-                   bhs
-                   [] start
-                   hnames
+           pure $ MkSyntax (fromList fix) [] (fromList ifs) []

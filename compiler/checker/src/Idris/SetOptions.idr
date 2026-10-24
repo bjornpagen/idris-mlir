@@ -4,7 +4,6 @@ module Idris.SetOptions
 
 import Core.Binary
 import Core.Directory
-import Core.Metadata
 import Core.Unify
 import Libraries.Utils.Path
 import Libraries.Data.List.Extra
@@ -27,10 +26,6 @@ import System.Directory
 
 %default covering
 
-||| Whether to go on after processing options
-public export
-data ControlFlow = Continue | Abort
-
 ||| Dissected information about a package directory
 record PkgDir where
   constructor MkPkgDir
@@ -42,13 +37,6 @@ record PkgDir where
   version : Maybe PkgVersion
   ||| Versions of binary TTC format supported by library
   ttcVersions : List Int
-
-record QualifiedPkgDir where
-  constructor MkQualifiedPkgDir
-  ||| Path where package directory is located on disk.
-  path : String
-  ||| PkgDir for packages
-  pkgDir : PkgDir
 
 -- dissects a directory name, trying to extract
 -- the corresponding package name and -version
@@ -196,117 +184,15 @@ addPkgDir p bounds = do
         | Nothing => pure ()
     addPackageDir pkg
 
-visiblePackages : String -> IO (List QualifiedPkgDir)
-visiblePackages dir = map (MkQualifiedPkgDir dir) <$> filter viable <$> getPackageDirs dir
-  where notHidden : PkgDir -> Bool
-        notHidden = not . isPrefixOf "." . pkgName
-
-        notDenylisted : PkgDir -> Bool
-        notDenylisted = not . flip elem (the (List String) ["include", "lib", "support", "refc"]) . pkgName
-
-        viable : PkgDir -> Bool
-        viable p = notHidden p && notDenylisted p
-
-findPackages : {auto c : Ref Ctxt Defs} -> Core (List QualifiedPkgDir)
-findPackages
-    = do d <- getDirs
-         pkgPathPkgs <- coreLift $ traverse (\d => visiblePackages $ show d) d.package_search_paths
-         -- local packages
-         localPkgs <- coreLift $ visiblePackages !pkgLocalDirectory
-         pure $ localPkgs ++ join pkgPathPkgs
-
-listPackages : {auto c : Ref Ctxt Defs} ->
-               {auto o : Ref ROpts REPLOpts} ->
-               Core ()
-listPackages
-    = do pkgs <- sortBy (compare `on` (pkgName . pkgDir)) <$> findPackages
-         printIdrisTTCVersion
-         traverse_ (iputStrLn . pkgDesc) pkgs
-  where
-    printIdrisTTCVersion : Core ()
-    printIdrisTTCVersion = iputStrLn $
-      pretty0 "Idris2 TTC Version: \{show ttcVersion}" <+> line <+>
-      (replicateChar 5 '─')
-
-    pkgTTCVersions : PkgDir -> Doc IdrisAnn
-    pkgTTCVersions (MkPkgDir _ _ _ ttcVersions) =
-      pretty0 "├ TTC Versions:" <++> prettyTTCVersions
-      where
-        annotate : Int -> Doc IdrisAnn
-        annotate version =
-          if version == ttcVersion
-             then pretty0 $ show version
-             else warning ((pretty0 $ show version) <++> (parens "incompatible"))
-
-        prettyTTCVersions : Doc IdrisAnn
-        prettyTTCVersions = (concatWith (\x,y => x <+> "," <++> y)) $ annotate <$> sort ttcVersions
-
-    pkgPath : String -> Doc IdrisAnn
-    pkgPath path = pretty0 "└ \{path}"
-
-    extraInfo : QualifiedPkgDir -> Doc IdrisAnn
-    extraInfo (MkQualifiedPkgDir path pkg) =
-      let extra = indent 2 $
-        pkgTTCVersions pkg <+> line <+>
-        pkgPath path
-      in line <+> extra
-
-    pkgDesc : QualifiedPkgDir -> Doc IdrisAnn
-    pkgDesc pkg@(MkQualifiedPkgDir _ (MkPkgDir _ pkgName version _)) =
-      pretty0 pkgName <++> parens (pretty0 $ maybe "unversioned" show version)
-        <+> extraInfo pkg
-
-dirOption : {auto c : Ref Ctxt Defs} ->
-            {auto o : Ref ROpts REPLOpts} ->
-            Dirs -> DirCommand -> Core ()
-dirOption dirs LibDir
-    = coreLift $ putStrLn
-         (prefix_dir dirs </> "idris2-" ++ showVersion False version)
-dirOption dirs BlodwenPaths
-    = iputStrLn $ pretty0 (toString dirs)
-dirOption dirs Prefix
-    = coreLift $ putStrLn (prefix_dir dirs)
-
 --------------------------------------------------------------------------------
 --          Processing Options
 --------------------------------------------------------------------------------
 
-||| Options to be processed before type checking. Return whether to continue.
+||| A package's options, each set in the session before its modules are
+||| checked.
 export
-preOptions : {auto c : Ref Ctxt Defs} ->
-             {auto o : Ref ROpts REPLOpts} ->
-             {auto s : Ref PostS PostSession} ->
-             List CLOpt -> Core ControlFlow
-preOptions [] = pure Continue
-preOptions (NoBanner :: opts)
-    = do setSession ({ nobanner := True } !getSession)
-         preOptions opts
--- These things are processed later, but imply nobanner too
-preOptions (OutputFile file :: opts)
-    = do setSession ({ nobanner := True} !getSession)
-         update PostS {outputFile := Just file}
-         preOptions opts
-preOptions (CheckOnly :: opts)
-    = do setSession ({ nobanner := True} !getSession)
-         update PostS {checkOnly := True}
-         preOptions opts
--- A session has no default code generator to set: the driver registers
--- the ones there are, and this only checks the name is one of them.
-preOptions (SetCG e :: opts)
-    = do defs <- get Ctxt
-         case getCG (options defs) e of
-            Just _ => preOptions opts
-            Nothing =>
-              throw $ UserError $ """
-                No such code generator
-                Code generators available: \{joinBy ", " (map fst (availableCGs (options defs)))}
-                """
-preOptions (Directive d :: opts)
-    = do setSession ({ directives $= (d::) } !getSession)
-         preOptions opts
-preOptions (Quiet :: opts)
-    = do setVerbosity ErrorLvl
-         preOptions opts
+preOptions : {auto c : Ref Ctxt Defs} -> List CLOpt -> Core ()
+preOptions [] = pure ()
 preOptions (NoPrelude :: opts)
     = do setSession ({ noprelude := True } !getSession)
          preOptions opts
@@ -322,21 +208,8 @@ preOptions (BuildDir d :: opts)
 preOptions (OutputDir d :: opts)
     = do setOutputDir (Just d)
          preOptions opts
-preOptions (Directory d :: opts)
-    = do defs <- get Ctxt
-         dirOption (dirs (options defs)) d
-         pure Abort
-preOptions (ListPackages :: opts)
-    = do listPackages
-         pure Abort
 preOptions (Timing tm :: opts)
     = do setLogTimings (fromMaybe 10 tm)
-         preOptions opts
-preOptions (AltErrorCount c :: opts)
-    = do setSession ({ logErrorCount := c } !getSession)
-         preOptions opts
-preOptions (FindIPKG :: opts)
-    = do setSession ({ findipkg := True } !getSession)
          preOptions opts
 preOptions (IgnoreMissingIPKG :: opts)
     = do setSession ({ ignoreMissingPkg := True } !getSession)
@@ -344,21 +217,6 @@ preOptions (IgnoreMissingIPKG :: opts)
 preOptions (Logging n :: opts)
     = do setSession ({ logEnabled := True,
                        logLevel $= insertLogLevel n } !getSession)
-         preOptions opts
-preOptions (ConsoleWidth n :: opts)
-    = do setConsoleWidth n
-         preOptions opts
-preOptions (ShowImplicits :: opts)
-    = do updatePPrint { showImplicits := True }
-         preOptions opts
-preOptions (ShowMachineNames :: opts)
-    = do updatePPrint { showMachineNames := True }
-         preOptions opts
-preOptions (ShowNamespaces :: opts)
-    = do updatePPrint { fullNamespace := True }
-         preOptions opts
-preOptions (Color b :: opts)
-    = do setColor b
          preOptions opts
 preOptions (WarningsAsErrors :: opts)
     = do updateSession ({ warningsAsErrors := True })
@@ -369,4 +227,3 @@ preOptions (IgnoreShadowingWarnings :: opts)
 preOptions (Total :: opts)
     = do updateSession ({ totalReq := Total })
          preOptions opts
-preOptions (_ :: opts) = preOptions opts

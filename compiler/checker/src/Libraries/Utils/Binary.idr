@@ -45,13 +45,6 @@ incLoc : Integer -> Binary -> Binary
 incLoc i c = { loc $= (+i) } c
 
 export
-fromBuffer : Buffer -> IO Binary
-fromBuffer buf
-    = do len <- rawSize buf
-         let len = cast len
-         pure (MkBin buf 0 len len)
-
-export
 writeToFile : (fname : String) -> Binary -> IO (Either FileError ())
 writeToFile fname c
     = do Right ok <- writeBufferToFile fname (buf c) (cast $ used c)

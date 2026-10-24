@@ -138,20 +138,6 @@ isUserName (NS _ n) = isUserName n
 isUserName (DN _ n) = isUserName n
 isUserName _ = True
 
-||| True iff name can be traced back to a source name.
-||| Used to determine whether it needs semantic highlighting.
-export
-isSourceName : Name -> Bool
-isSourceName (NS _ n) = isSourceName n
-isSourceName (UN {}) = True
-isSourceName (MN {}) = False
-isSourceName (PV n _) = isSourceName n
-isSourceName (DN _ n) = isSourceName n
-isSourceName (Nested _ n) = isSourceName n
-isSourceName (CaseBlock {}) = False
-isSourceName (WithBlock {}) = False
-isSourceName (Resolved {}) = False
-
 export
 isRF : Name -> Maybe (Namespace, Ident)
 isRF (NS ns n) = map (mapFst (ns <.>)) (isRF n)
@@ -168,11 +154,6 @@ export
 isBasic : UserName -> Maybe Ident
 isBasic (Basic str) = Just str
 isBasic _ = Nothing
-
-export
-isField : UserName -> Maybe Ident
-isField (Field str) = Just str
-isField _ = Nothing
 
 export
 caseFn : Name -> Bool
@@ -201,18 +182,6 @@ nameRoot (WithBlock n _) = "$" ++ show (nameRoot n)
 nameRoot (Resolved i) = "$" ++ show i
 
 export
-displayName : Name -> (Maybe Namespace, String)
-displayName (NS ns n) = mapFst (pure . maybe ns (ns <.>)) $ displayName n
-displayName (UN n) = (Nothing, displayUserName n)
-displayName (MN n _) = (Nothing, n.text)
-displayName (PV n _) = displayName n
-displayName (DN n _) = (Nothing, n.text)
-displayName (Nested _ n) = displayName n
-displayName (CaseBlock outer _) = (Nothing, "case block in " ++ show (nameRoot outer))
-displayName (WithBlock outer _) = (Nothing, "with block in " ++ show (nameRoot outer))
-displayName (Resolved i) = (Nothing, "$resolved" ++ show i)
-
-export
 splitNS : Name -> (Namespace, Name)
 splitNS (NS ns nm) = mapFst (ns <.>) (splitNS nm)
 splitNS nm = (emptyNS, nm)
@@ -233,16 +202,6 @@ export
 mbApplyNS : Maybe Namespace -> Name -> Name
 mbApplyNS Nothing n = n
 mbApplyNS (Just ns) n = NS ns n
-
-export
-isUnsafeBuiltin : Name -> Bool
-isUnsafeBuiltin nm = case splitNS nm of
-  (ns, UN (Basic str)) =>
-       (ns == builtinNS || ns == emptyNS)
-    && (("assert_" `isPrefixOf` str.text)
-        || (str `elem` map known [ Kprim__believe_me, Kbelieve_me
-                                 , Kprim__crash, Kidris_crash ]))
-  _ => False
 
 export
 Show UserName where

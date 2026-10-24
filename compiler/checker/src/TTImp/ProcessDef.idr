@@ -7,14 +7,13 @@ import Core.Case.CaseTree
 import Core.Case.CaseTree.Pretty
 import Core.Coverage
 import Core.Env
-import Core.Hash
 import Core.LinearCheck
-import Core.Metadata
 import Core.Termination
 import Core.Termination.CallGraph
 import Core.Value
 import Core.UnifyState
 
+import Idris.Error
 import Idris.REPL.Opts
 import Idris.Syntax
 import Idris.Pretty.Annotations
@@ -301,7 +300,6 @@ unifiedArgs marks lhs = foldr bind VarSet.empty (marks ++ leftOut lhs)
 export -- also used by Transforms
 checkLHS : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto s : Ref Syn SyntaxInfo} ->
@@ -368,7 +366,6 @@ checkLHS {vars} trans mult n opts nest env fc lhs_in
 
          logTerm "declare.def.lhs" 3 "LHS term" lhstm_lin
          logTerm "declare.def.lhs" 5 "LHS type" lhsty_lin
-         setHoleLHS (bindEnv fc env lhstm_lin)
 
          (vars' ** (sub', env', nest', lhstm', lhsty')) <-
              extendEnv env Refl nest lhstm_lin lhsty_lin
@@ -405,16 +402,15 @@ applyEnv env withname
 export
 checkClause : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
               {auto o : Ref ROpts REPLOpts} ->
               (mult : RigCount) -> (vis : Visibility) ->
-              (totreq : TotalReq) -> (hashit : Bool) ->
+              (totreq : TotalReq) ->
               Int -> List ElabOpt -> NestedNames vars -> Env Term vars ->
               ImpClause -> Core (Either RawImp Clause)
-checkClause mult vis totreq hashit n opts nest env (ImpossibleClause fc lhs)
+checkClause mult vis totreq n opts nest env (ImpossibleClause fc lhs)
     = do lhs_raw <- lhsInCurrentNS nest lhs
          handleUnifyElab
            (do autoimp <- isUnboundImplicits
@@ -439,7 +435,7 @@ checkClause mult vis totreq hashit n opts nest env (ImpossibleClause fc lhs)
                            if !(impossibleErrOK defs err)
                               then pure (Left lhs_raw)
                               else throw (ValidCase fc env (Right err)))
-checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in rhs)
+checkClause {vars} mult vis totreq n opts nest env (PatClause fc lhs_in rhs)
     = do (_, (vars'  ** (sub', env', nest', lhstm', lhsty', unified))) <-
              checkLHS False mult n opts nest env fc lhs_in
          let rhsMode = if isErased mult then InType else InExpr
@@ -449,24 +445,11 @@ checkClause {vars} mult vis totreq hashit n opts nest env (PatClause fc lhs_in r
          rhstm <- logTime 3 ("Check RHS " ++ show fc) $
                     wrapErrorC opts (InRHS fc !(getFullName (Resolved n))) $
                        checkTermSub n rhsMode opts nest' env' env sub' rhs (gnf env' lhsty')
-         clearHoleLHS
 
          logTerm "declare.def.clause" 3 "RHS term" rhstm
-         when hashit $
-           do addHashWithNames lhstm'
-              addHashWithNames rhstm
-              log "module.hash" 15 "Adding hash for def."
-
-         -- If the rhs is a hole, record the lhs in the metadata because we
-         -- might want to split it interactively
-         case rhstm of
-              Meta {} =>
-                 addLHS (getFC lhs_in) (length env) env' lhstm'
-              _ => pure ()
-
          pure (Right (MkClause env' lhstm' rhstm unified))
 -- TODO: (to decide) With is complicated. Move this into its own module?
-checkClause {vars} mult vis totreq hashit n opts nest env
+checkClause {vars} mult vis totreq n opts nest env
     (WithClause ifc lhs_in rig wval_raw mprf flags cs)
     = do (lhs, (vars'  ** (sub', env', nest', lhspat, reqty, unified))) <-
              checkLHS False mult n opts nest env ifc lhs_in
@@ -475,7 +458,6 @@ checkClause {vars} mult vis totreq hashit n opts nest env
 
          (wval, gwvalTy) <- wrapErrorC opts (InRHS ifc !(getFullName (Resolved n))) $
                 elabTermSub n wmode opts nest' env' env sub' wval_raw Nothing
-         clearHoleLHS
 
          logTerm "declare.def.clause.with" 5 "With value (at quantity \{show rig})" wval
          logTerm "declare.def.clause.with" 3 "Required type" reqty
@@ -720,7 +702,6 @@ isAlias lhs
        pure (hd, args)
 
 lookupOrAddAlias : {vars : _} ->
-                   {auto m : Ref MD Metadata} ->
                    {auto c : Ref Ctxt Defs} ->
                    {auto u : Ref UST UState} ->
                    {auto dl : Ref DLY DelayedElabs} ->
@@ -777,7 +758,6 @@ lookupOrAddAlias _ _ _ fc n _
 export
 processDef : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto s : Ref Syn SyntaxInfo} ->
@@ -786,79 +766,65 @@ processDef : {vars : _} ->
              Name -> List ImpClause -> Core ()
 processDef opts nest env fc n_in cs_in
   = do n <- inCurrentNS n_in
-       withDefStacked n $ do
-         defs <- get Ctxt
-         Just gdef <- lookupOrAddAlias opts nest env fc n cs_in
-           | Nothing => noDeclaration fc n
-         let None = definition gdef
-              | _ => throw (AlreadyDefined fc n)
-         ty <- typeOf gdef
-         -- a module's interface hash (what determines when the module has changed)
-         -- should include the definition (RHS) of anything that is public (available
-         -- at compile time for elaboration) _or_ inlined (dropped into destination definitions
-         -- during compilation).
-         let hashit = (collapseDefault $ visibility gdef) == Public || (Inline `elem` gdef.flags)
-         let mult = if isErased (multiplicity gdef)
-                       then erased
-                       else linear
-         nidx <- resolveName n
+       defs <- get Ctxt
+       Just gdef <- lookupOrAddAlias opts nest env fc n cs_in
+         | Nothing => noDeclaration fc n
+       let None = definition gdef
+            | _ => throw (AlreadyDefined fc n)
+       ty <- typeOf gdef
+       let mult = if isErased (multiplicity gdef)
+                     then erased
+                     else linear
+       nidx <- resolveName n
 
-         -- Dynamically rebind default totality requirement to this function's totality requirement
-         -- and use this requirement when processing `with` blocks
-         log "declare.def" 5 $ "Traversing clauses of " ++ show n ++ " with mult " ++ show mult
-         let treq = fromMaybe !getDefaultTotalityOption (findSetTotal (flags gdef))
-         cs <- withTotality treq $
-               traverse (checkClause mult (collapseDefault $ visibility gdef) treq
-                                     hashit nidx opts nest env) cs_in
+       -- Dynamically rebind default totality requirement to this function's totality requirement
+       -- and use this requirement when processing `with` blocks
+       log "declare.def" 5 $ "Traversing clauses of " ++ show n ++ " with mult " ++ show mult
+       let treq = fromMaybe !getDefaultTotalityOption (findSetTotal (flags gdef))
+       cs <- withTotality treq $
+             traverse (checkClause mult (collapseDefault $ visibility gdef) treq
+                                   nidx opts nest env) cs_in
 
-         let pats = map toPats (rights cs)
+       let pats = map toPats (rights cs)
 
-         (cargs ** (tree_ct, clausePats, unreachable)) <-
-             logTime 3 ("Building compile time case tree for " ++ show n) $
-                getPMDef fc (CompileTime mult Evaluating) n ty (map (saved mult) (rights cs))
+       (cargs ** (tree_ct, clausePats, unreachable)) <-
+           logTime 3 ("Building compile time case tree for " ++ show n) $
+              getPMDef fc (CompileTime mult Evaluating) n ty (map (saved mult) (rights cs))
 
-         traverse_ warnUnreachable unreachable
+       traverse_ warnUnreachable unreachable
 
-         logC "declare.def" 2 $
-                 do t <- toFullNames tree_ct
-                    pure ("Case tree for " ++ show n ++ ": " ++ show t)
+       logC "declare.def" 2 $
+               do t <- toFullNames tree_ct
+                  pure ("Case tree for " ++ show n ++ ": " ++ show t)
 
-         -- check whether the name was declared in a different source file
-         defs <- get Ctxt
-         let pi = case lookup n (userHoles defs) of
-                        Nothing => defaultPI
-                        Just e => { externalDecl := e } defaultPI
-         ignore $ addDef (Resolved nidx)
-                  ({ definition := PMDef pi cargs (LiveBody tree_ct clausePats pats)
-                   } gdef)
-         -- The erased positions found where the type was declared may be
-         -- too few: a type that reaches its binders through a definition
-         -- declared before and defined after is stuck there. Its clauses
-         -- were checked against the whole spine, so it is complete now.
-         updateErasable (Resolved nidx)
+       ignore $ addDef (Resolved nidx)
+                ({ definition := PMDef defaultPI cargs (LiveBody tree_ct clausePats pats)
+                 } gdef)
+       -- The erased positions found where the type was declared may be
+       -- too few: a type that reaches its binders through a definition
+       -- declared before and defined after is stuck there. Its clauses
+       -- were checked against the whole spine, so it is complete now.
+       updateErasable (Resolved nidx)
 
-         when (collapseDefault (visibility gdef) == Public) $
-             do let rmetas = getMetas tree_ct
-                log "declare.def" 10 $ "Saving from " ++ show n ++ ": " ++ show (keys rmetas)
-                traverse_ addToSave (keys rmetas)
-         when (isUserName n && collapseDefault (visibility gdef) /= Private) $
-             do let tymetas = getMetas ty
-                traverse_ addToSave (keys tymetas)
-         addToSave n
+       when (collapseDefault (visibility gdef) == Public) $
+           do let rmetas = getMetas tree_ct
+              log "declare.def" 10 $ "Saving from " ++ show n ++ ": " ++ show (keys rmetas)
+              traverse_ addToSave (keys rmetas)
+       when (isUserName n && collapseDefault (visibility gdef) /= Private) $
+           do let tymetas = getMetas ty
+              traverse_ addToSave (keys tymetas)
+       addToSave n
 
-         atotal <- toResolvedNames (NS builtinNS (knownUN Kassert_total))
-         logTime 3 ("Building size change graphs " ++ show n) $
-           when (not (InCase `elem` opts)) $
-             do calcRefs atotal (Resolved nidx)
-                sc <- calculateSizeChange fc n
-                setSizeChange fc n sc
-                checkIfGuarded fc n
+       atotal <- toResolvedNames (NS builtinNS (knownUN Kassert_total))
+       logTime 3 ("Building size change graphs " ++ show n) $
+         when (not (InCase `elem` opts)) $
+           do calcRefs atotal (Resolved nidx)
+              sc <- calculateSizeChange fc n
+              setSizeChange fc n sc
+              checkIfGuarded fc n
 
-         md <- get MD -- don't need the metadata collected on the coverage check
-
-         cov <- logTime 3 ("Checking Coverage " ++ show n) $ checkCoverage nidx ty mult cs
-         setCovering fc n cov
-         put MD md
+       cov <- logTime 3 ("Checking Coverage " ++ show n) $ checkCoverage nidx ty mult cs
+       setCovering fc n cov
   where
     -- Move `withTotality` to Core.Context if we need it elsewhere
     ||| Temporarily rebind the default totality requirement (%default total/partial/covering).
@@ -916,7 +882,9 @@ processDef opts nest env fc n_in cs_in
                (\err => do defs <- get Ctxt
                            if !(impossibleErrOK defs err)
                               then do
-                                log "declare.def.impossible" 5 "impossible because \{show err}"
+                                logC "declare.def.impossible" 5 $
+                                  do text <- errorText err
+                                     pure "impossible because \{text}"
                                 pure Nothing
                               else pure (Just tm))
       where
@@ -930,8 +898,9 @@ processDef opts nest env fc n_in cs_in
         = catch (do lhsp <- getImpossibleTerm env nest rawlhs
                     log "declare.def.impossible" 3 $ "Generated impossible LHS: " ++ show lhsp
                     pure $ Just $ MkClause Env.empty lhsp (Erased (getFC rawlhs) Impossible) VarSet.empty)
-                (\e => do log "declare.def" 5 $ "Error in getClause " ++ show e
-                          recordWarning $ GenericWarn (fromMaybe (getFC rawlhs) $ getErrorLoc e) (show e)
+                (\e => do text <- errorText e
+                          log "declare.def" 5 $ "Error in getClause " ++ text
+                          recordWarning $ GenericWarn (fromMaybe (getFC rawlhs) $ getErrorLoc e) text
                           pure Nothing)
     getClause (Right c) = pure (Just c)
 

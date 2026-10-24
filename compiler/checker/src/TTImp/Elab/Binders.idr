@@ -3,7 +3,6 @@
 module TTImp.Elab.Binders
 
 import Core.Env
-import Core.Metadata
 import Core.Unify
 import Core.Value
 
@@ -33,7 +32,6 @@ dropName n nest = { names $= drop } nest
 
 checkPiInfo : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto e : Ref EST (EState vars)} ->
@@ -52,7 +50,6 @@ checkPiInfo rig elabinfo nest env (DefImplicit t) exp
 export
 checkPi : {vars : _} ->
           {auto c : Ref Ctxt Defs} ->
-          {auto m : Ref MD Metadata} ->
           {auto u : Ref UST UState} ->
           {auto dl : Ref DLY DelayedElabs} ->
           {auto e : Ref EST (EState vars)} ->
@@ -98,7 +95,6 @@ findLamRig (Just expty)
 
 inferLambda : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto e : Ref EST (EState vars)} ->
@@ -153,7 +149,6 @@ isResolved constraints key
 export
 checkLambda : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto e : Ref EST (EState vars)} ->
@@ -201,8 +196,6 @@ checkLambda rig_in elabinfo nest env fc rigl info n argTy scope (Just expty_in)
                     -- Currently, the fc a PLam holds (and that ILam gets as a consequence)
                     -- is the file context of the argument to the lambda. This fits nicely
                     -- in this exact use, but is likely a bug.
-                    log "metadata.names" 7 "checkLambda is adding ↓"
-                    addNameType fc n env pty -- Add the type of the argument to the metadata
 
                     -- We've already checked the argument and scope types,
                     -- so we just need to check multiplicities
@@ -233,7 +226,6 @@ weakenExp env (Just gtm)
 export
 checkLet : {vars : _} ->
            {auto c : Ref Ctxt Defs} ->
-           {auto m : Ref MD Metadata} ->
            {auto u : Ref UST UState} ->
            {auto dl : Ref DLY DelayedElabs} ->
            {auto e : Ref EST (EState vars)} ->
@@ -277,10 +269,6 @@ checkLet rigc_in elabinfo nest env fc lhsFC rigl n nTy nVal scope expty {vars}
          -- No need to 'checkExp' here - we've already checked scopet
          -- against the expected type when checking the scope, so just
          -- build the term directly
-
-         -- Add the lhs of the let to metadata
-         log "metadata.names" 7 $ "checkLet is adding ↓"
-         addNameType lhsFC n env tyv
 
          pure (Bind fc n (Let fc rigb valv tyv) scopev,
                gnf env (Bind fc n (Let fc rigb valv tyv) scopet))

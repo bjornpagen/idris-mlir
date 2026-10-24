@@ -94,11 +94,6 @@ isConstantType n = case knownRoot n of
   _ => Nothing
 
 export
-isPrimType : Constant -> Bool
-isPrimType (PrT _) = True
-isPrimType _       = False
-
-export
 primTypeEq : (x, y : PrimType) -> Maybe (x = y)
 primTypeEq IntType IntType = Just Refl
 primTypeEq Int8Type Int8Type = Just Refl
@@ -286,25 +281,6 @@ Ord Constant where
         tag (PrT _) = 13
         tag WorldVal = 14
 
--- for typecase
-export
-primTypeTag : PrimType -> Int
--- 1 = ->, 2 = Type
-primTypeTag IntType = 3
-primTypeTag IntegerType = 4
-primTypeTag Bits8Type = 5
-primTypeTag Bits16Type = 6
-primTypeTag Bits32Type = 7
-primTypeTag Bits64Type = 8
-primTypeTag StringType = 9
-primTypeTag CharType = 10
-primTypeTag DoubleType = 11
-primTypeTag WorldType = 12
-primTypeTag Int8Type = 13
-primTypeTag Int16Type = 14
-primTypeTag Int32Type = 15
-primTypeTag Int64Type = 16
-
 ||| Precision of integral types.
 public export
 data Precision = P Int | Unlimited
@@ -328,25 +304,6 @@ Ord Precision where
 -- unsigned integers
 public export
 data IntKind = Signed Precision | Unsigned Int
-
-public export
-intKind : PrimType -> Maybe IntKind
-intKind IntegerType = Just $ Signed Unlimited
-intKind Int8Type    = Just . Signed   $ P 8
-intKind Int16Type   = Just . Signed   $ P 16
-intKind Int32Type   = Just . Signed   $ P 32
-intKind Int64Type   = Just . Signed   $ P 64
-intKind IntType     = Just . Signed   $ P 64
-intKind Bits8Type   = Just $ Unsigned 8
-intKind Bits16Type  = Just $ Unsigned 16
-intKind Bits32Type  = Just $ Unsigned 32
-intKind Bits64Type  = Just $ Unsigned 64
-intKind _           = Nothing
-
-public export
-precision : IntKind -> Precision
-precision (Signed p)   = p
-precision (Unsigned p) = P p
 
 -- All the internal operators, parameterised by their arity
 public export
@@ -481,108 +438,3 @@ export
   show (Cast x y) = "cast-" ++ show x ++ "-" ++ show y
   show BelieveMe = "believe_me"
   show Crash = "crash"
-
-export
-primFnEq : PrimFn a1 -> PrimFn a2 -> Maybe (a1 = a2)
-primFnEq (Add t1) (Add t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (Sub t1) (Sub t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (Mul t1) (Mul t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (Div t1) (Div t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (Mod t1) (Mod t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (Neg t1) (Neg t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (ShiftL t1) (ShiftL t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (ShiftR t1) (ShiftR t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (BAnd t1) (BAnd t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (BOr t1) (BOr t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (BXOr t1) (BXOr t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (LT t1) (LT t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (LTE t1) (LTE t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (EQ t1) (EQ t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (GTE t1) (GTE t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq (GT t1) (GT t2) = if t1 == t2 then Just Refl else Nothing
-primFnEq StrLength StrLength = Just Refl
-primFnEq StrHead StrHead = Just Refl
-primFnEq StrTail StrTail = Just Refl
-primFnEq StrIndex StrIndex = Just Refl
-primFnEq StrCons StrCons = Just Refl
-primFnEq StrAppend StrAppend = Just Refl
-primFnEq StrReverse StrReverse = Just Refl
-primFnEq StrSubstr StrSubstr = Just Refl
-primFnEq DoubleExp DoubleExp = Just Refl
-primFnEq DoubleLog DoubleLog = Just Refl
-primFnEq DoublePow DoublePow = Just Refl
-primFnEq DoubleSin DoubleSin = Just Refl
-primFnEq DoubleCos DoubleCos = Just Refl
-primFnEq DoubleTan DoubleTan = Just Refl
-primFnEq DoubleASin DoubleASin = Just Refl
-primFnEq DoubleACos DoubleACos = Just Refl
-primFnEq DoubleATan DoubleATan = Just Refl
-primFnEq DoubleSqrt DoubleSqrt = Just Refl
-primFnEq DoubleFloor DoubleFloor = Just Refl
-primFnEq DoubleCeiling DoubleCeiling = Just Refl
-primFnEq (Cast f1 t1) (Cast f2 t2) = if f1 == f2 && t1 == t2 then Just Refl else Nothing
-primFnEq BelieveMe BelieveMe = Just Refl
-primFnEq Crash Crash = Just Refl
-primFnEq _ _ = Nothing
-
-export
-primFnCmp : PrimFn a1 -> PrimFn a2 -> Ordering
-primFnCmp (Add t1) (Add t2) = compare t1 t2
-primFnCmp (Sub t1) (Sub t2) = compare t1 t2
-primFnCmp (Mul t1) (Mul t2) = compare t1 t2
-primFnCmp (Div t1) (Div t2) = compare t1 t2
-primFnCmp (Mod t1) (Mod t2) = compare t1 t2
-primFnCmp (Neg t1) (Neg t2) = compare t1 t2
-primFnCmp (ShiftL t1) (ShiftL t2) = compare t1 t2
-primFnCmp (ShiftR t1) (ShiftR t2) = compare t1 t2
-primFnCmp (BAnd t1) (BAnd t2) = compare t1 t2
-primFnCmp (BOr t1) (BOr t2) = compare t1 t2
-primFnCmp (BXOr t1) (BXOr t2) = compare t1 t2
-primFnCmp (LT t1) (LT t2) = compare t1 t2
-primFnCmp (LTE t1) (LTE t2) = compare t1 t2
-primFnCmp (EQ t1) (EQ t2) = compare t1 t2
-primFnCmp (GTE t1) (GTE t2) = compare t1 t2
-primFnCmp (GT t1) (GT t2) = compare t1 t2
-primFnCmp (Cast f1 t1) (Cast f2 t2) = compare f1 f2 `thenCmp` compare t1 t2
-primFnCmp f1 f2 = compare (tag f1) (tag f2)
-  where
-    tag : forall ar. PrimFn ar -> Int
-    tag (Add _) = 0
-    tag (Sub _) = 1
-    tag (Mul _) = 2
-    tag (Div _) = 3
-    tag (Mod _) = 4
-    tag (Neg _) = 5
-    tag (ShiftL _) = 6
-    tag (ShiftR _) = 7
-    tag (BAnd _) = 8
-    tag (BOr _) = 9
-    tag (BXOr _) = 10
-    tag (LT _) = 11
-    tag (LTE _) = 12
-    tag (EQ _) = 13
-    tag (GTE _) = 14
-    tag (GT _) = 15
-    tag StrLength = 16
-    tag StrHead = 17
-    tag StrTail = 18
-    tag StrIndex = 19
-    tag StrCons = 20
-    tag StrAppend = 21
-    tag StrReverse = 22
-    tag StrSubstr = 23
-    tag DoubleExp = 24
-    tag DoubleLog = 25
-    tag DoublePow = 26
-    tag DoubleSin = 27
-    tag DoubleCos = 28
-    tag DoubleTan = 29
-    tag DoubleASin = 30
-    tag DoubleACos = 31
-    tag DoubleATan = 32
-    tag DoubleSqrt = 33
-    tag DoubleFloor = 34
-    tag DoubleCeiling = 35
-    tag (Cast _ _) = 36
-    tag BelieveMe = 37
-    tag Crash = 38

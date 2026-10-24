@@ -3,7 +3,6 @@
 module TTImp.ProcessRecord
 
 import Core.Env
-import Core.Metadata
 import Core.UnifyState
 
 import Idris.REPL.Opts
@@ -39,7 +38,6 @@ projVis _ = Private
 
 elabRecord : {vars : _} ->
              {auto c : Ref Ctxt Defs} ->
-             {auto m : Ref MD Metadata} ->
              {auto u : Ref UST UState} ->
              {auto dl : Ref DLY DelayedElabs} ->
              {auto s : Ref Syn SyntaxInfo} ->
@@ -354,7 +352,6 @@ elabRecord {vars} eopts fc env nest newns def_vis mbtot tn_in params0 opts conNa
 export
 processRecord : {vars : _} ->
                 {auto c : Ref Ctxt Defs} ->
-                {auto m : Ref MD Metadata} ->
                 {auto u : Ref UST UState} ->
                 {auto dl : Ref DLY DelayedElabs} ->
                 {auto s : Ref Syn SyntaxInfo} ->

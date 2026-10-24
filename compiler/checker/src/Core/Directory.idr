@@ -57,10 +57,6 @@ ttcInstallDirectory lib =
   do libDir <- libInstallDirectory lib
      pure (libDir </> show ttcVersion)
 
-export
-srcInstallDirectory : {auto c : Ref Ctxt Defs} -> String -> Core String
-srcInstallDirectory = libInstallDirectory
-
 -- The directories a TTC is searched for in after the build directory, each
 -- with what finding one there says of it.
 extraSearchDirectories : {auto c : Ref Ctxt Defs} -> Core (List (String, Found))
@@ -91,11 +87,6 @@ Show IdrSrcExt where
   show E_org  = "org"
   show E_md   = "md"
 
-||| This does not include the complete set of literate extensions as supported by Idris.
-public export
-listOfExtensions : List IdrSrcExt
-listOfExtensions = [E_idr, E_lidr, E_yaff, E_org, E_md]
-
 ||| List of valid extensions in Idris as strings.
 |||
 ||| Extensions have a leading "." separator *and* may include multiple extensions to support literate mode extensions for the form ".org.idr".
@@ -121,22 +112,6 @@ collapseSpecialDirs [<] = [<]
 cleanPath : String -> String
 cleanPath = show . the (Path -> Path) { hasTrailSep := False, body $= cast . collapseSpecialDirs . cast } . parse
 
-||| Return the basename and extension used *if* given filename is a valid idris filename.
-|||
-||| Extensions are returned with a leading "." separator.
-export
-splitIdrisFileName : String -> Maybe (String, String)
-splitIdrisFileName fname
-    = hasLitFileExt fname <|> isPureCode
-
-  where
-    isPureCode : Maybe (String, String)
-    isPureCode
-      = let (bname, ext) = splitFileName fname in
-        do guard (ext == "idr")
-           pure (bname, ".idr")
-
-
 -- Return the name of the first file available in the list
 -- Used in LSP.
 export
@@ -149,28 +124,6 @@ firstAvailable (f :: fs)
                | Left err => firstAvailable fs
          coreLift $ closeFile ok
          pure (Just f)
-
-export
-covering
-findDataFile : {auto c : Ref Ctxt Defs} ->
-               String -> Core String
-findDataFile fname
-    = do d <- getDirs
-         let fs = map (\p => cleanPath $ p </> fname) (data_dirs d)
-         Just f <- firstAvailable fs
-            | Nothing => throw (InternalError ("Can't find data file " ++ fname ++
-                                               " in any of " ++ show fs))
-         pure f
-
-export
-covering
-readDataFile : {auto c : Ref Ctxt Defs} ->
-               String -> Core String
-readDataFile fname
-    = do f <- findDataFile fname
-         Right d <- coreLift $ readFile f
-            | Left err => throw (FileErr f err)
-         pure d
 
 %prefix_record_projections off
 
@@ -298,14 +251,6 @@ makeBuildDirectory ns
             | Left err => throw (FileErr (bdir </> ndir) err)
          pure ()
 
-export
-covering
-ensureDirectoryExists : String -> Core ()
-ensureDirectoryExists dir
-    = do Right _ <- coreLift $ mkdirAll dir
-            | Left err => throw (FileErr dir err)
-         pure ()
-
 -- The file of a module's build with the given extension, under the build
 -- directory at the module's path: for a caller that holds the module, which
 -- names it once.
@@ -316,33 +261,3 @@ moduleFileName ns ext
     = do let fname = ModuleIdent.toPath ns <.> ext
          bdir <- ttcBuildDirectory
          pure $ bdir </> fname
-
--- Given a root executable name, return the name in the build directory
-export
-getExecFileName : {auto c : Ref Ctxt Defs} -> String -> Core String
-getExecFileName efile
-    = do d <- getDirs
-         pure $ build_dir d </> efile
-
--- Find an ipkg file in any of the directories above this one
--- returns the directory, the ipkg file name, and the directories we've
--- gone up
-export
-covering
-findIpkgFile : IO (Maybe (String, String, String))
-findIpkgFile
-    = do Just dir <- currentDir
-              | Nothing => pure Nothing
-         res <- findIpkgFile' dir ""
-         pure res
-  where
-    covering
-    findIpkgFile' : String -> String -> IO (Maybe (String, String, String))
-    findIpkgFile' dir up
-        = do Right files <- listDir dir
-                 | Left err => pure Nothing
-             let Just f = find (\f => extension f == Just "ipkg") files
-                 | Nothing => case splitParent dir of
-                                   Just (parent, end) => findIpkgFile' parent (end </> up)
-                                   Nothing => pure Nothing
-             pure $ Just (dir, f, up)

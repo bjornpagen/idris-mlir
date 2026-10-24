@@ -43,13 +43,11 @@ record PMDefInfo where
   holeInfo : HoleInfo -- data if it comes from a solved hole
   alwaysReduce : Bool -- always reduce, even when quoting etc
                  -- typically for inlinable metavariable solutions
-  externalDecl : Bool -- declared in another module, which may affect how it
-                      -- is compiled
 %name PMDefInfo pminfo
 
 export
 defaultPI : PMDefInfo
-defaultPI = MkPMDefInfo NotHole False False
+defaultPI = MkPMDefInfo NotHole False
 
 public export
 record TypeFlags where
@@ -242,7 +240,6 @@ data DefFlag
          -- care!
     | SetTotal TotalReq
     | BlockedHint -- a hint, but blocked for the moment (so don't use)
-    | Macro
     | AllGuarded -- safe to treat as a constructor for the purposes of
          -- productivity checking. All clauses are guarded by constructors,
          -- and there are no other function applications
@@ -264,7 +261,6 @@ Eq DefFlag where
     (==) TCInline TCInline = True
     (==) (SetTotal x) (SetTotal y) = x == y
     (==) BlockedHint BlockedHint = True
-    (==) Macro Macro = True
     (==) AllGuarded AllGuarded = True
     (==) (ConType x) (ConType y) = x == y
     (==) (Identity x) (Identity y) = x == y
@@ -280,7 +276,6 @@ Show DefFlag where
   show TCInline = "tcinline"
   show (SetTotal x) = show x
   show BlockedHint = "blockedhint"
-  show Macro = "macro"
   show AllGuarded = "allguarded"
   show (ConType ci) = "contype " ++ show ci
   show (Identity x) = "identity " ++ show x
@@ -343,12 +338,6 @@ record GlobalDef where
 export
 getDefNameType : GlobalDef -> NameType
 getDefNameType = fromMaybe Func . defNameType . definition
-
-export
-gDefKindedName : GlobalDef -> KindedName
-gDefKindedName def
-  = let nm = fullname def in
-    MkKindedName (defNameType $ definition def) nm nm
 
 export
 refersTo : GlobalDef -> NameMap Bool

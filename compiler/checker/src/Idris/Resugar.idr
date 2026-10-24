@@ -391,7 +391,7 @@ mutual
                                !(toPTerm startPrec tm))
   toPTerm p (ICoerced fc tm) = toPTerm p tm
   toPTerm p (IPrimVal fc c) = pure (PPrimVal fc c)
-  toPTerm p (IHole fc str) = pure (PHole fc False str)
+  toPTerm p (IHole fc str) = pure (PHole fc str)
   toPTerm p (IType fc) = pure (PType fc)
   toPTerm p (IBindVar fc nm)
     = pure (PRef fc (MkKindedName (Just Bound) nm nm))
@@ -408,7 +408,6 @@ mutual
       = do ds' <- traverse toPDecl ds
            pure $ PQuoteDecl fc (catMaybes ds')
   toPTerm p (IUnquote fc tm) = pure (PUnquote fc !(toPTerm argPrec tm))
-  toPTerm p (IRunElab fc _ tm) = pure (PRunElab fc !(toPTerm argPrec tm))
 
   toPTerm p (IUnifyLog fc _ tm) = toPTerm p tm
   toPTerm p (Implicit fc True) = pure (PImplicit fc)
@@ -556,8 +555,6 @@ mutual
       = pure (Just (MkFCVal fc $ PTransform (show n)
                                   !(toPTerm startPrec lhs)
                                   !(toPTerm startPrec rhs)))
-  toPDecl (IRunElabDecl fc tm)
-      = pure (Just (MkFCVal fc $ PRunElabDecl !(toPTerm startPrec tm)))
   toPDecl (IPragma {}) = pure Nothing
   toPDecl (ILog _) = pure Nothing
   toPDecl (IBuiltin fc type name) = pure $ Just $ MkFCVal fc $ PBuiltin type name
@@ -622,15 +619,6 @@ resugar : {vars : _} ->
           Env Term vars -> Term vars -> Core IPTerm
 resugar env tm
     = do tti <- unelab env tm
-         toCleanPTerm startPrec tti
-
-export
-resugarNoPatvars : {vars : _} ->
-                   {auto c : Ref Ctxt Defs} ->
-                   {auto s : Ref Syn SyntaxInfo} ->
-                   Env Term vars -> Term vars -> Core IPTerm
-resugarNoPatvars env tm
-    = do tti <- unelabNoPatvars env tm
          toCleanPTerm startPrec tti
 
 export

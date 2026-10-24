@@ -3,8 +3,6 @@
 module TTImp.ProcessType
 
 import Core.Env
-import Core.Hash
-import Core.Metadata
 import Core.UnifyState
 import Core.Value
 
@@ -27,7 +25,6 @@ import Libraries.Data.WithDefault
 %default covering
 export
 getFnString : {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
@@ -50,15 +47,13 @@ getFnString tm
 -- Similarly set foreign definitions. Possibly combine these?
 initDef : {vars : _} ->
           {auto c : Ref Ctxt Defs} ->
-          {auto m : Ref MD Metadata} ->
           {auto u : Ref UST UState} ->
           {auto dl : Ref DLY DelayedElabs} ->
           {auto s : Ref Syn SyntaxInfo} ->
           {auto o : Ref ROpts REPLOpts} ->
           FC -> Name -> Env Term vars -> Term vars -> List FnOpt -> Core Def
 initDef fc n env ty []
-    = do addUserHole False n
-         pure None
+    = pure None
 initDef fc n env ty (ExternFn :: opts)
     = do defs <- get Ctxt
          a <- getArity defs env ty
@@ -68,22 +63,6 @@ initDef fc n env ty (ForeignFn cs :: opts)
          a <- getArity defs env ty
          cs' <- traverse getFnString cs
          pure (ForeignDef a cs')
--- In this case, nothing to initialise to, but we do need to process the
--- calling conventions then process the rest of the options.
--- This means, for example, we can technically re-export something foreign!
--- I suppose that may be useful one day...
-initDef fc n env ty (ForeignExport cs :: opts)
-    = do cs' <- traverse getFnString cs
-         conv <- traverse getConvention cs'
-         defs <- get Ctxt
-         put Ctxt ({ foreignExports $= insert n conv } defs)
-         initDef fc n env ty opts
-  where
-    getConvention : String -> Core (String, String)
-    getConvention c
-        = do let (lang ::: fname :: []) = split (== ':') c
-                 | _ => throw (GenericMsg fc "Invalid calling convention")
-             pure (trimSpace lang, trimSpace fname)
 initDef fc n env ty (_ :: opts) = initDef fc n env ty opts
 
 -- Find the inferrable argument positions in a type. This is useful for
@@ -140,7 +119,6 @@ checkForShadowing env _ = empty
 export
 processType : {vars : _} ->
               {auto c : Ref Ctxt Defs} ->
-              {auto m : Ref MD Metadata} ->
               {auto u : Ref UST UState} ->
               {auto dl : Ref DLY DelayedElabs} ->
               {auto s : Ref Syn SyntaxInfo} ->
@@ -152,8 +130,6 @@ processType {vars} eopts nest env fc rig vis opts ty_raw
     = do let typeName = ty_raw.tyName
          n <- inCurrentNS typeName.val
          let tfc = ty_raw.fc
-
-         addNameLoc typeName.fc n
 
          log "declare.type" 1 $ "Processing " ++ show n
          log "declare.type" 5 $ unwords ["Checking type decl:", show rig, show n, ":", show ty_raw]
@@ -203,20 +179,9 @@ processType {vars} eopts nest env fc rig vis opts ty_raw
          unless (any isTotalityReq opts) $
            setFlag fc name (SetTotal !getDefaultTotalityOption)
 
-         -- Add to the interactive editing metadata
-         addTyDecl fc (Resolved idx) env ty -- for definition generation
-
-         log "metadata.names" 7 $ "processType is adding ↓"
-         addNameType typeName.fc (Resolved idx) env ty -- for looking up types
-
          traverse_ addToSave (keys (getMetas ty))
          addToSave n
          log "declare.type" 10 $ "Saving from " ++ show n ++ ": " ++ show (keys (getMetas ty))
-
-         when (vis /= Private) $
-              do addHashWithNames n
-                 addHashWithNames ty
-                 log "module.hash" 15 "Adding hash for type with name \{show n}"
 
          when (showShadowingWarning !getSession) $
             whenJust (fromList $ map (\ (n, at) => (n.text, at)) $ SortedMap.toList $ checkForShadowing empty ty_raw.val)

@@ -33,8 +33,3 @@ annotateM = maybe id annotate
 export
 reflow : String -> Doc ann
 reflow = fillSep . words
-
-||| Renders a document with a certain width.
-export
-putDocW : Nat -> Doc ann -> IO ()
-putDocW w = renderIO . layoutPretty ({ layoutPageWidth := AvailablePerLine (cast w) 1 } defaultLayoutOptions)

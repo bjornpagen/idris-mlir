@@ -25,7 +25,7 @@
 ||| Everything is said of one context, frozen once the program is read
 ||| (`Frozen`): an immutable value of every definition the program's
 ||| reading read, by the entry its name resolves to, so that two readings
-||| of a name read one definition, which is proved here (`definedOnce`). What a normaliser
+||| of a name read one definition. What a normaliser
 ||| gives is a reduct of the term it was given by the steps `Reduces`
 ||| declares for that normaliser, and normal for them (`Reduct`); and every
 ||| term a term reduces to reduces on to the term's normal form
@@ -34,9 +34,8 @@
 ||| that proves its readings of terms sound against `Reduces` needs no
 ||| check, when it runs, that the evaluator agreed with it. Proved from the
 ||| definitions: reduction is closed under every map of terms that keeps
-||| what a step reads (`mappedReduces`), so under strengthening
-||| (`reducesStrengthened`) and under putting values in for fresh names
-||| (`substitutes`), and node by node (`putIn`). Beside them stand facts of
+||| what a step reads (`mappedReduces`), so under putting values in for
+||| fresh names (`substitutes`), and node by node (`putIn`). Beside them stand facts of
 ||| the context: that its entries are at non-negative indices, so that every
 ||| name it defines has a place (`definedPlaced`), that it resolves none of
 ||| the frontend's probes (`probesUnresolved`). The evaluator reaches the hosts' partial primitives through
@@ -55,6 +54,7 @@ import Core.TT
 import Core.TT.Stored
 import Core.Value
 import Idris.CommandLine
+import Idris.Error
 import Idris.ModTree
 import Idris.Package
 import Idris.REPL.Common
@@ -188,17 +188,6 @@ data Defines : Frozen -> Name -> GlobalDef -> Type where
             IntMap.lookup j (entriesOf ctx) = Just d ->
             IntMap.lookup i (entriesOf ctx) = Just d
 atEntry r r' held = trans (cong (\k => IntMap.lookup k (entriesOf ctx)) (resolvesOnce r r')) held
-
-||| A context defines a name once: two definitions of it are the one at the
-||| entry the name resolves to.
-export
-0 definedOnce : Defines ctx n d -> Defines ctx n d' -> d = d'
-definedOnce (AtEntry r held) (AtEntry r' held') = justSame (trans (sym held) (atEntry r r' held'))
-
-||| The entry a definition of a name is at.
-export
-0 entryOf : Defines ctx n d -> (i : Int ** Resolves ctx n i)
-entryOf (AtEntry {i} r _) = (i ** r)
 
 ||| What a frozen context defines a name as, at the entry the name resolves
 ||| to, so that a reader that also needs the entry resolves the name once;
@@ -2376,91 +2365,6 @@ mutual
     (v' ** (mv', chooses')) => (v' ** (mv', ByDefaultCase (mappedConcrete ms concrete) chooses'))
 
 ------------------------------------------------------------------------------
--- Reduction is closed under strengthening
-------------------------------------------------------------------------------
-
--- No bounds count a name, whatever the naming. The naming is split here, so
--- that `mentionsNone` splits its term alone: clauses that split the naming
--- before others that bind it leave the coverage check a second tree, under
--- the first's default, that splits the reference's kind again and misses
--- the kind the first tree took.
-0 boundCountsNone : (k : Naming) -> boundCounts k None n = False
-boundCountsNone BoundOrUnknown = Refl
-boundCountsNone UnknownOnly = Refl
-
-mutual
-  0 mentionsNone : (k : Naming) -> (t : Term vs) -> mentions k None t = False
-  mentionsNone k (Local fc l i p) = Refl
-  mentionsNone k (Ref fc Bound n) = boundCountsNone k
-  mentionsNone k (Ref fc Func n) = Refl
-  mentionsNone k (Ref fc (DataCon tag arity) n) = Refl
-  mentionsNone k (Ref fc (TyCon arity) n) = Refl
-  mentionsNone k (Meta fc m i args) = mentionsNoneAll k args
-  mentionsNone k (Bind fc x b sc) = rewrite mentionsNoneBinder k b in mentionsNone k sc
-  mentionsNone k (App fc f a) = rewrite mentionsNone k f in mentionsNone k a
-  mentionsNone k (As fc s n t) = rewrite mentionsNone k n in mentionsNone k t
-  mentionsNone k (TDelayed fc r t) = mentionsNone k t
-  mentionsNone k (TDelay fc r ty a) = rewrite mentionsNone k ty in mentionsNone k a
-  mentionsNone k (TForce fc r t) = mentionsNone k t
-  mentionsNone k (PrimVal fc c) = Refl
-  mentionsNone k (Erased fc Placeholder) = Refl
-  mentionsNone k (Erased fc Impossible) = Refl
-  mentionsNone k (Erased fc (Dotted t)) = mentionsNone k t
-  mentionsNone k (TType fc u) = Refl
-
-  0 mentionsNoneAll : (k : Naming) -> (ts : List (Term vs)) -> mentionsIn k None ts = False
-  mentionsNoneAll k [] = Refl
-  mentionsNoneAll k (t :: ts) = rewrite mentionsNone k t in mentionsNoneAll k ts
-
-  0 mentionsNoneBinder : (k : Naming) -> (b : Binder (Term vs)) -> mentionsInBinder k None b = False
-  mentionsNoneBinder k (Lam fc c p ty) = rewrite mentionsNonePi k p in mentionsNone k ty
-  mentionsNoneBinder k (Let fc c v ty) = rewrite mentionsNone k v in mentionsNone k ty
-  mentionsNoneBinder k (Pi fc c p ty) = rewrite mentionsNonePi k p in mentionsNone k ty
-  mentionsNoneBinder k (PVar fc c p ty) = rewrite mentionsNonePi k p in mentionsNone k ty
-  mentionsNoneBinder k (PLet fc c v ty) = rewrite mentionsNone k v in mentionsNone k ty
-  mentionsNoneBinder k (PVTy fc c ty) = mentionsNone k ty
-
-  0 mentionsNonePi : (k : Naming) -> (p : PiInfo (Term vs)) -> mentionsInPi k None p = False
-  mentionsNonePi k Implicit = Refl
-  mentionsNonePi k Explicit = Refl
-  mentionsNonePi k AutoImplicit = Refl
-  mentionsNonePi k (DefImplicit t) = mentionsNone k t
-
-mutual
-  0 treeMentionsNone : (tree : CaseTree args) -> treeMentions None tree = False
-  treeMentionsNone (Case idx p ty alts) = altsMentionNone alts
-  treeMentionsNone (STerm i rhs) = mentionsNone BoundOrUnknown rhs
-  treeMentionsNone (Unmatched msg) = Refl
-  treeMentionsNone Impossible = Refl
-
-  0 altsMentionNone : (alts : List (CaseAlt args)) -> altsMention None alts = False
-  altsMentionNone [] = Refl
-  altsMentionNone (alt :: alts) = rewrite altMentionsNone alt in altsMentionNone alts
-
-  0 altMentionsNone : (alt : CaseAlt args) -> altMentions None alt = False
-  altMentionsNone (ConCase n tag cargs sc) = treeMentionsNone sc
-  altMentionsNone (DelayCase ty arg sc) = treeMentionsNone sc
-  altMentionsNone (ConstCase c sc) = treeMentionsNone sc
-  altMentionsNone (DefaultCase sc) = treeMentionsNone sc
-
--- No bounds replace no name, so every context is fresh for them.
-0 freshNone : FreshIn ctx None
-freshNone {tree} _ _ _ = treeMentionsNone tree
-
-||| Reduction is closed under strengthening: a term read without a variable
-||| it does not mention steps as the term does, to what the term steps to,
-||| read without the variable.
-export
-0 reducesStrengthened : Strengthened o t t' -> Reduces ev ctx t u ->
-                        (u' : Term ys ** (Strengthened o u u', Reduces ev ctx t' u'))
-reducesStrengthened s steps = mappedReduces freshNone s steps
-
-||| A term is read without a variable in one way.
-export
-0 strengthenedOnce : {0 u, u' : Term ys} -> Strengthened o t u -> Strengthened o t u' -> u = u'
-strengthenedOnce s s' = mappedOnce s s'
-
-------------------------------------------------------------------------------
 -- Reduction is closed under putting values in for fresh names
 ------------------------------------------------------------------------------
 
@@ -2692,24 +2596,6 @@ substitutes {t} {u} bs vs fresh none steps =
     (u' ** (mapped, steps')) =>
       rewrite mappedOnce (putInMapped zero (mkSizeOf ns) bs vs u (mappedNoUnknown mapped)) mapped in steps'
 
-||| Normalising commutes with putting closed values in for fresh names:
-||| the normal form of a term with the values put in is the normal form of
-||| its normal form with them put in. The steps to the term's normal form,
-||| with the values put in, lead from the term with them put in to that
-||| normal form with them put in, a reduct of the term with the values put
-||| in, which so reduces on to its normal form (`reachesNormalForm`). With
-||| that normal form's evidence that it is normal, the steps are a reduct
-||| of the normal form with the values put in, which no normaliser runs to
-||| give: `MkReduct s.value (normalisesThrough bs vs fresh none r s) s.normal`.
-export
-0 normalisesThrough : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns []) ->
-                      FreshIn ctx bs -> mentions UnknownOnly bs t = False ->
-                      (r : Reduct form ctx t) ->
-                      (s : Reduct form ctx (substs (mkSizeOf ns) vs (refsToLocals bs t))) ->
-                      Reduces (evaluationOf form) ctx
-                              (substs (mkSizeOf ns) vs (refsToLocals bs r.value)) s.value
-normalisesThrough bs vs fresh none r s = reachesNormalForm s (substitutes bs vs fresh none r.steps)
-
 ------------------------------------------------------------------------------
 -- The frontend's probes resolve to nothing
 ------------------------------------------------------------------------------
@@ -2892,17 +2778,21 @@ record Host where
   ||| and gives with the path.
   buildMain : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
               {auto o : Ref ROpts REPLOpts} -> ModuleIdent -> String -> Core Built
-  ||| `Idris.Package.processPackageOpts`: the elaborator, on a package.
-  processPackageOpts : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
-                       {auto o : Ref ROpts REPLOpts} -> {auto p : Ref PostS PostSession} ->
-                       List CLOpt -> Core ControlFlow
+  ||| `Idris.Package.processPackage`: the elaborator, on a package, for one
+  ||| package command on one package file.
+  processPackage : {auto c : Ref Ctxt Defs} -> {auto s : Ref Syn SyntaxInfo} ->
+                   {auto o : Ref ROpts REPLOpts} -> PkgCommand -> String -> Core ()
 
-  -- The error printer.
+  -- The error printer, Idris's one renderer of an error (`Idris.Error.perror`).
 
   ||| `Idris.REPL.Common.emitError`: the evaluator again, since an error is
   ||| printed with the holes of its terms normalised (`normaliseHoles`).
   emitError : {auto c : Ref Ctxt Defs} -> {auto o : Ref ROpts REPLOpts} ->
               {auto s : Ref Syn SyntaxInfo} -> Error -> Core ()
+  ||| `Idris.Error.errorText`: the error's text, as a `failing` block matches
+  ||| it, which the frontend writes as the message of Idris's own error.
+  errorText : {auto c : Ref Ctxt Defs} -> {auto o : Ref ROpts REPLOpts} ->
+              {auto s : Ref Syn SyntaxInfo} -> Error -> Core String
 
 ||| Idris's compiler, as a program over it calls it where the checker
 ||| cannot follow it. The one trust of such a program in this compiler,
@@ -2917,6 +2807,7 @@ host = assert_total (MkHost
   , normaliseAll = reduct normaliseAll
   , checkTerminating
   , buildMain
-  , processPackageOpts
+  , processPackage
   , emitError
+  , errorText
   })

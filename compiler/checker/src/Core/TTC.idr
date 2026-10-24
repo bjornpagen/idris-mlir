@@ -1208,11 +1208,6 @@ TTC ConInfo where
              _ => corrupt "ConInfo"
 
 export
-TTC CG where
-  toBuf (Other s) = toBuf s
-  fromBuf = Other <$> fromBuf
-
-export
 TTC PairNames where
   toBuf l
       = do toBuf (pairType l)
@@ -1270,12 +1265,10 @@ TTC PMDefInfo where
   toBuf l
       = do toBuf (holeInfo l)
            toBuf (alwaysReduce l)
-           toBuf (externalDecl l)
   fromBuf
       = do h <- fromBuf
            r <- fromBuf
-           e <- fromBuf
-           pure (MkPMDefInfo h r e)
+           pure (MkPMDefInfo h r)
 
 export
 TTC TypeFlags where
@@ -1388,7 +1381,6 @@ TTC DefFlag where
   toBuf TCInline = tag 5
   toBuf (SetTotal x) = do tag 6; toBuf x
   toBuf BlockedHint = tag 7
-  toBuf Macro = tag 8
   toBuf AllGuarded = tag 10
   toBuf (ConType ci) = do tag 11; toBuf ci
   toBuf (Identity x) = do tag 12; toBuf x
@@ -1401,7 +1393,6 @@ TTC DefFlag where
              5 => pure TCInline
              6 => do x <- fromBuf; pure (SetTotal x)
              7 => pure BlockedHint
-             8 => pure Macro
              10 => pure AllGuarded
              11 => do ci <- fromBuf; pure (ConType ci)
              12 => do x <- fromBuf; pure (Identity x)

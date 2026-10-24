@@ -27,8 +27,6 @@ record REPLOpts where
   mainfile : Maybe String
   verbosity : VerbosityLvl
   currentElabSource : String
-  consoleWidth : Maybe Nat -- Nothing is auto
-  color : Bool
 
 export
 defaultOpts : Maybe String -> VerbosityLvl -> REPLOpts
@@ -37,8 +35,6 @@ defaultOpts fname verbosity
         { mainfile = fname
         , verbosity = verbosity
         , currentElabSource = ""
-        , consoleWidth = Nothing
-        , color = True
         }
 
 export
@@ -49,20 +45,6 @@ withROpts : {auto o : Ref ROpts REPLOpts} -> Core a -> Core a
 withROpts = wrapRef ROpts (\_ => pure ())
 
 export
-setVerbosity : {auto o : Ref ROpts REPLOpts} ->
-               VerbosityLvl -> Core ()
-setVerbosity v = update ROpts { verbosity := v }
-
-export
-getVerbosity : {auto o : Ref ROpts REPLOpts} -> Core VerbosityLvl
-getVerbosity = verbosity <$> get ROpts
-
-export
-setMainFile : {auto o : Ref ROpts REPLOpts} ->
-              Maybe String -> Core ()
-setMainFile src = update ROpts { mainfile := src }
-
-export
 setCurrentElabSource : {auto o : Ref ROpts REPLOpts} ->
                        String -> Core ()
 setCurrentElabSource src = update ROpts { currentElabSource := src }
@@ -71,19 +53,3 @@ export
 getCurrentElabSource : {auto o : Ref ROpts REPLOpts} ->
                        Core String
 getCurrentElabSource = currentElabSource <$> get ROpts
-
-export
-getConsoleWidth : {auto o : Ref ROpts REPLOpts} -> Core (Maybe Nat)
-getConsoleWidth = consoleWidth <$> get ROpts
-
-export
-setConsoleWidth : {auto o : Ref ROpts REPLOpts} -> Maybe Nat -> Core ()
-setConsoleWidth n = update ROpts { consoleWidth := n }
-
-export
-getColor : {auto o : Ref ROpts REPLOpts} -> Core Bool
-getColor = color <$> get ROpts
-
-export
-setColor : {auto o : Ref ROpts REPLOpts} -> Bool -> Core ()
-setColor b = update ROpts { color := b }
