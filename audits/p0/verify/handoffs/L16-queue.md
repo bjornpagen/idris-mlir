@@ -1016,3 +1016,41 @@ touching the frontend or the checker reruns the five on its export.
   open from earlier: `array.new`'s marking at the counted stage, a `many`
   DataConOp builder that would write a claim, `own.adopt`'s inferred type
   against its bare results (L05, L12).
+
+## Dispatched after the cull and rederivation commits (2026-10-24)
+
+The 23 units (K01-K09, U01-U14) landed, 04193cfe6 to e52203f62, with
+L17bg's R-UNIFY (8180a8c4e) and D133 step 2 (7aedeacb7); C299 to C301
+recorded (d9ff115a0). Dispatched: L13z (K10, C299's message, the string
+output's row), L05z (K11, the word size checked when the compiler is
+built), L18ac (K12, then C293 with the three builders and `builds` as the
+reindex's member), L10aa (K13, then C294 and N1's climb), L03ad (K14),
+L21z (K15, idr-target's stale descriptions), L18ad (the c291 Results
+patch with linear-kept's result half, dead results and the cast, the
+specializer's casts measured), L08z (C298 over a match's bound value,
+idr-unique-results), L03ae (the destinations trait, `namedBy` on
+`IndexedTypeInterface`, `ConstantAttrInterface::getFoldValue`), L12ab
+(the non-empty variadic, the typed inline meaning, C280's comments,
+`Words.cpp`, `Remake.h`), L19ad (C292's two-host test, `Fuzz.idr:937`,
+static-argument-keyed-by-hold, content-hash, U12's question researched,
+the root rule's tests), L14ad (C264(c)'s e-graph half), R7 (this queue
+rechecked against HEAD), INT-26 (the landed batch built and swept). R-META
+(the as-pattern's name side at the boundary, and the Emit error beneath)
+to L16ev. Waiting:
+- K16 releases the checker: C127, the ten checker internal errors, the
+  `%builtin` internal errors, D133 steps 3 and 5 (L17bh), and the
+  exponential `Show` on deep pairs (L17).
+- L16et releases `Growth/` and `Translate/`: F-R4, D133 steps 4 and 7,
+  `Term.Termination` and `ITerm` read from the specification (L16).
+- K17 (the harness's specification modules into `compiler/spec`) after
+  L18ad and L19ad release `harness/`.
+- K18, K19, K20 wait on the cull's measurements M1 to M6 (the owner's
+  machine); K21 and K22 are the owner's (§4's third question; QB).
+- From U11 (3f8ff9726): properties written natively (id 3) stopped on
+  the row's wire format and D50's builders (§4's third question).
+- From U08 (d73d79c20): `KeptDigest` is filled on first ask, not in the
+  storage's constructor (MLIR gives a storage its kind only after
+  constructing it); a deviation PINS.md does not yet record (L04 with
+  INT).
+- From U01 (c6e4ed6a4): one 32-byte bound per value is held while
+  idr-narrow runs, unmeasured (INT, the qualification).
