@@ -928,13 +928,14 @@ checkerChecks =
     observedEnding (CrashesAt _ why) =
       (statusLine (Crashed (Failed (head why))), "prog: fatal: Main.idr:1:1: " ++ causePhraseOf (head why) ++ "\n")
     observedEnding (Unpredicted _) = (statusLine Returned, "")
-    -- Int's division of 1 by 0, the one case of a program that crashes.
+    -- Int's division of 1 by 0, the one case of a program that crashes:
+    -- of the signed quotients, the one whose type is Int.
     dividedByZero : List (Expr Prims.tInt)
     dividedByZero =
       mapMaybe (\b => do same <- sameTy b.gives Prims.tInt
                          e <- appliedTo b [1, 0]
                          pure (replace {p = Expr} same e))
-               (filter (\b => spellingText b.spelling == "prim__div_Int") builtins)
+               signedQuotients
 
 ------------------------------------------------------------------------------
 -- The text both hosts print

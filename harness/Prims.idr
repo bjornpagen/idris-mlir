@@ -697,6 +697,15 @@ casts =
   , family (OurOp (SomeOp bigToDouble)) [castFrom Prims.tInteger TDouble]
   ]
 
+||| Idris's `div` of each signed fixed width, the dialect's Euclidean
+||| quotient, which crashes on a zero divisor. Named, so a reader takes one
+||| type's division from it by that type: the specification names an op
+||| by its mnemonic alone, and a builtin's stem is text a program writes,
+||| so neither is an identity to compare.
+public export
+signedQuotients : List Builtin
+signedQuotients = family (OurOp (SomeOp divs)) [ ints "div" (divide i) i | i <- signedInts ]
+
 ||| Every builtin but `believe_me` and `crash`, by the op of the dialect
 ||| each is: a family is the builtins of one op, the unit the fuzzer's
 ||| swarm keeps or drops. A fixed width's negation is its subtraction from
@@ -708,7 +717,7 @@ families =
   ::: ([ family (AdmittedOp subI)
            ([ ints "sub" (wrapped i (-)) i | i <- fixedInts ] ++ [ negateOn (TIntegral i) | i <- fixedInts ])
        , family (AdmittedOp mulI) [ ints "mul" (wrapped i (*)) i | i <- fixedInts ]
-       , family (OurOp (SomeOp divs)) [ ints "div" (divide i) i | i <- signedInts ]
+       , signedQuotients
        , family (OurOp (SomeOp mods)) [ ints "mod" (modulus i) i | i <- signedInts ]
        , family (AdmittedOp divUI) [ ints "div" (divide i) i | i <- unsignedInts ]
        , family (AdmittedOp remUI) [ ints "mod" (modulus i) i | i <- unsignedInts ]
