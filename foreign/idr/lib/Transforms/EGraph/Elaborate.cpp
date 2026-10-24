@@ -41,12 +41,21 @@
 // result: the function's result is its own fresh value, and the
 // constructor's cell is fresh, its claim, read off its fields, the same of
 // static data as of a value that claims nothing; so nothing after the use
-// is regraded. Every other use takes the class at its own type, the op that
-// computes it applied there: a call, whose callee's signature fixes its
-// grades exactly, and whose copy keyed by a static hold only a later round
-// of the optimizer would make, while a round that only simplified is a
-// function's last and the pipeline's own runs of the graph have no
-// specializer after them; a return, whose grades the function's signature
+// is regraded. A call's argument takes the static data where the graph runs
+// in a round of idr-optimize, which keys the call after it: before the
+// specializer a call's rule lets an argument whose hold fits its
+// parameter's cross at the parameter's, and a redirect of the member's
+// rounds (the one that closes this round, where it would otherwise be the
+// last) keys the call by the hold its argument is passed at, so the
+// callee's copy counts nothing of it; where no key takes it (a callee of the
+// member's own component, a key whose results the caller would read at
+// more), its function's finalization shares it down (shareCrossings). A
+// key's results are what the caller reads already, so nothing after the
+// call is regraded either. At the pipeline's own points no
+// specializer follows the graph and nothing makes such an edge exact before
+// the stage that compares edges exactly, so there a call takes the class at
+// its own type. Every other use takes the class at its own type, the op that
+// computes it applied there: a return, whose grades the function's signature
 // fixes; a yield, whose types its parent's results fix; and an op whose
 // result carries the value on: a cast, which would stand static data at a
 // hold that counts, and a guard, whose result's uses ask the value's own
@@ -99,10 +108,12 @@ bool isField(const structural::Built &built, unsigned operand) {
 }
 
 // How the use `operand` of `op`, an op of the input, takes such a class: as
-// static data where the op's runtime function borrows it, or where the op
-// builds a constructor of which it is a field; at its own type anywhere
-// else.
-Admits admitsAt(const Kinds &kinds, Operation *op, unsigned operand) {
+// a call's argument takes it in this run (`atCalls`); as static data where
+// the op's runtime function borrows it, or where the op builds a
+// constructor of which it is a field; at its own type anywhere else.
+Admits admitsAt(const Kinds &kinds, Admits atCalls, Operation *op, unsigned operand) {
+  if (isa<CallOp>(op))
+    return atCalls;
   if (kinds.of(op).borrowed.has(operand))
     return Admits::StaticData;
   auto structure = dyn_cast<StructureOpInterface>(op);
@@ -122,9 +133,10 @@ Admits admitsAt(const Kinds &kinds, Operation *op, unsigned operand) {
 // a rule's right side builds no constructor, since a rule makes nothing
 // with an identity, so a built op's is its kind's row alone. An atom reads
 // no class, so no use of one is asked.
-Admits admitsAt(const Kinds &kinds, const Node &user, unsigned operand) {
+Admits admitsAt(const Kinds &kinds, Admits atCalls, const Node &user, unsigned operand) {
   return match(
-      user.what, [&](const node::Input &op) { return admitsAt(kinds, op.origin, operand); },
+      user.what,
+      [&](const node::Input &op) { return admitsAt(kinds, atCalls, op.origin, operand); },
       [&](const node::Built &op) {
         return kinds.of(op.name.getTypeID()).borrowed.has(operand) ? Admits::StaticData
                                                                    : Admits::OwnType;
@@ -190,6 +202,12 @@ void Function::extract() {
 void Function::elaborate(RewriterBase &rewriter) {
   // The dialect whose constant op holds a string or a big, found once.
   Dialect &constants = *rewriter.getContext()->getLoadedDialect<IdrDialect>();
+  // How a call's argument takes static data in this run. Essential: the run
+  // holds the optimizer's table of callees exactly when it is a step of a
+  // round of idr-optimize, whose redirect keys each call after it; a run at
+  // one of the pipeline's own points has no table and no specializer after
+  // it.
+  Admits atCalls = callees ? Admits::StaticData : Admits::OwnType;
 
   // The static form of each class the graph knows as a string or a big its
   // constant op does not stand at, read once before any use asks.
@@ -271,7 +289,8 @@ void Function::elaborate(RewriterBase &rewriter) {
             const Node &node = at(*best[own.cls.index()]);
             SmallVector<Wanted, 4> reads;
             for (auto [index, operand] : llvm::enumerate(childrenOf(node)))
-              reads.push_back(wanted(operand, admitsAt(kinds, node, static_cast<unsigned>(index))));
+              reads.push_back(
+                  wanted(operand, admitsAt(kinds, atCalls, node, static_cast<unsigned>(index))));
             return reads;
           },
           [](const AsStaticData &) { return SmallVector<Wanted, 4>(); });
@@ -399,7 +418,7 @@ void Function::elaborate(RewriterBase &rewriter) {
     // ran between the turns.
     auto admits = [&](unsigned index) {
       return match(
-          entry.fate, [&](const Kept &) { return admitsAt(kinds, op, index); },
+          entry.fate, [&](const Kept &) { return admitsAt(kinds, atCalls, op, index); },
           [](const OneOf<Merged, Decided> auto &) { return Admits::OwnType; });
     };
     rewriter.setInsertionPoint(op);

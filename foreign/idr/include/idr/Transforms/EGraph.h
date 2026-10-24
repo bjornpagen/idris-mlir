@@ -415,8 +415,12 @@ concept SkeletonRule =
 // since the callee computes the same value at every call: the graph reads
 // both as facts of the call's results. The specializer reads the same
 // table: a copy keyed to a weaker hold for a parameter keys each result
-// that parameter may reach to that hold. The pipeline's own points run
-// after the optimizer has rewritten every such call, and read none.
+// that parameter may reach to that hold. A run that holds the table is a
+// step of a round of idr-optimize, whose redirect keys each call after it,
+// so there a string or a big the graph computes stands at a call's argument
+// as static data, for that redirect to key the call by (Elaborate.cpp). The
+// pipeline's own points run after the optimizer has rewritten every such
+// call, read none, and have no specializer after them.
 
 // A constant a function's final body returns as one of its results: the
 // attribute the constant op its return reads holds, the dialect that
