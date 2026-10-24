@@ -592,6 +592,7 @@ add_mlir_library(IdrColumns
 	MLIRIR
 	MLIRPass
 	MLIRTransformUtils
+	MLIRLinalgDialect
 	MLIRSCFDialect
 	MLIRSCFTransforms
 	MLIRTensorDialect

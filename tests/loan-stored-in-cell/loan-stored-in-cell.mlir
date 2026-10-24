@@ -17,7 +17,7 @@ idr.program @loans root(@main) stage(graded) {
       %bare = idr.carrier %v in %l : memref<?xi64>, !idr.lifetime<view>
       %zero = arith.constant 0 : index
       %d = memref.dim %bare, %zero : memref<?xi64>
-      %tied = idr.array.tie_shape %bare dims(%d) : memref<?xi64> -> memref<?xi64>
+      %tied = idr.array.tie_shape %bare axes [0] dims(%d) : memref<?xi64> -> memref<?xi64>
       %e = memref.dim %tied, %zero : memref<?xi64>
       %w = arith.index_cast %e : index to i64
       idr.yield %w : i64

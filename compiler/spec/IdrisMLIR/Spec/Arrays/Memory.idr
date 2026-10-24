@@ -447,28 +447,33 @@ natToExtentOp = MkOp
   , typing = InferredTypes [FixedType BuiltIndex]
   }
 
-||| `idr.array.tie_shape`: an array whose dynamic dimensions are the given
-||| sizes, in order: the same array, saying what Idris proved of arrays
-||| indexed by one size inside a function, where MLIR's tensor type has no
-||| symbolic dimension. Folding it away loses an optimization, never a
-||| meaning. Its result's type is its operand's: an array's words are its
-||| cell and one word per dynamic size, so a tie that changed the type
-||| would re-pack them as a cast does, and a call whose result it ties
-||| would no longer be the tail; with one type it gives the array on
-||| untouched. Its inference is hand C++ because it is partial: it gives
-||| that type only where the sizes number the operand's dynamic dimensions.
-||| So a re-inference that makes the operand more static (a copy's input
-||| made static) is refused at the tie, which keeps its type and reads its
-||| operand cast back, and the interface's verifier, which runs the
-||| inference, is the op's whole check.
+||| `idr.array.tie_shape`: an array whose dimensions at the axes it names
+||| are the given sizes, one for each, the axes increasing: the same array,
+||| saying what Idris proved of arrays indexed by one size inside a
+||| function, where MLIR's tensor type has no symbolic dimension. It names
+||| the axes something states (a size the program holds, the natural an
+||| array was made of, a constant its type fixes) and no other: an axis
+||| nothing states stays untied, never read off the array, since a read of
+||| a call's result would follow the call and take it out of the tail.
+||| Folding it away loses an optimization, never a meaning. Its result's
+||| type is its operand's: an array's words are its cell and one word per
+||| dynamic size, so a tie that changed the type would re-pack them as a
+||| cast does, and a call whose result it ties would no longer be the tail;
+||| with one type it gives the array on untouched. Its inference is hand
+||| C++ because it is partial: it gives that type only where each axis it
+||| names is a dynamic dimension of the operand, with one size each. So a
+||| re-inference that makes a tied axis static (a copy's input made static)
+||| is refused at the tie, which keeps its type and reads its operand cast
+||| back, and the interface's verifier, which runs the inference, is the
+||| op's whole check beside its axes' own constraint.
 public export
-tieShapeOp : Op 2 1 0 0
+tieShapeOp : Op 2 1 1 0
 tieShapeOp = MkOp
   { home = InIdr
   , mnemonic = "array.tie_shape"
   , ins = [single "value" array, variadic "dims" (UpstreamType IndexC)]
   , outs = [result "result" array]
-  , attrs = []
+  , attrs = [attr "axes" (Confined (UpstreamAttr DenseI32ArrayAttrC) (NonNegativeArray ::: [StrictlySortedArray]))]
   , regions = []
   , traits = []
   , interfaces =
@@ -483,15 +488,15 @@ tieShapeOp = MkOp
   , meaning = HandFolder
   , verify = DeclarationOnly
   , format = Declared
-      [ ValueOf (OperandRef 0), Lit "dims", Lit "(", ValueOf (OperandRef 1), Lit ")", AttrDict
-      , Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->", TypeOf (OfGroup (ResultRef 0)) ]
+      [ ValueOf (OperandRef 0), Lit "axes", ValueOf (AttrRef 0), Lit "dims", Lit "(", ValueOf (OperandRef 1), Lit ")"
+      , AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit "->", TypeOf (OfGroup (ResultRef 0)) ]
   , builders = []
   , defaultBuilders = WithDefaults
   , members = [structuralMeaning "::idr::ArrayTieShapeOp"]
   , guards = []
   , specializations = []
   , laws = []
-  , doc = brief "an array whose dynamic dimensions are the given sizes"
+  , doc = brief "an array whose dimensions at the axes it names are the given sizes"
   }
 
 ------------------------------------------------------------------------------

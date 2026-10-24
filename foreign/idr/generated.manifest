@@ -1,9 +1,9 @@
-specification 640c7c5a7b04edcc
+specification 1fbb051f05050b96
 generator f7085ff6019d8f35
 ebac9eb98ae53702 foreign/idr/include/idr/IR/Generated/IdrBase.td
 43182228949c54e1 foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 917e4230f8800de9 foreign/idr/include/idr/IR/Generated/IdrTypes.td
-b7a3a932029d26c9 foreign/idr/include/idr/IR/Generated/IdrOps.td
+b3742f17ca9265ce foreign/idr/include/idr/IR/Generated/IdrOps.td
 d68e8f425e44ef3d foreign/idr/include/idr/IR/Generated/IdrTransformOps.td
 566341460441fed2 foreign/idr/include/idr/IR/Generated/IdrBytecode.td
 207ba67b0d97b601 foreign/idr/include/idr/IR/Generated/IdrPasses.td
@@ -64,7 +64,7 @@ beb8a76a4770f358 foreign/idr/include/idr/IR/Generated/RuntimeLayout.h.inc
 be6d7fa54983ad20 foreign/idr/include/idr/IR/Generated/NumericEnums.h.inc
 b135473c4ae3ece4 foreign/idr/include/idr/IR/Generated/FileTimes.h.inc
 fbffe30a4c38c232 foreign/idr/include/idr/IR/Generated/Carry.h.inc
-9ab79db05e96d104 compiler/src/IdrisMLIR/Dialect/Idr.idr
+83f8eb9f4b789049 compiler/src/IdrisMLIR/Dialect/Idr.idr
 1f51b95eb94d3df1 compiler/src/IdrisMLIR/Encoding/Wire.idr
 d22b46639b2adbf7 compiler/src/IdrisMLIR/Encoding/Idr.idr
 0c293e8edb41c416 compiler/spec/spec.ipkg

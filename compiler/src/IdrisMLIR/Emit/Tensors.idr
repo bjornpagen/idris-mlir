@@ -38,7 +38,6 @@ import Control.Monad.State
 import Data.Fin
 import Data.List
 import Data.List1
-import Data.Maybe
 import Data.SortedMap
 import Data.Vect
 
@@ -620,13 +619,16 @@ tiedAt tied _ = tied
 ||| The array `v`, which the program holds at type `tied` and the ops
 ||| `making` make, with what is known of its dynamic dimensions stated
 ||| (`idr.array.tie_shape`), at the type `tiedAt` gives, which the tie
-||| keeps: of each, the size given, the extent of another array's axis,
-||| exact, or a natural, converted as an extent; else the size `tied` fixes
-||| it at, a constant, which is how a call's result, `?` at every axis as
-||| its function returns it, gets back the sizes its callee's type fixes;
-||| else read from it. What is known is made before `making`, so a call
-||| they end in is followed by the tie alone. Itself when nothing is known
-||| of a dynamic dimension. The variable `binder` is bound to it.
+||| keeps: of each axis something states, the size given, the extent of
+||| another array's axis, exact, or a natural, converted as an extent; else
+||| the size `tied` fixes it at, a constant, which is how a call's result,
+||| `?` at every axis as its function returns it, gets back the sizes its
+||| callee's type fixes. The tie names those axes alone: an axis nothing
+||| states stays untied, never read from the array, since a read of a
+||| call's result would follow the call and take it out of the tail. What
+||| is known is made before `making`, so a call they end in is followed by
+||| the tie alone. Itself when nothing is known of a dynamic dimension. The
+||| variable `binder` is bound to it.
 export
 tie : Index -> Loc -> Maybe Binding -> (tied : Ty) -> Val -> (making : List Statement) -> List (Nat, Stated Val)
    -> E Val
@@ -634,16 +636,20 @@ tie ix l binder tied v making stated = do
   sizes <- SortedMap.fromList <$> traverse (\(a, s) => (a,) <$> size s) stated
   let stating = tiedAt tied v.type
       held = toList (withAxes (Data.Vect.fromList (tensorDims tied)))
-  -- Each axis the tie leaves dynamic, with what is known of it.
-  known <- traverse (\(_, (j, d)) => (j,) <$> sequence (knownAt sizes j d))
-                    (filter (\(own, _) => own == Dynamic) (zip (tensorDims stating) held))
+  -- Each axis the tie leaves dynamic that something states, with its size,
+  -- the axes increasing.
+  known <- traverse (\(j, k) => (j,) <$> k)
+                    (mapMaybe (\(_, (j, d)) => (j,) <$> knownAt sizes j d)
+                              (filter (\(own, _) => own == Dynamic) (zip (tensorDims stating) held)))
   traverse_ append making
   u <- fit ix l (Just stating) v
-  if all (\(_, k) => isNothing k) known then pure u else do
-    xv <- plainOperand ix l u
-    dims <- traverse (\(j, k) => maybe (sizeAt l xv (j, Dynamic) >>= sizeValue l) pure k) known
-    r <- mlirValueAt (madeAt binder l Many) xv.type (Idr.arrayTieShapeOp xv dims)
-    pure (val r.name u.type Many made)
+  case known of
+    [] => pure u
+    _ => do
+      xv <- plainOperand ix l u
+      r <- mlirValueAt (madeAt binder l Many) xv.type
+             (Idr.arrayTieShapeOp (DenseI32ArrayAttr (map fst known)) xv (map snd known))
+      pure (val r.name u.type Many made)
   where
     size : Stated Val -> E Value
     size (SameAs n) = coordinate ix l n

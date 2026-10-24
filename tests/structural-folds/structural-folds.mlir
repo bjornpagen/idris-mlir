@@ -7,8 +7,9 @@
 // program the field given to an idr.data.con whose other field is a line
 // read at run time, so no constant, is read back as the 3 it was given. In
 // the second a word cast into a linear position and straight back is the
-// word itself, 3. In the third a tie of an array with no dynamic axis is
-// the array, a constant whose element no fold of ours reads.
+// word itself, 3. In the third a tie that names no axis, of an array
+// with none dynamic, is the array, a constant whose element no fold of
+// ours reads.
 #P = #idr.family<"P" [] {
     @MkP (i64, !idr.str)
   }>
@@ -53,7 +54,7 @@ idr.program @casts root(@main) stage(first) {
 idr.program @ties root(@main) stage(first) {
   idr.func @main() {
     %array = arith.constant dense<[1, 2, 3, 4]> : tensor<4xi64>
-    %tied = idr.array.tie_shape %array dims() : tensor<4xi64> -> tensor<4xi64>
+    %tied = idr.array.tie_shape %array axes [] dims() : tensor<4xi64> -> tensor<4xi64>
     %c0 = arith.constant 0 : index
     // expected-error @below {{expected folded: }}
     %x = tensor.extract %tied[%c0] : tensor<4xi64>

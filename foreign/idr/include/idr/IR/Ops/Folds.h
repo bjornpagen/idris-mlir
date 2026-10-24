@@ -144,14 +144,15 @@ std::optional<fold::Folded<W>> LinCastOp::meaning(W &where, LinCastOp op,
   return fold::Folded<W>(inner->operands[0]);
 }
 
-// No dynamic dimension, nothing to say; the same sizes said twice, once.
+// No axis tied, nothing to say; the same sizes of the same axes said
+// twice, once.
 template <fold::Composite W>
 std::optional<fold::Folded<W>>
 ArrayTieShapeOp::meaning(W &where, ArrayTieShapeOp op, llvm::ArrayRef<typename W::Operand> constants) {
   if (op.getDims().empty())
     return fold::Folded<W>(where.given(op.getValue(), constants[0]));
   auto inner = where.template builtBy<ArrayTieShapeOp>(op.getValue(), constants[0]);
-  if (inner && inner->op.getDims() == op.getDims())
+  if (inner && inner->op.getAxes() == op.getAxes() && inner->op.getDims() == op.getDims())
     return fold::Folded<W>(where.given(op.getValue(), constants[0]));
   return std::nullopt;
 }

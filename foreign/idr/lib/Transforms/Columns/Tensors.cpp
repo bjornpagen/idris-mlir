@@ -5,13 +5,15 @@
 // did to the array, a slice or a reshape keeping each column's trailing
 // dimensions whole, and a read or a write at an index reads or writes each
 // column there, building the record or taking it apart; a read that gives
-// its array back gives each column back.
+// its array back gives each column back. A transpose of words, upstream's,
+// transposes each column.
 
 #include "idr/Transforms/Columns.h"
 
 #include "idr/IR/Grades.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 
 #include <utility>
@@ -199,6 +201,30 @@ struct ExpandColumns : OpConversionPattern<tensor::ExpandShapeOp> {
   }
 };
 
+// A transpose of an array of records transposes each column into its
+// destination's column, the leaf's trailing dimensions after the array's,
+// where the permutation leaves them. The body is upstream's builder's, of
+// the column's element.
+struct TransposeColumns : OpConversionPattern<linalg::TransposeOp> {
+  using OpConversionPattern::OpConversionPattern;
+  LogicalResult matchAndRewrite(linalg::TransposeOp op, OneToNOpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getInput().size() != adaptor.getInit().size())
+      return failure();
+    SmallVector<Value> made;
+    for (auto [column, into] : llvm::zip_equal(adaptor.getInput(), adaptor.getInit())) {
+      SmallVector<int64_t> permutation(op.getPermutation());
+      unsigned extra = trailing(column.getType(), op.getInput().getType());
+      for (unsigned i = 0; i < extra; ++i)
+        permutation.push_back(static_cast<int64_t>(permutation.size()));
+      made.push_back(
+          linalg::TransposeOp::create(rewriter, op.getLoc(), column, into, permutation)->getResult(0));
+    }
+    rewriter.replaceOpWithMultiple(op, {made});
+    return success();
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // Reads and writes at an index
 //===----------------------------------------------------------------------===//
@@ -272,6 +298,7 @@ void populateTensorColumnPatterns(const TypeConverter &converter, RewritePattern
   addColumns<InsertSliceColumns, tensor::InsertSliceOp>(converter, patterns, target, legal);
   addColumns<CollapseColumns, tensor::CollapseShapeOp>(converter, patterns, target, legal);
   addColumns<ExpandColumns, tensor::ExpandShapeOp>(converter, patterns, target, legal);
+  addColumns<TransposeColumns, linalg::TransposeOp>(converter, patterns, target, legal);
   addColumns<ExtractColumns, tensor::ExtractOp>(converter, patterns, target, legal);
   addColumns<InsertColumns, tensor::InsertOp>(converter, patterns, target, legal);
   addColumns<ReadColumns, ArrayReadOp>(converter, patterns, target, legal);

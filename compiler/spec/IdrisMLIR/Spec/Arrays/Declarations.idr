@@ -28,6 +28,16 @@ import Data.Vect
 -- The upstream ops arrays admit
 ------------------------------------------------------------------------------
 
+-- A list names an upstream op the frontend writes, which its record gives
+-- a builder with its guards; one code of ours makes or reads (a pass's
+-- allocations, copies, accesses and loops below); or one whose class a
+-- table of ours names (its laws, its range, its fold, a word op's). What
+-- upstream's bufferization models make of a concat or a pad is none of
+-- these: `memref.subview` of the buffer they fill (as of each slice),
+-- `affine.apply` for a padded size and `linalg.map` for the padding. No
+-- code of ours makes, models or reads one, and upstream's memref, affine
+-- and linalg lowerings take each, so no list names them.
+
 ||| An upstream op whose record's name carries its dialect, its own alias.
 admitNamed : Dialect -> Ident -> Legal -> Writer -> Admitted
 admitNamed d r legal writer = MkAdmitted d r r legal writer [] [] Nothing UpstreamFold

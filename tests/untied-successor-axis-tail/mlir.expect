@@ -1,0 +1,4 @@
+# grid ends in a call of wide, whose result's second axis no argument of
+# the call states: the tie after the call names the first axis alone, so
+# no read of the result follows the call, and the call is a tail call.
+owned: tail-calls=@Main.grid:@Main.wide

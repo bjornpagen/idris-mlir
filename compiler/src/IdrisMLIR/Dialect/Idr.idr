@@ -256,11 +256,11 @@ natToExtentOp : Value -> Op
 natToExtentOp natural' =
   MkOp (MkOpName Dialect.Idr "nat.to_extent") ([natural']) ([]) ([]) [] ([IndexType])
 
-||| `idr.array.tie_shape`: an array whose dynamic dimensions are the given sizes
+||| `idr.array.tie_shape`: an array whose dimensions at the axes it names are the given sizes
 export
-arrayTieShapeOp : Value -> List Value -> MlirType -> Op
-arrayTieShapeOp value' dims' result' =
-  MkOp (MkOpName Dialect.Idr "array.tie_shape") ([value'] ++ dims') ([]) ([]) [] ([result'])
+arrayTieShapeOp : MlirAttr -> Value -> List Value -> MlirType -> Op
+arrayTieShapeOp axes' value' dims' result' =
+  MkOp (MkOpName Dialect.Idr "array.tie_shape") ([value'] ++ dims') ([("axes", axes')]) ([]) [] ([result'])
 
 ||| `idr.constant`: a constant: a constructor, closure, string or big
 export
