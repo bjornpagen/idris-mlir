@@ -1350,3 +1350,14 @@ to L16ev. Waiting:
   checks parts at the bare carrier's grade (`Constants.cpp:389, 397`, a
   possible bug, L13); `Legal` spells "every stage" twice (`Always` and
   `between Higher Lowered`, C28 says `Any | From s t`; L03).
+- From L03ag (379f1098b): ODS could print `big.small`'s C++ builder from
+  `CarriersAt` too, deleting its hand `builders`/`DeclaredOnly` lines and
+  `OpsBigs.cpp:150-155`, so the grade is stated once for both languages
+  (L03 with L13); `ResultUsesMaxOf`'s doc says it reaches the frontend's
+  builder, which only `Ods.idr` reads (L03).
+- From L18ai (468f4c807): the specializer never sees a constructor
+  through `idr.data.reindex`, so multi-constructor data and multi-label
+  closures are never keyed by shape and `appliesBuiltClosures` turns down
+  every call passing a suspension (L18, a missed specialization);
+  `ConEta`'s `ownValue` (`Families/Rules.cpp`) re-reads `HasIdentity` by
+  hand (L04, with C309).
