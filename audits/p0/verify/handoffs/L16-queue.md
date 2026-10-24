@@ -1054,3 +1054,12 @@ to L16ev. Waiting:
   INT).
 - From U01 (c6e4ed6a4): one 32-byte bound per value is held while
   idr-narrow runs, unmeasured (INT, the qualification).
+- From L14ad (uncommitted, waits on L18ae's `signatureOf` fix): C302's
+  round, one specializer step before idr-lifetimes keying every call the
+  e-graph gave static data, and the graph's `callees ?` choice deleted
+  (`EGraph/Elaborate.cpp`); its hunks: a pass record and place in
+  `Spec/Pipeline/Pipeline.idr` (after L21z), `signatureOf` exported from
+  `Consumer.cpp`, `shareCrossings` (`Open.cpp:1098`) without a schedule,
+  copy placement shared with `Scheduler::insert` (`Settle.cpp`, after
+  L10aa), binding times and identities as analyses the manager keeps
+  (L18 with L14, L21).

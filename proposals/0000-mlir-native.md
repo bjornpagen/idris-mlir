@@ -2938,6 +2938,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   test nothing, so fusing it would add an op and no fact. Where paths part
   after the match, a null token is still reached; whether those paths are
   split before counting stays C39's open choice.
+- **C302** (2026-10-24; L14ad's stop, under C264(c), D132 and "a fact is
+  computed once and kept"; for the owner's review). A string or a big the
+  e-graph computes stands at a call's argument as static data wherever
+  the graph runs. One specializer round keys every call so placed: a
+  program step placed once, just before idr-lifetimes, where crossings
+  must end anyway, so it serves inline's simplification and the
+  pipeline's simplify points alike. The graph then follows a call's own
+  rule at every run, and its choice by whether it holds the optimizer's
+  callee table goes. The round reads binding times and identities from
+  the analysis manager, which keeps them across every pass that does not
+  change them; `idr.func` carries no copy of them.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
