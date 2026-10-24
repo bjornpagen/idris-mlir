@@ -1142,3 +1142,13 @@ to L16ev. Waiting:
   rederivation plan's carrier decisions from C310; QB settled by C297),
   L19ae (C246's three scripts, the re-pack at `index.assume` seen by a
   property), L12ac (C295). C258 and `Keys.idr:409` ride C281 steps 2-6.
+- From L19ae (4587b8603): `IndexAssumeOp::areTypesCompatible`
+  (`IR/Families/Refinement.cpp`) accepts a yield whose type is a
+  refinement in either direction, but the lowering re-packs only on entry
+  (`Lower/Values.cpp:46`), so a value leaving the region at another layout
+  fails at lowering: the verifier admits only an exit at the entry's
+  layout, or the lowering re-packs on exit too (L04, after L18ac releases
+  `Families/`); results-as-given's walk stops at a region's end, so a
+  re-pack after a region op not in tail position is unseen (L19);
+  `Tail.cpp`'s tail walk does not look into `index.assume` (sent to
+  L10aa with C294).
