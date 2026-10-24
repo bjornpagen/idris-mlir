@@ -86,44 +86,6 @@ lazyType = MkTypeDef
   }
 
 ------------------------------------------------------------------------------
--- The constant closure
-------------------------------------------------------------------------------
-
-||| A constant closure's function, by its symbol: `@f`.
-export
-calleeRefParam : Directive
-calleeRefParam = MkDirective "CalleeRef" [] (brief "a constant closure's function, by its symbol: `@f`")
-
-||| A constant closure's captures, each a constant: `[1 : i64, #idr.big<7>]`.
-export
-capturesParam : Directive
-capturesParam = MkDirective "Captures" [] (brief "a constant closure's captures, each a constant")
-
-||| `#idr.closure<@f, [captures]>`, C++ `ClosureAttr`: a closure every
-||| capture of which is a constant, what `idr.fn.closure` folds to, held by
-||| `idr.constant` at the closure's type. It names its function with no
-||| index terms: a closure at terms stays an op, so the function's binders
-||| are those its family determines. Before defunctionalization only, which
-||| makes each its label's constructor in its slot's family.
-export
-closureAttr : AttrDef 2
-closureAttr = MkAttrDef
-  { mnemonic = "closure"
-  , stages = between Higher Higher
-  , params =
-      [ MkParameter "callee" (WiredValue (WiredOne (LeafAttr "::mlir::FlatSymbolRefAttr")) calleeRefParam)
-          AlwaysWritten "the function it closes over"
-      , MkParameter "captures" (WiredValue (WiredOne (LeafAttr "::mlir::ArrayAttr")) capturesParam)
-          AlwaysWritten "its captures, the function's leading parameters, each a constant" ]
-  , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ",", ParamAt 1, Keyword ">"]
-  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]]
-  , verifier = AnyParameters
-  , bytecode = Derived
-  , members = []
-  , doc = brief "a closure whose captures are constants"
-  }
-
-------------------------------------------------------------------------------
 -- What the ops take
 ------------------------------------------------------------------------------
 
@@ -217,17 +179,6 @@ buildsEffects : Builds -> Declaration 1 1
 buildsEffects AClosure = Executes [] [Consumes 0] Covered Untouched
 buildsEffects ASuspension = Executes [] [Consumes 0, NewIdentity 0] Covered Untouched
 
-||| A closure of constants folds to its constant; a suspension never folds.
-buildsMeaning : Builds -> Meaning 1 1
-buildsMeaning AClosure = HandFolder
-buildsMeaning ASuspension = NoFold
-
-||| The hand folder's condition, the closure's: a closure of constants is the
-||| constant idr.constant holds at its type.
-buildsMembers : Builds -> List Member
-buildsMembers AClosure = [compositeMeaning "::idr::FnClosureOp"]
-buildsMembers ASuspension = []
-
 buildsDoc : Builds -> Doc
 buildsDoc AClosure = MkDoc "a closure of a function: its leading parameters are the captures"
   """
@@ -263,14 +214,14 @@ captureOp b = MkOp
   , effects = buildsEffects b
   , speculation = AlwaysSpeculatable
   , stages = between Higher Higher
-  , meaning = buildsMeaning b
+  , meaning = NoFold
   , verify = DeclarationOnly
   , format = Declared
       [ ValueOf (AttrRef 0), Lit "(", ValueOf (OperandRef 0), Lit ")", PropDict, AttrDict, Lit ":"
       , FunctionalType (OfGroup (OperandRef 0)) (OfGroup (ResultRef 0)) ]
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = buildsMembers b
+  , members = []
   , guards = []
   , specializations = []
   , laws = []
@@ -368,7 +319,6 @@ declarations : Declarations
 declarations =
   { ops := [SomeOp closureOp, SomeOp suspendOp, SomeOp forceOp, SomeOp applyOp] ++ memoOps
   , types := [SomeType fnType, SomeType lazyType]
-  , attributes := [SomeAttr closureAttr]
   , interfaces := [runsLabelsInterface, buildsLabelInterface]
   , skeleton := [ MkSkeletonRule "ForceFreshCell" ("idr" ::: ["Transforms", "Defunctionalize.h"]) "memo.run"
                     "an exchange of a cell built for it alone runs its label in place: no reader sees the cell running or forced" ]

@@ -132,12 +132,9 @@ def SiteAttr : DialectAttribute<(attr Idr_String:$file, VarInt:$line, VarInt:$co
 def BigAttr : DialectAttribute<(attr Idr_APInt:$value)> {
   let cType = "::idr::BigAttr";
 }
-def ClosureAttr : DialectAttribute<(attr Idr_Wired<"::mlir::FlatSymbolRefAttr", "CalleeRef">:$callee, Idr_Wired<"::mlir::ArrayAttr", "Captures">:$captures)> {
-  let cType = "::idr::ClosureAttr";
-}
 
 def IdrDialectAttributes : DialectAttributes<"Idr"> {
-  let elems = [BinderAttr, TerminatesAttr, PutBoundsAttr, LivesInAttr, ExtentAttr, ExtentsAttr, FamilyAttr, IndexBindersAttr, IndexArgsAttr, EquationAttr, ConAttr, MutableAttr, SiteAttr, BigAttr, ClosureAttr];
+  let elems = [BinderAttr, TerminatesAttr, PutBoundsAttr, LivesInAttr, ExtentAttr, ExtentsAttr, FamilyAttr, IndexBindersAttr, IndexArgsAttr, EquationAttr, ConAttr, MutableAttr, SiteAttr, BigAttr];
 }
 
 #endif // IDR_GENERATED_BYTECODE

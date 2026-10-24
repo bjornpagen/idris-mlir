@@ -129,11 +129,12 @@ void Decision::slotsIn(Type type, SmallVectorImpl<Slot> &out) const {
   walker.walk(type);
 }
 
-// A closure, suspension or constant whose every use moves it into slots of
-// one key with its labels and more takes that key, so no coercion follows
-// it. Read off each op's flow: what makes a carrier value is an edge's
-// source, which the op's flow interface declares, and the label solve
-// named it there, so its point has a number.
+// A closure or suspension whose every use moves it into slots of one key
+// with its labels and more takes that key, so no coercion follows it. Read
+// off each op's flow: what makes a carrier value is an edge's source, which
+// the op's flow interface declares, and the label solve named it there, so
+// its point has a number. A constant holds no label: no constant stands at
+// a type that carries one.
 void Decision::widen() {
   FlowEdges edges;
   program.walk([&](FlowOpInterface flow) {
@@ -146,9 +147,9 @@ void Decision::widen() {
     bool builds = llvm::any_of(edges.edges(), [&](const FlowEdges::Edge &edge) {
       return idr::match(
           edge.move, [&](const FlowEdges::Source &source) { return source.to == value; },
-          [&](const FlowEdges::Constant &constant) { return constant.to == value; },
           [](const OneOf<FlowEdges::Flow, FlowEdges::Unify, FlowEdges::Fresh, FlowEdges::Release,
-                         FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Dispatch> auto &) {
+                         FlowEdges::Overwrite, FlowEdges::Fill, FlowEdges::Constant,
+                         FlowEdges::Dispatch> auto &) {
             return false;
           });
     });

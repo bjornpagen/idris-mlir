@@ -4,8 +4,7 @@
 // pass thread before any worker runs, so a worker makes none: a slot's
 // type is its key's family at the key's own variables, at the slot's
 // grade; a signature is its slots' types, set on its function before any
-// edit is read; a constant holding a closure is its label's constructor in
-// its slot's family; a match over a family, at the depth it is built at,
+// edit is read; a match over a family, at the depth it is built at,
 // binds each state's binders as the next levels; a coercion rebuilds each
 // state in the sink's family, where the move lands, at the binders its case
 // gives. A match and a coercion are each made once, whichever edit asks
@@ -15,11 +14,8 @@
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
 #include "idr/IR/Families/Unify.h"
-#include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
-#include "idr/Support/Match.h"
-#include "idr/Support/Nest.h"
 #include "idr/Transforms/Defunctionalize.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -73,110 +69,6 @@ void Decision::convertSignatures() {
     sig.converted = FunctionType::get(ctx, inputs, results);
     fn.setFunctionType(sig.converted);
   }
-}
-
-// A constant held in `slot`, each closure in it its label's constructor in
-// its slot's family, each constructor of a data family remade with its
-// fields in their slots. A part shared by many constants is converted once
-// per slot.
-Attribute Decision::constantOf(Attribute value, const Slot &slot) {
-  if (!holding.holds(value))
-    return value;
-  // A part in the slot it is held in. It is converted once per slot, the
-  // slot named by its family's type, or by nothing where it holds no
-  // closure itself.
-  struct Part {
-    Attribute value;
-    Slot slot;
-    Attribute in;
-  };
-  auto partIn = [&](Attribute part, const Slot &s) {
-    return Part{part, s, s ? Attribute(TypeAttr::get(familyOf(*s).type)) : Attribute()};
-  };
-  // A part's fields in their slots, in the order the part holds them: a
-  // closure's captures as its function's leading parameters, a constructor's
-  // fields cell by cell along its run; a part that holds no closure has none
-  // to go into.
-  auto fieldsOf = [&](const Part &part) {
-    SmallVector<Part> out;
-    idr::match(
-        closureHoldingOf(part.value),
-        [&](AttrOf<ClosureAttr> held) {
-          ClosureAttr closure = held.get();
-          const Signature &sig = signature(graph.id(closure.getCallee()));
-          for (auto [i, capture] : llvm::enumerate(closure.getCaptures()))
-            out.push_back(partIn(capture, sig.arguments[i]));
-        },
-        [&](AttrOf<ConAttr> held) {
-          ConAttr con = held.get();
-          DataType data = con.getData();
-          con.walkFields([&](Attribute field, unsigned i) {
-            out.push_back(partIn(field, anchorKey(FlowAnchor::fieldOf(data, con.getTag(), i))));
-          });
-        },
-        [](HoldsNoClosure) {});
-    return out;
-  };
-  // The parts in post-order. Each part's converted form is pushed once its
-  // fields' are, which it takes off the top in the order it holds them; a
-  // part converted before, or holding no closure, is pushed as it is and
-  // not gone into.
-  SmallVector<Attribute> done;
-  depthFirst(
-      partIn(value, slot), fieldsOf,
-      [&](const Part &part) {
-        if (auto found = converted.find(std::pair(part.value, part.in)); found != converted.end()) {
-          done.push_back(found->second);
-          return Descend::Past;
-        }
-        if (!holding.holds(part.value)) {
-          done.push_back(part.value);
-          return Descend::Past;
-        }
-        return Descend::Into;
-      },
-      [&](const Part &part) {
-        Attribute result = idr::match(
-            closureHoldingOf(part.value),
-            // A constant closure holds no index terms, so its label binds
-            // none its family does not determine: a closure at terms folds
-            // to no constant.
-            [&](AttrOf<ClosureAttr> held) -> Attribute {
-              ClosureAttr closure = held.get();
-              auto fields = ArrayRef<Attribute>(done).take_back(closure.getCaptures().size());
-              DataType family = familyOf(*part.slot).at;
-              Attribute label =
-                  ConAttr::get(ctx, family.refinedTo(tagOf(*part.slot, closure.getCallee()), {}),
-                               ArrayAttr::get(ctx, fields));
-              done.truncate(done.size() - fields.size());
-              return label;
-            },
-            // A run is rebuilt cell by cell, each cell its own fields, so it
-            // stays one run in the converted family.
-            [&](AttrOf<ConAttr> held) -> Attribute {
-              ConAttr con = held.get();
-              size_t width = 0;
-              for (unsigned cell = 0; cell < con.getRunLength(); ++cell)
-                width += con.getCell(cell).size();
-              ArrayRef<Attribute> fields = ArrayRef<Attribute>(done).take_back(width);
-              SmallVector<ArrayAttr> cells;
-              for (unsigned cell = 0; cell < con.getRunLength(); ++cell) {
-                size_t cellWidth = con.getCell(cell).size();
-                cells.push_back(ArrayAttr::get(ctx, fields.take_front(cellWidth)));
-                fields = fields.drop_front(cellWidth);
-              }
-              Attribute run = ConAttr::getRun(ctx, cast<DataType>(replacer.replace(con.getData())),
-                                              static_cast<unsigned>(con.getSpine()), cells);
-              done.truncate(done.size() - width);
-              return run;
-            },
-            // A part that holds no closure is itself, as `enter` leaves one
-            // it does not go into.
-            [&](HoldsNoClosure) -> Attribute { return part.value; });
-        converted[std::pair(part.value, part.in)] = result;
-        done.push_back(result);
-      });
-  return done.back();
 }
 
 // The constructor of `tag` in `family`, at `binders` where a case binds

@@ -51,7 +51,6 @@ data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   MutableAttr : IdrAttr ty at
   SiteAttr : (file' : String) -> (line' : Nat) -> (column' : Nat) -> (function' : String) -> IdrAttr ty at
   BigAttr : (value' : Integer) -> IdrAttr ty at
-  ClosureAttr : (callee' : at) -> (captures' : at) -> IdrAttr ty at
 
 ||| The mnemonics of the dialect's types, in declaration order.
 export
@@ -73,7 +72,7 @@ idrTypeMnemonic (LazyType _) = "lazy"
 ||| The mnemonics of the dialect's attributes, in declaration order.
 export
 idrAttrMnemonics : List String
-idrAttrMnemonics = ["binder", "terminates", "extent", "extents", "family", "index_binders", "index_args", "equation", "con", "mutable", "site", "big", "closure"]
+idrAttrMnemonics = ["binder", "terminates", "extent", "extents", "family", "index_binders", "index_args", "equation", "con", "mutable", "site", "big"]
 
 ||| The mnemonic of each of the dialect's attributes.
 export
@@ -90,7 +89,6 @@ idrAttrMnemonic (ConAttr _ _ _) = "con"
 idrAttrMnemonic MutableAttr = "mutable"
 idrAttrMnemonic (SiteAttr _ _ _ _) = "site"
 idrAttrMnemonic (BigAttr _) = "big"
-idrAttrMnemonic (ClosureAttr _ _) = "closure"
 
 ||| The code of `DataType`, its place among the dialect's types.
 export
@@ -292,16 +290,6 @@ export
 encodeBigAttr : Integer -> List Part
 encodeBigAttr value' = [VarInt bigAttrCode] ++ [IntegerAt value']
 
-||| The code of `ClosureAttr`, its place among the dialect's attributes.
-export
-closureAttrCode : Nat
-closureAttrCode = 14
-
-||| The parts of `ClosureAttr`: its code, then each parameter.
-export
-encodeClosureAttr : AttrRef -> AttrRef -> List Part
-encodeClosureAttr callee' captures' = [VarInt closureAttrCode] ++ [AttrAt callee'] ++ [AttrAt captures']
-
 ||| The parts of a value of `IdrType`, its types and attributes by their entries.
 export
 encodeIdrType : IdrType TypeRef AttrRef -> List Part
@@ -329,5 +317,4 @@ encodeIdrAttr (ConAttr data' cells' spine') = encodeConAttr data' cells' spine'
 encodeIdrAttr (MutableAttr) = encodeMutableAttr
 encodeIdrAttr (SiteAttr file' line' column' function') = encodeSiteAttr file' line' column' function'
 encodeIdrAttr (BigAttr value') = encodeBigAttr value'
-encodeIdrAttr (ClosureAttr callee' captures') = encodeClosureAttr callee' captures'
 

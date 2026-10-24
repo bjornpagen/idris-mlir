@@ -29,9 +29,9 @@
 // declares `foldable` (a member hook of its specification), which the fold
 // asks first. A Double the function gives as a NaN is no constant (ieeeOn).
 //
-// Besides: what a constant constructor or closure holds in a field or
-// capture (`buildable`), where idr.constant holds static data, and which
-// floating-point values a fold may make constants of at all.
+// Besides: what a constant constructor holds in a field (`buildable`),
+// where idr.constant holds static data, and which floating-point values a
+// fold may make constants of at all.
 #ifndef IDR_IR_FOLD_H
 #define IDR_IR_FOLD_H
 
@@ -383,13 +383,13 @@ template <class Op>
 concept Folds = requires { requires Op::template hasTrait<RuntimeFolds>(); };
 
 //===----------------------------------------------------------------------===//
-// Constants of constructors, closures and lists
+// Constants of constructors and lists
 //===----------------------------------------------------------------------===//
 
-// Whether a constant constructor, closure or suspension holds `value` in a
-// field or capture of `type`: a word or a Double of exactly its type, or a
-// value idr.constant holds at it. The one leaf rule of a constant's parts,
-// which idr.constant's verifier and the folders of the constructions ask.
+// Whether a constant constructor holds `value` in a field of `type`: a word
+// or a Double of exactly its type, or a value idr.constant holds at it. The
+// one leaf rule of a constant's parts, which idr.constant's verifier and
+// the folder of the construction ask.
 bool buildable(mlir::Attribute value, mlir::Type type);
 
 } // namespace idr::fold

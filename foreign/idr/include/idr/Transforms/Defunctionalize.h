@@ -7,14 +7,14 @@
 //
 // Types first: a decision, made whole and serially, writes the label
 // solve's answer into types (each slot's key, each key's family, every
-// signature, every memo family's dispatch function, every constant), and
-// reads each function's edits off the solve: each value whose type
-// changes, each move between two keys, each closure op and what replaces
-// it, with every type and attribute those edits build made then, in the
-// program's order. Then one walk per function, in parallel, makes its
-// edits from the decision alone, through a const reference: no worker
-// makes a type or an attribute, reads the solve, or looks a symbol up. No
-// conversion driver and no pattern set.
+// signature, every memo family's dispatch function), and reads each
+// function's edits off the solve: each value whose type changes, each move
+// between two keys, each closure op and what replaces it, with every type
+// and attribute those edits build made then, in the program's order. Then
+// one walk per function, in parallel, makes its edits from the decision
+// alone, through a const reference: no worker makes a type or an attribute,
+// reads the solve, or looks a symbol up. No conversion driver and no
+// pattern set.
 //
 // A key is a slot's carrier at no grade and the labels the solve found for
 // it. A closure key becomes a closure family, one label per function of
@@ -229,11 +229,6 @@ struct Force {
   KeyId memo;
   std::optional<CoercionId> moved;
 };
-// A constant holding a closure, converted to its slot.
-struct Constant {
-  ConstantOp op;
-  mlir::Attribute value;
-};
 struct Edits {
   FuncOp fn;
   footprint::Vector<Retype> retypes;
@@ -241,7 +236,6 @@ struct Edits {
   footprint::Vector<Construct> constructs;
   footprint::Vector<Apply> applies;
   footprint::Vector<Force> forces;
-  footprint::Vector<Constant> constants;
 };
 
 // The decision. It exists only whole: `decide`, its one maker, returns it
@@ -304,12 +298,11 @@ private:
   // Types (Convert.cpp): every signature converted and set on its
   // function; the type of a slot whose type was `type`, its key's family at
   // `type`'s grade or `type` itself, its composites remade for their own
-  // slots; a constant converted to its slot; the tag of `label`'s
-  // constructor in `key`'s family; and the constructors, matches and
-  // coercions the edits build, each match and coercion made once.
+  // slots; the tag of `label`'s constructor in `key`'s family; and the
+  // constructors, matches and coercions the edits build, each match and
+  // coercion made once.
   void convertSignatures();
   mlir::Type typeOf(mlir::Type type, const Slot &slot);
-  mlir::Attribute constantOf(mlir::Attribute value, const Slot &slot);
   Tag tagOf(const Key &key, mlir::FlatSymbolRefAttr label) const;
   Built constructorOf(DataType family, Tag tag, Grade grade,
                       llvm::ArrayRef<families::TermNode> binders);
@@ -329,8 +322,8 @@ private:
   mlir::MLIRContext *ctx;
 
   // Each point the label solve numbered, by its node: the labels of the one
-  // key every use of the closure, suspension or constant made there moves
-  // it into, where that key holds its own labels; null where its own stand.
+  // key every use of the closure or suspension made there moves it into,
+  // where that key holds its own labels; null where its own stand.
   footprint::Vector<mlir::ArrayAttr> widened;
   // Every key, by its dense id in the order met.
   footprint::DenseMap<Key, KeyId> ids;
@@ -340,9 +333,6 @@ private:
   // the program's data families whose fields hold closures, the shaped
   // types whose elements do.
   mlir::AttrTypeReplacer replacer;
-  // Each part of the program's constants converted in its slot.
-  footprint::DenseMap<std::pair<mlir::Attribute, mlir::Attribute>, mlir::Attribute> converted;
-  ClosureParts holding;
   // The matches and coercions the edits build, each once: a match by the
   // type of the value it matches and its depth, a coercion by that, the
   // key it moves into and its depth.

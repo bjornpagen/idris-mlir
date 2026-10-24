@@ -165,14 +165,13 @@ comparisonEnum = imported comparisonClosed
 -- idr.constant
 ------------------------------------------------------------------------------
 
-||| A constant: a constructor, a closure, or a literal of a runtime value
-||| (an integer's and a Double's are arith.constant's, which every fold of
-||| arith reads). Static data, used any number of times, held static where
-||| its type holds references. Its verifier checks the value against its
-||| type through its fields and captures, once per module verify. It holds
-||| the flow interface because its edges are the one place a constant's
-||| labels and references enter what the readers follow: a closure's label,
-||| a constructor's fields at their anchors.
+||| A constant: a constructor, or a literal of a runtime value (an
+||| integer's and a Double's are arith.constant's, which every fold of arith
+||| reads). Static data, used any number of times, held static where its
+||| type holds references. Its verifier checks the value against its type
+||| through its fields, once per module verify. It holds the flow interface
+||| because its edges are the one place a constant's references enter what
+||| the readers follow: a constructor's fields at their anchors.
 public export
 constantOp : Op 0 1 1 0
 constantOp = MkOp
@@ -201,7 +200,7 @@ constantOp = MkOp
   , guards = []
   , specializations = []
   , laws = []
-  , doc = MkDoc "a constant: a constructor, closure, string or big"
+  , doc = MkDoc "a constant: a constructor, string or big"
       "`idr.constant !idr.str \"abc\"`: the type first, then the value, which carries none."
   }
 

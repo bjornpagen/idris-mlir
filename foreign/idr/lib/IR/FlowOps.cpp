@@ -129,8 +129,8 @@ void idr::ReturnOp::getFlowEdges(FlowEdges &edges) {
 }
 
 // A constant's parts are expanded where it is held, by the reader that
-// follows them: a closure is a label, a constructor holds its fields at
-// their anchors, and static data is every copy's.
+// follows them: a constructor holds its fields at their anchors, and static
+// data is every copy's.
 void idr::ConstantOp::getFlowEdges(FlowEdges &edges) { edges.constant(getValue(), getResult()); }
 
 // A constructor value is new, built of the fields given; it has no hole,

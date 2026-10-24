@@ -144,7 +144,7 @@ inline std::optional<KnownConstant> Function::knownOf(mlir::Value value) const {
 inline std::optional<Tag> Function::constructorOf(mlir::Value value) const {
   const Facts &facts = classOfValue(value).facts;
   const Data *data = facts.constant ? std::get_if<Data>(&*facts.constant) : nullptr;
-  return data ? data->tag() : std::nullopt;
+  return data ? std::optional<Tag>(data->tag()) : std::nullopt;
 }
 
 // The constant an op of the input in the value's class holds, as it holds

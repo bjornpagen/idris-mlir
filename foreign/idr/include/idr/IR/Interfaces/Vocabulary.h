@@ -69,7 +69,6 @@ struct TypeOf {
 };
 
 class BigAttr;
-class ClosureAttr;
 class ConAttr;
 class DataType;
 class FnType;
@@ -185,7 +184,7 @@ bool isCellMemory(mlir::Type type);
 // its own type's literal; poison, which stands for a cell pointer only; a
 // constructor of a family laid out in place, its fields in its words; or a
 // constructor in a cell of its own. A closure reaches static data only as
-// its label's constructor, defunctionalization having rewritten it. Each
+// its label's constructor, which defunctionalization builds. Each
 // writer of static data folds it with `match`, so a form it gains is
 // refused at every writer that forgot it.
 namespace static_form {
@@ -223,39 +222,17 @@ struct StaticForm
 StaticForm staticFormOf(mlir::Attribute value, mlir::Type held);
 
 //===----------------------------------------------------------------------===//
-// How a constant holds closures
-//===----------------------------------------------------------------------===//
-
-// A constant that holds no closure: a big, a string, an integer or a
-// Double; or an attribute that is no constant.
-struct HoldsNoClosure {};
-
-// How a constant holds closures, the answer of
-// ConstantAttrInterface::getClosureHolding: it is a closure, which holds
-// itself; a constructor, which holds those its fields hold; or it holds
-// none. A reader that walks a constant's closures folds it with `match`, so
-// a constant that gains a way to hold one is refused at every reader that
-// forgot it.
-struct ClosureHolding : std::variant<AttrOf<ClosureAttr>, AttrOf<ConAttr>, HoldsNoClosure> {
-  using variant::variant;
-};
-
-// How `value` holds closures: a constant answers through
-// ConstantAttrInterface, and any other attribute holds none.
-ClosureHolding closureHoldingOf(mlir::Attribute value);
-
-//===----------------------------------------------------------------------===//
 // What a fold reads of a constant
 //===----------------------------------------------------------------------===//
 
 // The answer of ConstantAttrInterface::getFoldValue, the values a fold
 // reads: an integer, of any width, a truth among them; a Double, an f64 by
 // its value; a string, its attribute; a big, its attribute, which the
-// runtime's representation is made of; a constructor or a closure, which a
-// fold reads whole, as the attribute it is; or a float of another width,
-// no constant of the runtime's, which no fold reads. A reader of a
-// constant's value folds it with `match`, so a value a constant gains is
-// refused at every reader that forgot it.
+// runtime's representation is made of; a constructor, its attribute,
+// which a fold reads whole; or a float of another width, no constant of
+// the runtime's, which no fold reads. A reader of a constant's value
+// folds it with `match`, so a value a constant gains is refused at every
+// reader that forgot it.
 namespace fold_value {
 struct Integer {
   llvm::APInt value;
@@ -269,13 +246,15 @@ struct Text {
 struct Big {
   AttrOf<BigAttr> value;
 };
-struct Whole {};
+struct Constructor {
+  AttrOf<ConAttr> value;
+};
 struct Unread {};
 } // namespace fold_value
 
 struct FoldValue
     : std::variant<fold_value::Integer, fold_value::Real, fold_value::Text, fold_value::Big,
-                   fold_value::Whole, fold_value::Unread> {
+                   fold_value::Constructor, fold_value::Unread> {
   using variant::variant;
 };
 

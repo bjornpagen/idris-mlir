@@ -8,14 +8,17 @@
 // dispatch, and the dispatch exchanges the cell's state through
 // idr.memo.run, which moves the captures out and the value in.
 //
-// A suspension has no fold: the cell it builds is the one thing that
-// changes while references to it live, so folding one into a constant
-// would make every run share one cell whose forced value lives until the
-// program ends, and a trusted library's effect inside it would run once
-// instead of where its value is demanded. Nor do these ops carry rewrite
-// patterns: defunctionalization replaces every one of them before any
-// simplification runs, and what is left of a force after it (a call of a
-// known label, a cell forced in one case) is the e-graph's.
+// Neither builder folds. A closure is a counted cell from the frontend to
+// defunctionalization, the first pass, which makes it its label's
+// constructor, and that constructor folds as any other does. A
+// suspension's cell is the one thing that changes while references to it
+// live, so folding one into a constant would make every run share one cell
+// whose forced value lives until the program ends, and a trusted library's
+// effect inside it would run once instead of where its value is demanded.
+// Nor do these ops carry rewrite patterns: defunctionalization replaces
+// every one of them before any simplification runs, and what is left of a
+// force after it (a call of a known label, a cell forced in one case) is
+// the e-graph's.
 //
 // The exchange moves a memoized label's captures out of the cell's fields,
 // so it takes the cell refined to the label's state, as its dispatch's case
@@ -28,7 +31,6 @@
 #include "idr/IR/Closures.h"
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/Substitute.h"
-#include "idr/IR/Fold.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
@@ -142,34 +144,6 @@ void FnType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("f"); }
 void LazyType::getAsmName(OpAsmSetNameFn setNameFn) const { setNameFn("lazy"); }
 
 //===----------------------------------------------------------------------===//
-// #idr.closure
-//===----------------------------------------------------------------------===//
-
-// A constant closure's function and captures are upstream's attributes, and
-// read and print as upstream's do: `@f`, then `[1 : i64, #idr.big<7>]`.
-FailureOr<FlatSymbolRefAttr> idr::parseCalleeRef(AsmParser &parser) {
-  FlatSymbolRefAttr callee;
-  if (parser.parseAttribute(callee))
-    return failure();
-  return callee;
-}
-
-void idr::printCalleeRef(AsmPrinter &printer, FlatSymbolRefAttr value) {
-  printer.printAttributeWithoutType(value);
-}
-
-FailureOr<ArrayAttr> idr::parseCaptures(AsmParser &parser) {
-  ArrayAttr captures;
-  if (parser.parseAttribute(captures))
-    return failure();
-  return captures;
-}
-
-void idr::printCaptures(AsmPrinter &printer, ArrayAttr value) {
-  printer.printAttributeWithoutType(value);
-}
-
-//===----------------------------------------------------------------------===//
 // idr.fn.closure
 //===----------------------------------------------------------------------===//
 
@@ -192,13 +166,6 @@ LogicalResult FnClosureOp::verifySymbolUses(SymbolTableCollection &symbols) {
     return emitOpError("has type ") << getType() << ", but a closure of " << getCalleeAttr()
                                     << " with these captures is " << expected;
   return success();
-}
-
-// Its meaning's attribute instance (Ops/Folds.h).
-OpFoldResult FnClosureOp::fold(FoldAdaptor adaptor) {
-  fold::InParts where(getContext());
-  std::optional<Attribute> folded = meaning(where, *this, adaptor.getOperands());
-  return folded ? OpFoldResult(*folded) : OpFoldResult();
 }
 
 //===----------------------------------------------------------------------===//

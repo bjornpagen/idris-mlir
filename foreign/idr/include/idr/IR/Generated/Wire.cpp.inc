@@ -807,33 +807,3 @@ void writeDataRef(::mlir::DialectBytecodeWriter &writer, ::idr::DataType value) 
   writer.writeType(value);
 }
 
-// a constant closure's function, by its symbol: `@f`
-::mlir::LogicalResult readCalleeRef(::mlir::DialectBytecodeReader &reader, ::mlir::FlatSymbolRefAttr &value) {
-  {
-    ::mlir::FlatSymbolRefAttr read;
-    if (::mlir::failed(reader.readAttribute(read)))
-      return ::mlir::failure();
-    value = read;
-  }
-  return ::mlir::success();
-}
-
-void writeCalleeRef(::mlir::DialectBytecodeWriter &writer, ::mlir::FlatSymbolRefAttr value) {
-  writer.writeAttribute(value);
-}
-
-// a constant closure's captures, each a constant
-::mlir::LogicalResult readCaptures(::mlir::DialectBytecodeReader &reader, ::mlir::ArrayAttr &value) {
-  {
-    ::mlir::ArrayAttr read;
-    if (::mlir::failed(reader.readAttribute(read)))
-      return ::mlir::failure();
-    value = read;
-  }
-  return ::mlir::success();
-}
-
-void writeCaptures(::mlir::DialectBytecodeWriter &writer, ::mlir::ArrayAttr value) {
-  writer.writeAttribute(value);
-}
-

@@ -71,24 +71,6 @@ std::optional<typename W::Result> DataConOp::meaning(W &where, DataConOp op,
   return where.constructor(result, data, held);
 }
 
-// A closure of constants is an immutable value nothing reads the identity
-// of, so it is the constant idr.constant holds at its type. Essential, two
-// closures: a constant closure holds no index terms, so one at terms stays
-// an op.
-template <fold::Composite W>
-std::optional<typename W::Result>
-FnClosureOp::meaning(W &where, FnClosureOp op, llvm::ArrayRef<typename W::Operand> constants) {
-  if (op.getIndexArgs().getCount() != 0)
-    return std::nullopt;
-  mlir::OperandRange captures = op.getCaptures();
-  llvm::ArrayRef<typename W::Operand> held =
-      constants.slice(captures.getBeginOperandIndex(), captures.size());
-  for (auto [constant, capture] : llvm::zip_equal(held, captures))
-    if (!where.buildable(constant, capture.getType()))
-      return std::nullopt;
-  return where.closure(op.getType(), op.getCalleeAttr(), held);
-}
-
 // The one constructor the type leaves possible, as it is of every value an
 // idr.data.con builds, whose type is refined to its constructor; else,
 // where the value's built state still holds where it is read, the

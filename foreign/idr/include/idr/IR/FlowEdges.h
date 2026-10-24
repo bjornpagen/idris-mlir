@@ -319,8 +319,8 @@ public:
     FlowPlace::Part place;
   };
   // `to` holds the constant `part`, each part where its carrier says: a
-  // closure is its label there, a constructor holds its fields at their
-  // anchors, and static data is held by every copy of it.
+  // constructor holds its fields at their anchors, and static data is held
+  // by every copy of it.
   struct Constant {
     mlir::Attribute part;
     mlir::Value to;

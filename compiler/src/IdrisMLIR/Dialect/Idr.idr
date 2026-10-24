@@ -271,7 +271,7 @@ arrayTieShapeOp : MlirAttr -> Value -> List Value -> MlirType -> Op
 arrayTieShapeOp axes' value' dims' result' =
   MkOp (MkOpName Dialect.Idr "array.tie_shape") ([value'] ++ dims') ([("axes", axes')]) ([]) [] ([result'])
 
-||| `idr.constant`: a constant: a constructor, closure, string or big
+||| `idr.constant`: a constant: a constructor, string or big
 export
 constantOp : MlirAttr -> MlirType -> Op
 constantOp value' result' =

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The attribute place of the composite folds (FoldParts.h): a constant
 // constructor's cells and fields as the attribute holds them, and a
-// constructor or closure made of attributes, where idr.constant holds it.
+// constructor made of attributes, where idr.constant holds it.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/FoldParts.h"
@@ -28,12 +28,6 @@ std::optional<Attribute> InParts::fieldOf(Attribute constant, unsigned index, Ty
 std::optional<Attribute> InParts::constructor(Type type, const DataType &data,
                                               ArrayRef<Attribute> fields) const {
   Attribute made = held(ConAttr::get(context, data, ArrayAttr::get(context, fields)), type);
-  return made ? std::optional(made) : std::nullopt;
-}
-
-std::optional<Attribute> InParts::closure(Type type, FlatSymbolRefAttr callee,
-                                          ArrayRef<Attribute> captures) const {
-  Attribute made = held(ClosureAttr::get(context, callee, ArrayAttr::get(context, captures)), type);
   return made ? std::optional(made) : std::nullopt;
 }
 

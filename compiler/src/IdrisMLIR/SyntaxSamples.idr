@@ -181,10 +181,8 @@ attrs =
   , inputTerm
   , resultConstant
   , Idr (ExtentsAttr [inputTerm, resultConstant])
-    -- Constants of a constructor and of a closure of `@callee`, its one
-    -- parameter captured.
+    -- A constant of a constructor.
   , constantList
-  , Idr (ClosureAttr (SymbolRefAttr (MkSymbolRef "callee" [])) (ArrayAttr [int 1]))
   , UnitAttr
   , BoolAttr True
     -- A Double of each kind IEEE 754 has, each crossing as its bits: a

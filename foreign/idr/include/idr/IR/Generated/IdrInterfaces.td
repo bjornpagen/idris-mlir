@@ -252,9 +252,8 @@ def Idr_ConstantAttrInterface : AttrInterface<"ConstantAttrInterface"> {
   let methods = [
     InterfaceMethod<"whether idr.constant holds this value at `type`", "bool", "isBuildableAt", (ins "::mlir::Type":$type)>,
     InterfaceMethod<"how this value, held at `held`, is laid out as static data", "::idr::StaticForm", "getStaticForm", (ins "::mlir::Type":$held)>,
-    InterfaceMethod<"that this value, held at `type` by `holder`, agrees with what it names (a constructor's cells, a closure's function), handing each of its parts to `part` at the type it is checked at; a big, a string, an integer and a float have none", "::mlir::LogicalResult", "verifyParts", (ins "::mlir::Operation *":$holder, "::mlir::SymbolTableCollection &":$symbols, "::mlir::Type":$type, "::llvm::function_ref<void(::mlir::Attribute, ::mlir::Type)>":$part)>,
-    InterfaceMethod<"how this value holds closures: a closure is one, a constructor holds those of its fields, any other holds none", "::idr::ClosureHolding", "getClosureHolding", (ins)>,
-    InterfaceMethod<"what a fold reads of this value: an integer, a Double, a string or a big, or a constructor or closure whole; nothing of a float of another width", "::idr::FoldValue", "getFoldValue", (ins)>
+    InterfaceMethod<"that this value, held at `type` by `holder`, agrees with what it names (a constructor's cells), handing each of its parts to `part` at the type it is checked at; a big, a string, an integer and a float have none", "::mlir::LogicalResult", "verifyParts", (ins "::mlir::Operation *":$holder, "::mlir::SymbolTableCollection &":$symbols, "::mlir::Type":$type, "::llvm::function_ref<void(::mlir::Attribute, ::mlir::Type)>":$part)>,
+    InterfaceMethod<"what a fold reads of this value: an integer, a Double, a string or a big, or a constructor whole; nothing of a float of another width", "::idr::FoldValue", "getFoldValue", (ins)>
   ];
 }
 

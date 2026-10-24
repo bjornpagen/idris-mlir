@@ -713,7 +713,6 @@ mutual
   numberIdrAttr w MutableAttr = pure MutableAttr
   numberIdrAttr w (SiteAttr f l c fn) = pure (SiteAttr f l c fn)
   numberIdrAttr w (BigAttr v) = pure (BigAttr v)
-  numberIdrAttr w (ClosureAttr f cs) = ClosureAttr <$> attrNumber w f <*> attrNumber w cs
 
 ------------------------------------------------------------------------------
 -- The writer

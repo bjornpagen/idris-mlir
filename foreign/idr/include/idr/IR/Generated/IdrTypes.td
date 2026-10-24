@@ -367,7 +367,7 @@ def Idr_EquationAttr : Idr_Attr<"Equation", "equation", []> {
   let genStorageClass = 0;
 }
 
-def Idr_ConAttr : Idr_Attr<"Con", "con", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]>]> {
+def Idr_ConAttr : Idr_Attr<"Con", "con", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getFoldValue"]>]> {
   let summary = "a constant constructor value, a run of its cells";
   let parameters = (ins Idr_HandParameter<"::idr::DataType", "DataRef">:$data, Idr_ArrayRefParameter<"::mlir::Attribute">:$cells, DefaultValuedParameter<"uint64_t", "0">:$spine);
   let hasCustomAssemblyFormat = 1;
@@ -399,17 +399,11 @@ def Idr_SiteAttr : Idr_Attr<"Site", "site", []> {
   let assemblyFormat = [{ `<` $file `,` $line `,` $column `,` $function `>` }];
 }
 
-def Idr_BigAttr : Idr_Attr<"Big", "big", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]>, DeclareAttrInterfaceMethods<Idr_IntegerKeyAttrInterface, ["getKeyInteger"]>]> {
+def Idr_BigAttr : Idr_Attr<"Big", "big", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getFoldValue"]>, DeclareAttrInterfaceMethods<Idr_IntegerKeyAttrInterface, ["getKeyInteger"]>]> {
   let summary = "an integer of any size";
   let parameters = (ins Idr_APIntParameter<"">:$value);
   let assemblyFormat = [{ `<` $value `>` }];
   let genStorageClass = 0;
-}
-
-def Idr_ClosureAttr : Idr_Attr<"Closure", "closure", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]>]> {
-  let summary = "a closure whose captures are constants";
-  let parameters = (ins Idr_HandParameter<"::mlir::FlatSymbolRefAttr", "CalleeRef">:$callee, Idr_HandParameter<"::mlir::ArrayAttr", "Captures">:$captures);
-  let assemblyFormat = [{ `<` $callee `,` $captures `>` }];
 }
 
 #endif // IDR_GENERATED_TYPES

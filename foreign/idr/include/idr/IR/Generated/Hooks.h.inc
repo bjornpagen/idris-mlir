@@ -190,12 +190,6 @@ void printPutBounds(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::PutBoun
 ::mlir::FailureOr<::llvm::SmallVector<::idr::ExtentAttr>> parseExtentEntries(::mlir::AsmParser &parser);
 void printExtentEntries(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::ExtentAttr> value);
 
-::mlir::FailureOr<::mlir::FlatSymbolRefAttr> parseCalleeRef(::mlir::AsmParser &parser);
-void printCalleeRef(::mlir::AsmPrinter &printer, ::mlir::FlatSymbolRefAttr value);
-
-::mlir::FailureOr<::mlir::ArrayAttr> parseCaptures(::mlir::AsmParser &parser);
-void printCaptures(::mlir::AsmPrinter &printer, ::mlir::ArrayAttr value);
-
 // a row: the atoms of what a run may do
 ::mlir::Attribute convertRowToAttribute(::mlir::MLIRContext *context, ::idr::effects::Row value);
 ::mlir::LogicalResult convertRowFromAttribute(::idr::effects::Row &value, ::mlir::Attribute attribute,

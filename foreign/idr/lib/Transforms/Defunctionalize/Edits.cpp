@@ -9,8 +9,7 @@
 //     built before the op that moves it;
 //   - each closure and suspension, and the constructor it becomes;
 //   - each apply, and the match it becomes, with the moves in its cases;
-//   - each force, and the move after its call;
-//   - each constant that holds a closure, converted.
+//   - each force, and the move after its call.
 // A match or a coercion is built where the index variables of the region
 // it stands in are bound; a case's binders bind more for what stands in it.
 // Another function is read only through its signature.
@@ -38,7 +37,7 @@ enum class TailPosition : bool { Within, Tail };
 } // namespace
 
 FailureOr<Edits> Decision::plan(FuncOp fn) {
-  Edits edits{fn, {}, {}, {}, {}, {}, {}};
+  Edits edits{fn, {}, {}, {}, {}, {}};
   auto retype = [&](Value value, Type type) {
     if (value.getType() != type)
       edits.retypes.push_back({value, type});
@@ -145,12 +144,6 @@ FailureOr<Edits> Decision::plan(FuncOp fn) {
       moved = coercionOf(family(memo).force.gives, *forced, *own,
                          joins::scopeDepth(force->getParentRegion()));
     edits.forces.push_back({force, memo, moved});
-  });
-
-  fn.walk([&](ConstantOp op) {
-    Attribute value = constantOf(op.getValue(), keyOf(op.getResult()));
-    if (value != op.getValue())
-      edits.constants.push_back({op, value});
   });
   return edits;
 }

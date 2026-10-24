@@ -212,13 +212,6 @@ void rewrite(const Edits &edits, const Decision &decision) {
     force.getResult().replaceAllUsesWith(heldAs(b, loc, value, force.getResult().getType()));
     erased.push_back(force);
   }
-  for (const Constant &each : edits.constants) {
-    ConstantOp op = each.op;
-    b.setInsertionPoint(op);
-    op.getResult().replaceAllUsesWith(
-        ConstantOp::create(b, op.getLoc(), op.getResult().getType(), each.value));
-    erased.push_back(op);
-  }
 
   for (Operation *op : llvm::reverse(erased))
     op->erase();

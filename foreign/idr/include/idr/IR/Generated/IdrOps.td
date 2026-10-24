@@ -1083,7 +1083,7 @@ def Idr_ConstantOp : Idr_Op<"constant", [
     DeclareOpInterfaceMethods<SymbolUserOpInterface, ["verifySymbolUses"]>,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
   ]> {
-  let summary = "a constant: a constructor, closure, string or big";
+  let summary = "a constant: a constructor, string or big";
   let description = [{
     `idr.constant !idr.str "abc"`: the type first, then the value, which carries none.
   }];
@@ -2811,10 +2811,6 @@ def Idr_FnClosureOp : Idr_Op<"fn.closure", [
   let arguments = (ins Variadic<AnyType>:$captures, FlatSymbolRefAttr:$callee, DefaultValuedAttr<Idr_IndexArgsAttr, "::idr::IndexArgsAttr::get($_builder.getContext(), {}, 0)">:$index_args);
   let results = (outs Type<CPred<"::idr::isClosureType($_self)">, "a closure, at any grade", "::mlir::Type">:$result);
   let assemblyFormat = [{ $callee `(` $captures `)` prop-dict attr-dict `:` functional-type($captures, $result) }];
-  let hasFolder = 1;
-  let extraClassDeclaration = [{
-    template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::FnClosureOp op, ::llvm::ArrayRef<typename W::Operand> constants);
-  }];
 }
 
 def Idr_LazySuspendOp : Idr_Op<"lazy.suspend", [

@@ -6,9 +6,8 @@
 //
 // The flow interface says how every carrier moves: closures, suspensions
 // and counted references. Only a closure or a suspension carries a label,
-// so the solve keeps the edges that carry one, and no other; a constant is
-// looked into wherever it is held, since a constructor of any data type may
-// hold a closure in a field.
+// so the solve keeps the edges that carry one, and no other; a constant
+// holds none, since no constant is a closure or holds one.
 //
 // A point is a value of a closure or lazy carrier, a parameter or result of
 // a function, or an anchor (a field of a data type, the elements of a
@@ -77,22 +76,6 @@ namespace idr {
 inline bool carriesLabels(mlir::Type type) {
   return !(Carriers::of(type) & Carriers::labels()).empty();
 }
-
-// Which parts of the program's constants hold a closure, each part answered
-// once: a closure does, a constructor does when one of its fields does, and
-// nothing else does. A constructor is answered after its fields, on an
-// explicit stack, so a constant of any depth takes no recursion.
-class ClosureParts {
-public:
-  bool holds(mlir::Attribute part);
-
-private:
-  // What an answered part holds; a part that is neither a closure nor a
-  // constructor holds nothing, and is never stored.
-  bool answer(mlir::Attribute part) const;
-
-  footprint::DenseMap<mlir::Attribute, bool> known;
-};
 
 namespace labels {
 
@@ -170,10 +153,9 @@ struct Read {
   footprint::Vector<Moved> moves;
 };
 
-// Reads every edge of `program`, an idr.program, that carries a label, and
-// the constants' parts where they are held. A use that moves into two
-// points states them one set, and so does a direct call in tail position
-// its callee's result points and its caller's.
+// Reads every edge of `program`, an idr.program, that carries a label. A
+// use that moves into two points states them one set, and so does a direct
+// call in tail position its callee's result points and its caller's.
 Read readProgram(mlir::Operation *program, const solver::ProgramGraph &graph);
 
 // States the edges `label` owes at `dispatch`, of `read`, which runs it:

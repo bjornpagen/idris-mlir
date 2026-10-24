@@ -217,16 +217,14 @@ numericTypeInterface = MkInterfaceDef
 
 ||| `ConstantAttrInterface`: a constant value, at which types idr.constant
 ||| holds it, how it is laid out as static data, that it agrees with what it
-||| names, how it holds closures, and what a fold reads of it. Ours take it
-||| in their declarations; upstream's strings, integers and floats, which a
-||| constant's fields and static data hold, take it as external models, so
-||| no reader names one. The layout, the closures and the fold's value are
-||| closed sums (`::idr::StaticForm`, `::idr::ClosureHolding`,
+||| names, and what a fold reads of it. Ours take it in their declarations;
+||| upstream's strings, integers and floats, which a constant's fields and
+||| static data hold, take it as external models, so no reader names one.
+||| The layout and the fold's value are closed sums (`::idr::StaticForm`,
 ||| `::idr::FoldValue`), which the vocabulary's header defines before the
 ||| interfaces, each attribute or type they hold by a handle complete before
-||| its class, so a writer of static data, a reader that walks a constant's
-||| closures and the e-graph reading a constant fold the answer and name no
-||| attribute.
+||| its class, so a writer of static data and the e-graph reading a constant
+||| fold the answer and name no attribute.
 public export
 constantAttrInterface : InterfaceDef
 constantAttrInterface = MkInterfaceDef
@@ -244,11 +242,9 @@ constantAttrInterface = MkInterfaceDef
           , param (code "::mlir::Type") (ident "type")
           , param (code "::llvm::function_ref<void(::mlir::Attribute, ::mlir::Type)>") (ident "part") ]
           EveryImplementer
-          (line "that this value, held at `type` by `holder`, agrees with what it names (a constructor's cells, a closure's function), handing each of its parts to `part` at the type it is checked at; a big, a string, an integer and a float have none")
-      , MkMethod PerObject (code "::idr::ClosureHolding") (ident "getClosureHolding") [] EveryImplementer
-          (line "how this value holds closures: a closure is one, a constructor holds those of its fields, any other holds none")
+          (line "that this value, held at `type` by `holder`, agrees with what it names (a constructor's cells), handing each of its parts to `part` at the type it is checked at; a big, a string, an integer and a float have none")
       , MkMethod PerObject (code "::idr::FoldValue") (ident "getFoldValue") [] EveryImplementer
-          (line "what a fold reads of this value: an integer, a Double, a string or a big, or a constructor or closure whole; nothing of a float of another width") ]
+          (line "what a fold reads of this value: an integer, a Double, a string or a big, or a constructor whole; nothing of a float of another width") ]
   , verifier = Unverified
   , doc = brief (line "a constant value, and how it is held, laid out and read by a fold")
   }

@@ -33,10 +33,10 @@
 // of five kinds: an integer, the one value of an interval (a big in the
 // small range among them, as the runtime holds it in its word); a string's
 // bytes; a Double's bits; a big past the small range, as the runtime holds
-// it, in a cell, with the interval its sign gives; and a constructor or a
-// closure, held as the attribute an op of the input holds, or built of its
-// parts by the composite folds (IR/FoldParts.h), made an attribute only
-// where the write-back places it. One is hash-consed
+// it, in a cell, with the interval its sign gives; and a constructor, held
+// as the attribute an op of the input holds, or built of its parts by the
+// composite folds (IR/FoldParts.h), made an attribute only where the
+// write-back places it. One is hash-consed
 // by its value, and has a node only at a type its constant op stands at;
 // an op of the input whose meaning computes such a constant is it, with no
 // node of its own. A call's result is the constant its callee returns

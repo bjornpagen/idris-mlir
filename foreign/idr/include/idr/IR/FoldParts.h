@@ -2,21 +2,20 @@
 // Copyright (c) 2026 Bjorn Pagen
 // The folds of constants made of constants, written once over where a
 // constant lives (fold::Where), as the one runtime fold and the guards'
-// conditions are: a constructor of constant fields, a closure of constant
-// captures, a constructor's tag and field read off a constant, a constant
-// read at another type, and what a walk down a constant's chain of one
-// constructor reads (a numeral's layers, a list's elements), a cell at a
-// time as the place holds it, so neither place makes a constant to walk
-// one. A fold may give a value of the program instead, an operand of its op
-// or of the op that built one (Folded). Each op's own condition is its
-// `meaning`, a template over such a place, defined in Ops/Folds.h; the
-// place says how it reads a constant's cells and fields, how it holds a
-// part, how it makes the constructor or closure, and which op built a
+// conditions are: a constructor of constant fields, a constructor's tag and
+// field read off a constant, a constant read at another type, and what a
+// walk down a constant's chain of one constructor reads (a numeral's layers,
+// a list's elements), a cell at a time as the place holds it, so neither
+// place makes a constant to walk one. A fold may give a value of the program
+// instead, an operand of its op or of the op that built one (Folded). Each
+// op's own condition is its `meaning`, a template over such a place, defined
+// in Ops/Folds.h; the place says how it reads a constant's cells and fields,
+// how it holds a part, how it makes the constructor, and which op built a
 // value, so the attribute fold and the e-graph ask one condition. The
-// attribute place makes the attribute MLIR's fold gives; the e-graph's
-// makes a constant of its own, which becomes an attribute only where the
-// write-back places it. IdrDialect.h includes this after the attributes
-// and types it reads.
+// attribute place makes the attribute MLIR's fold gives; the e-graph's makes
+// a constant of its own, which becomes an attribute only where the
+// write-back places it. IdrDialect.h includes this after the attributes and
+// types it reads.
 #ifndef IDR_IR_FOLD_PARTS_H
 #define IDR_IR_FOLD_PARTS_H
 
@@ -60,27 +59,26 @@ struct RunCell {
   std::optional<RunCell> next(unsigned index) const;
 };
 
-// A place whose constants include constructors and closures. A constructor
-// constant is read a cell at a time (Cell): its first cell; a cell's tag;
-// the cells of its run after it, and the run's last; its field `index` as
-// the next cell, where that field is a constructor, and as an element, an
-// integer or a string, the string kept by `scope` where the place makes
-// one. Its field `index` is also a constant at `type`, where the place
-// holds it as one without making a part it does not hold. Besides: whether
-// a constant may be a field or a capture of `type` (the leaf rule of a
-// constant's parts, `buildable`'s); the constructor of `data` or the
-// closure of `callee` made of constants, at `type`; and a constant as one
-// at `type`, the same value under another type. A place holds values too
+// A place whose constants include constructors. A constructor constant is
+// read a cell at a time (Cell): its first cell; a cell's tag; the cells of
+// its run after it, and the run's last; its field `index` as the next cell,
+// where that field is a constructor, and as an element, an integer or a
+// string, the string kept by `scope` where the place makes one. Its field
+// `index` is also a constant at `type`, where the place holds it as one
+// without making a part it does not hold. Besides: whether a constant may be
+// a field of `type` (the leaf rule of a constant's parts, `buildable`'s);
+// the constructor of `data` made of constants, at `type`; and a constant as
+// one at `type`, the same value under another type. A place holds values too
 // (Given): a value of the program as the place holds it, which a fold may
 // give in place of a constant (`given`, of an operand the op reads, the
-// value and what the place knows of it); and the op of a class that built
-// a value, with its operands' values (`builtBy<OpT>`, a member template, so
-// no concept names it).
+// value and what the place knows of it); and the op of a class that built a
+// value, with its operands' values (`builtBy<OpT>`, a member template, so no
+// concept names it).
 template <class W>
 concept Composite = Where<W> && requires(W &where, const typename W::Operand &constant,
                                          llvm::ArrayRef<typename W::Operand> parts,
                                          mlir::Type type, unsigned index, const DataType &data,
-                                         mlir::FlatSymbolRefAttr callee, mlir::Value value,
+                                         mlir::Value value,
                                          const typename W::Cell &cell, Scope &scope) {
   typename W::Given;
   typename W::Cell;
@@ -95,7 +93,6 @@ concept Composite = Where<W> && requires(W &where, const typename W::Operand &co
   { where.fieldOf(constant, index, type) } -> std::same_as<std::optional<typename W::Result>>;
   { where.buildable(constant, type) } -> std::same_as<bool>;
   { where.constructor(type, data, parts) } -> std::same_as<std::optional<typename W::Result>>;
-  { where.closure(type, callee, parts) } -> std::same_as<std::optional<typename W::Result>>;
   { where.same(type, constant) } -> std::same_as<std::optional<typename W::Result>>;
 };
 
@@ -116,10 +113,9 @@ struct Built {
 // attribute, a constant constructor read a cell at a time where its run
 // holds it (RunCell), a field read off one is the attribute it holds (a
 // run's rest made where it is asked, as MLIR's fold gives a field whole),
-// and a constructor or closure
-// is the attribute made of its parts, where idr.constant holds it at the
-// result's type. A value is the program's own, and the op that built one
-// is its defining op.
+// and a constructor is the attribute made of its parts, where idr.constant
+// holds it at the result's type. A value is the program's own, and the op
+// that built one is its defining op.
 class InParts : public InAttributes {
 public:
   using Given = mlir::Value;
@@ -144,8 +140,6 @@ public:
   }
   std::optional<mlir::Attribute> constructor(mlir::Type type, const DataType &data,
                                              llvm::ArrayRef<mlir::Attribute> fields) const;
-  std::optional<mlir::Attribute> closure(mlir::Type type, mlir::FlatSymbolRefAttr callee,
-                                         llvm::ArrayRef<mlir::Attribute> captures) const;
   std::optional<mlir::Attribute> same(mlir::Type type, mlir::Attribute constant) const;
 
   std::optional<RunCell> cellOf(mlir::Attribute constant) const;
@@ -176,13 +170,11 @@ inline mlir::OpFoldResult foldResultOf(const std::optional<Folded<InParts>> &fol
   return std::get<mlir::Value>(*folded);
 }
 
-// Where idr.constant holds a constructor of `data`, or a closure, at `type`:
-// `data` refines the type's data type, or the type carries labels; and,
-// either way, it stands as static data does there. The one statement of
-// where each stands, which the attributes' own checks and the e-graph's
-// constants, which hold no attribute, ask.
+// Where idr.constant holds a constructor of `data` at `type`: `data`
+// refines the type's data type, and it stands as static data does there.
+// The one statement of where it stands, which the attribute's own check
+// and the e-graph's constants, which hold no attribute, ask.
 bool constructorStandsAt(const DataType &data, mlir::Type type);
-bool closureStandsAt(mlir::Type type);
 
 // The successor layers of a constant numeral of `data`, read a run at a
 // time, however long: each successor's one field is the next layer, until

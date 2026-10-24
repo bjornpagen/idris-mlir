@@ -80,17 +80,16 @@ bool operator==(const Big &a, const Big &b) {
   return runtime::Abi<BigCmpOp>::function(a.word, b.word) == 0;
 }
 
-// A held constant is its attribute; a built one its constructor's data type
-// or its closure's function, and its parts, each with its type. Its hash is
+// A held constant is its attribute; a built one its constructor's data
+// type, and its parts, each with its type. Its hash is
 // computed once, when it is made, of its parts' own. A built constant may
 // hold a chain of built constants as deep as the program's text makes it,
 // so every walk over one keeps its place on a stack of its own, and a node
 // releases the nodes it alone holds one after another, never one inside
 // another's destructor.
 struct Data::Node {
-  mlir::Attribute held;
+  ConAttr held;
   DataType data;
-  FlatSymbolRefAttr callee;
   llvm::SmallVector<Part, 2> parts;
   std::size_t hash = 0;
 
@@ -138,7 +137,7 @@ Data::Node::~Node() {
   }
 }
 
-Data Data::held(mlir::Attribute value) {
+Data Data::held(ConAttr value) {
   auto node = std::make_shared<Node>();
   node->held = value;
   node->hash = static_cast<std::size_t>(llvm::hash_value(value.getAsOpaquePointer()));
@@ -153,28 +152,17 @@ Data Data::constructor(DataType data, llvm::SmallVector<Part, 2> fields) {
   return Data(std::move(node));
 }
 
-Data Data::closure(FlatSymbolRefAttr callee, llvm::SmallVector<Part, 2> captures) {
-  auto node = std::make_shared<Node>();
-  node->callee = callee;
-  node->hash = hashOfParts(llvm::hash_value(callee.getAsOpaquePointer()), captures);
-  node->parts = std::move(captures);
-  return Data(std::move(node));
-}
-
-mlir::Attribute Data::heldValue() const { return node->held; }
+ConAttr Data::heldValue() const { return node->held; }
 DataType Data::builtData() const { return node->data; }
-FlatSymbolRefAttr Data::builtCallee() const { return node->callee; }
 llvm::ArrayRef<Part> Data::parts() const { return node->parts; }
 std::size_t Data::hash() const { return node->hash; }
 
 // A held constructor's tag is its attribute's; a built one's, its data
-// type's one constructor.
-std::optional<Tag> Data::tag() const {
-  if (auto con = dyn_cast_or_null<ConAttr>(node->held))
-    return con.getTag();
-  if (node->data)
-    return node->data.singleTag();
-  return std::nullopt;
+// type's one constructor, to which an idr.data.con's result is refined.
+Tag Data::tag() const {
+  if (node->held)
+    return node->held.getTag();
+  return *node->data.singleTag();
 }
 
 // Pair by pair down both, each pair of built parts compared after the pair
@@ -194,7 +182,7 @@ bool operator==(const Data &a, const Data &b) {
         return false;
       continue;
     }
-    if (x->data != y->data || x->callee != y->callee || x->parts.size() != y->parts.size())
+    if (x->data != y->data || x->parts.size() != y->parts.size())
       return false;
     for (auto [p, q] : llvm::zip_equal(x->parts, y->parts)) {
       if (p.type != q.type || p.value.index() != q.value.index())
@@ -256,8 +244,8 @@ std::uint64_t bytesOf(const Constant &constant) {
 }
 
 // A string and a big past the small range are static data, in a cell; a
-// held constructor or closure stands where idr.constant holds its
-// attribute, and a built one where it would hold the attribute made of it.
+// held constructor stands where idr.constant holds its attribute, and a
+// built one where it would hold the attribute made of it.
 bool placedAt(const Constant &constant, Type type) {
   return match(
       constant, [&](const Real &) { return type.isF64(); },
@@ -265,11 +253,9 @@ bool placedAt(const Constant &constant, Type type) {
         return fold::constantStandsAt(type, fold::Storage::Cell);
       },
       [&](const Data &data) {
-        if (mlir::Attribute held = data.heldValue())
+        if (ConAttr held = data.heldValue())
           return ConstantOp::isBuildableWith(held, type);
-        if (DataType built = data.builtData())
-          return fold::constructorStandsAt(built, type);
-        return fold::closureStandsAt(type);
+        return fold::constructorStandsAt(data.builtData(), type);
       });
 }
 
@@ -337,7 +323,7 @@ SmallVector<ConstantIntRanges, 4> intervalsOf(llvm::ArrayRef<const Class *> oper
 // The value instance
 //===----------------------------------------------------------------------===//
 
-// The constructor or closure constant a class holds, borrowed from it.
+// The constructor constant a class holds, borrowed from it.
 const Data *dataOf(const Class *cls) {
   return cls->facts.constant ? std::get_if<Data>(&*cls->facts.constant) : nullptr;
 }
@@ -352,9 +338,8 @@ Facts factsOfPart(const Part &part) {
       [](const Constant &constant) { return factsOf(constant); });
 }
 
-// The parts a constructor or closure is built of: each class's constant,
-// an integer or another, with the class's type; none where one is no
-// constant.
+// The parts a constructor is built of: each class's constant, an integer
+// or another, with the class's type; none where one is no constant.
 std::optional<llvm::SmallVector<Part, 2>> partsOf(llvm::ArrayRef<const Class *> classes) {
   llvm::SmallVector<Part, 2> parts;
   for (const Class *cls : classes) {
@@ -368,12 +353,10 @@ std::optional<llvm::SmallVector<Part, 2>> partsOf(llvm::ArrayRef<const Class *> 
   return parts;
 }
 
-// A constructor constant's first cell: a held attribute's run's, or a built
-// one; none for a closure.
-std::optional<std::variant<fold::RunCell, const Data *>> cellOfData(const Data &data) {
-  if (!data.tag())
-    return std::nullopt;
-  if (auto con = dyn_cast_or_null<ConAttr>(data.heldValue()))
+// A constructor constant's first cell: a held attribute's run's, or a
+// built one.
+std::variant<fold::RunCell, const Data *> cellOfData(const Data &data) {
+  if (ConAttr con = data.heldValue())
     return fold::RunCell{con, 0};
   return &data;
 }
@@ -469,13 +452,13 @@ public:
 
   std::optional<Cell> cellOf(const Class *cls) const {
     const Data *data = dataOf(cls);
-    return data ? cellOfData(*data) : std::nullopt;
+    return data ? std::optional<Cell>(cellOfData(*data)) : std::nullopt;
   }
 
   Tag tagAt(const Cell &cell) const {
     return match(
         cell, [](const fold::RunCell &held) { return held.tag(); },
-        [](const Data *built) { return *built->tag(); });
+        [](const Data *built) { return built->tag(); });
   }
 
   std::uint64_t afterAt(const Cell &cell) const {
@@ -502,7 +485,7 @@ public:
           const Part *part = partOf(*built, index);
           const auto *constant = part ? std::get_if<Constant>(&part->value) : nullptr;
           const Data *data = constant ? std::get_if<Data>(constant) : nullptr;
-          return data ? cellOfData(*data) : std::nullopt;
+          return data ? std::optional<Cell>(cellOfData(*data)) : std::nullopt;
         });
   }
 
@@ -532,11 +515,10 @@ public:
 
   std::optional<Facts> fieldOf(const Class *cls, unsigned index, Type) const {
     const Data *data = dataOf(cls);
-    std::optional<Cell> cell = data ? cellOfData(*data) : std::nullopt;
-    if (!cell)
+    if (!data)
       return std::nullopt;
     return match(
-        *cell,
+        cellOfData(*data),
         [&](const fold::RunCell &held) -> std::optional<Facts> {
           mlir::Attribute field = held.field(index);
           return field ? std::optional<Facts>(heldFacts(field)) : std::nullopt;
@@ -576,14 +558,6 @@ public:
     return Facts{std::nullopt, Data::constructor(data, std::move(*parts))};
   }
 
-  std::optional<Facts> closure(Type, FlatSymbolRefAttr callee,
-                               llvm::ArrayRef<const Class *> captures) const {
-    std::optional<llvm::SmallVector<Part, 2>> parts = partsOf(captures);
-    if (!parts)
-      return std::nullopt;
-    return Facts{std::nullopt, Data::closure(callee, std::move(*parts))};
-  }
-
   // The same value under another type: the constant past an interval a class
   // holds, a string or a big past the small range, which no width ties to
   // its type; an integer the op's own interval says at its own type.
@@ -612,7 +586,7 @@ public:
 
 static_assert(fold::Where<InGraph>, "the graph's values are a place a constant lives");
 static_assert(fold::Composite<InGraph>,
-              "the graph's values hold constructors and closures of constants");
+              "the graph's values hold constructors of constants");
 
 template <class Op>
 std::optional<Facts> meaningOf(llvm::ArrayRef<const Class *> operands, Type type,
@@ -951,7 +925,7 @@ std::vector<std::pair<TypeID, Borrowed>> borrowings() {
 // A constant an op holds is read as what it says a fold reads of it, and
 // kept as the graph's: a string or a big made by the attribute instance's
 // readers, a reference of the graph's own beside the scope's, which the
-// scope releases; a constructor or a closure held as it is. Any other
+// scope releases; a constructor held as it is. Any other
 // attribute is no constant.
 Facts heldFacts(Attribute value) {
   auto constant = dyn_cast<ConstantAttrInterface>(value);
@@ -973,7 +947,9 @@ Facts heldFacts(Attribute value) {
         fold::Scope scope(value.getContext());
         return factsOfBig(Big::share(*fold::bigOf(scope, big.value.get())));
       },
-      [&](fold_value::Whole) -> Facts { return {std::nullopt, Data::held(value)}; },
+      [](const fold_value::Constructor &con) -> Facts {
+        return {std::nullopt, Data::held(con.value.get())};
+      },
       [](fold_value::Unread) -> Facts { return {}; });
 }
 
@@ -1032,16 +1008,16 @@ mlir::Attribute attributeOf(MLIRContext *context, const Part &part) {
             },
             [&](const Text &text) { return fold::strAttr(context, text.get()); },
             [&](const Big &big) { return fold::bigAttr(context, big.get()); },
-            [&](const Data &data) { return data.heldValue(); });
+            [&](const Data &data) -> mlir::Attribute { return data.heldValue(); });
       });
 }
 
-// The attribute a constructor or closure constant is, made here, at the
-// write-back: a held one's own; a built one's of its parts' attributes,
-// each built part made before the constant that holds it, on a stack of
-// the constants still being made with the attributes of their parts so far.
+// The attribute a constructor constant is, made here, at the write-back: a
+// held one's own; a built one's of its parts' attributes, each built part
+// made before the constant that holds it, on a stack of the constants still
+// being made with the attributes of their parts so far.
 mlir::Attribute attributeOf(MLIRContext *context, const Data &root) {
-  if (mlir::Attribute held = root.heldValue())
+  if (ConAttr held = root.heldValue())
     return held;
   struct Making {
     const Data *data;
@@ -1061,11 +1037,7 @@ mlir::Attribute attributeOf(MLIRContext *context, const Data &root) {
         stack.back().parts.push_back(attributeOf(context, part));
       continue;
     }
-    ArrayAttr parts = ArrayAttr::get(context, stack.back().parts);
-    if (DataType built = data->builtData())
-      made = ConAttr::get(context, built, parts);
-    else
-      made = ClosureAttr::get(context, data->builtCallee(), parts);
+    made = ConAttr::get(context, data->builtData(), ArrayAttr::get(context, stack.back().parts));
     stack.pop_back();
     if (!stack.empty())
       stack.back().parts.push_back(made);

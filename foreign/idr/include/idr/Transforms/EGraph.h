@@ -273,31 +273,27 @@ private:
 
 struct Part;
 
-// A constructor or closure constant: one an op of the input holds, read as
-// the attribute it holds, or one the graph built of its parts, which the
+// A constructor constant: one an op of the input holds, read as the
+// attribute it holds, or one the graph built of its parts, which the
 // write-back makes an attribute of where it places it, and nothing before.
 // Two are one constant where both are held as one attribute, or both built
 // alike; a built one and a held one equal to it are two, which only shares
 // less. A copy shares the parts.
 class Data {
 public:
-  // A constructor or closure constant an op of the input holds.
-  static Data held(mlir::Attribute value);
+  // A constructor constant an op of the input holds.
+  static Data held(ConAttr value);
   // `data`'s one constructor, with `fields`.
   static Data constructor(DataType data, llvm::SmallVector<Part, 2> fields);
-  // A closure of `callee` with `captures`.
-  static Data closure(mlir::FlatSymbolRefAttr callee, llvm::SmallVector<Part, 2> captures);
 
   // The attribute an op of the input holds; null for one the graph built.
-  mlir::Attribute heldValue() const;
-  // A built constructor's data type, null for any other.
+  ConAttr heldValue() const;
+  // A built constructor's data type, null for a held one.
   DataType builtData() const;
-  // A built closure's function, null for any other.
-  mlir::FlatSymbolRefAttr builtCallee() const;
-  // A built constant's fields or captures, none for a held one.
+  // A built constant's fields, none for a held one.
   llvm::ArrayRef<Part> parts() const;
-  // A constructor's tag, held or built; none for a closure.
-  std::optional<Tag> tag() const;
+  // Its constructor's tag, held or built.
+  Tag tag() const;
   std::size_t hash() const;
 
   friend bool operator==(const Data &a, const Data &b);
@@ -309,13 +305,12 @@ private:
 };
 
 // What the graph knows a value to be where no interval says it: a string,
-// a Double, a big past the small range, or a constructor or closure
-// constant.
+// a Double, a big past the small range, or a constructor constant.
 using Constant = std::variant<Text, Real, Big, Data>;
 
-// A field of a constructor constant or a capture of a closure constant the
-// graph built: the integer or the constant the operand it was built of is,
-// with that operand's type, at which the write-back makes its attribute.
+// A field of a constructor constant the graph built: the integer or the
+// constant the operand it was built of is, with that operand's type, at
+// which the write-back makes its attribute.
 struct Part {
   std::variant<llvm::APInt, Constant> value;
   mlir::Type type;
@@ -339,17 +334,15 @@ public:
   explicit OperandFacts(const detail::Function &function) : function(function) {}
   // The constant the value is, where the graph knows it, whether an op of
   // the input held it or the graph computed it; none where it is no one
-  // such constant (a data constant, a closure: see `held` and
-  // `constructorTag`).
+  // such constant (a data constant: see `held` and `constructorTag`).
   std::optional<KnownConstant> constant(mlir::Value value) const;
   // The constructor of the constructor constant the value is, whether an op
   // of the input held it or the graph built it; none where it is none.
   std::optional<Tag> constructorTag(mlir::Value value) const;
   // The constant an op of a member holds, as it holds it; null where none
   // does. It is the one form of a constant the graph reads no value of (a
-  // data constant, a closure), and what a hook that takes attributes is
-  // given; a constant the graph computed holds no attribute, and `constant`
-  // reads it.
+  // data constant), and what a hook that takes attributes is given; a
+  // constant the graph computed holds no attribute, and `constant` reads it.
   mlir::Attribute held(mlir::Value value) const;
   // The interval of an integer value, where the interval analysis knows
   // one; an interval of one value is the integer the value is.

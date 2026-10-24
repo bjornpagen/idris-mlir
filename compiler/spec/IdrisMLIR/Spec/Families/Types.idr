@@ -297,7 +297,7 @@ conAttr = MkAttrDef
       , MkParameter "cells" (ListOf AttrValue) AlwaysWritten "the cells, each an array of its fields, every one but the last without the spine"
       , MkParameter "spine" CountValue (DefaultsTo "0") "the field a run runs along" ]
   , syntax = HandSyntax
-  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]]
+  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getFoldValue"]]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readCon"
   , storage = HandStorage
