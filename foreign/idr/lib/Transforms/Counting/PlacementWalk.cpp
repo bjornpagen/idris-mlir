@@ -5,17 +5,16 @@
 // A region op that enters one of its regions once per run moves what its
 // regions need into them, each region dropping at its head what a sibling
 // needs and it does not; one that may run a region any number of times, or
-// none, holds what its regions read across it, save a value used once that
-// the region it runs first and alone reads (a loop's body), which moves in
-// there as into a region run once; and one whose region binds a lifetime
-// holds what is lent to upstream's ops under it, which outlives the
-// lifetime. A terminator's successors say what is needed where it
+// none, holds what its regions that repeat read across it, and what only
+// the region it runs first and alone reads (a loop's body) moves in there
+// as into a region run once, whatever its uses; and one whose region binds
+// a lifetime holds what is lent to upstream's ops under it, which outlives
+// the lifetime. A terminator's successors say what is needed where it
 // leaves. The walk's stacks are on the heap, so a nesting of any depth
 // costs no native stack.
 #include "idr/Transforms/Counting/Placement.h"
 
 #include "idr/IR/Counting/Counting.h"
-#include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
 
 #include "llvm/ADT/STLExtras.h"
@@ -90,20 +89,18 @@ bool Placement::aliveAt(ValueId owner, Operation *op, const State &state) const 
 
 // The counted values defined outside `op` that its regions use, a part's
 // owner with the part: what an op that may run its regions many times holds
-// across them. A value used once whose use lies in `first`, the region the
-// op runs first and alone, is not held: that region runs once, before
-// anything repeats, so its one use there moves it in, as a region an op
-// enters once takes what it needs, and nothing duplicates it.
+// across them. A use in `first`, the region the op runs first and alone,
+// holds nothing, whatever the value's uses: that region runs once, before
+// anything repeats, so what it needs moves in, as a region an op enters
+// once takes what it needs, and nothing duplicates it there. A value a
+// region that repeats reads as well is held for that read.
 llvm::BitVector Placement::heldBy(Operation *op, Region *first) const {
   llvm::BitVector held(count.value());
   op->walk([&](Operation *inner) {
-    if (inner == op)
+    if (inner == op || (first && first->isAncestor(inner->getParentRegion())))
       return;
     for (Value operand : inner->getOperands()) {
       if (op->isAncestor(operand.getParentBlock()->getParentOp()))
-        continue;
-      if (first && first->isAncestor(inner->getParentRegion()) &&
-          usesOf(operand.getType()) == Uses::Once)
         continue;
       ValueId id = idOf(operand);
       if (roles[id] == Role::Owned)
@@ -246,7 +243,7 @@ State Placement::finishOp(OpWalk &walk) {
     before.live = walk.after.live;
     before.live |= walk.held;
     // And what the region it runs first takes in: beyond what the op holds,
-    // the values used once that it moves in.
+    // the values only it reads, which move in.
     if (walk.first)
       if (const std::optional<State> &entry = walk.entries[walk.first->getRegionNumber()])
         before.live |= entry->live;

@@ -15,12 +15,13 @@
 //     nothing.
 // A region op that enters one of its regions once per run moves what its
 // regions need into them; one that may run a region any number of times, or
-// none, holds what its regions read across it, and inside it each consuming
-// use of what it holds takes a dup. A value used once that the region such
-// an op runs first and alone reads (a loop's body, before anything repeats)
-// is not held: it moves in, so nothing duplicates it. Nothing is placed
-// after a call in tail position or modulo a context: a drop it would need
-// is a caller's promise broken, an internal error.
+// none, holds what its regions that repeat read across it, and inside it
+// each consuming use of what it holds takes a dup. What only the region
+// such an op runs first and alone reads (a loop's body, before anything
+// repeats) is not held, whatever its uses: it moves in, as into a region
+// run once, so nothing duplicates it there or drops it after. Nothing is
+// placed after a call in tail position or modulo a context: a drop it
+// would need is a caller's promise broken, an internal error.
 //
 // A part of a counted value (a field read of it, a view of its buffer)
 // holds no reference while the value does: it is read while its owner
