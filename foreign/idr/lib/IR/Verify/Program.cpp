@@ -202,6 +202,12 @@ LogicalResult idr::verify::program(ProgramOp program) {
   Stage stage = program.getStage();
   if (functionsAt[stage] == StageFunctions::Lowered)
     return success();
+  // The program's own upstream ops (the static buffers bufferization makes)
+  // stand where they are admitted, as each function's do in its walk.
+  Admission admission(stage);
+  for (Operation &op : program.getBody().front())
+    if (failed(admission.check(&op)))
+      return failure();
   if (countingAt[stage] == StageCounting::Counted)
     return failure(failed(globals(program)) || failed(recycles(program)));
   return success();
@@ -223,7 +229,8 @@ LogicalResult idr::verify::function(FuncOp fn) {
   rows::Check row(fn);
   ownership::LocalCheck local;
   LifetimeRules lifetimes(fn);
-  if (failed(families::walkFunction(fn, rules, scopes, row, local, lifetimes)) ||
+  Admission admission(stage);
+  if (failed(families::walkFunction(fn, rules, scopes, row, local, lifetimes, admission)) ||
       failed(linearity(fn)))
     return failure();
   return success();

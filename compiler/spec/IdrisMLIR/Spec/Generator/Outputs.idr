@@ -157,15 +157,13 @@ admittedBaseTd =
     , "}"
     , ""
     , "// An upstream op the dialect admits: upstream's own record, the alias"
-    , "// its C++ class is known by among every dialect's admitted ops, the"
-    , "// stages it may stand at, whether the frontend writes it (its Idris"
-    , "// builder is printed), and the guards that builder gives it."
-    , "class IdrAdmitted<Op upstream, string aliasName, string first, string last,"
-    , "                  int written, list<IdrAdmittedGuard> guarded> {"
+    , "// its C++ class is known by among every dialect's admitted ops, whether"
+    , "// the frontend writes it (its Idris builder is printed), and the guards"
+    , "// that builder gives it."
+    , "class IdrAdmitted<Op upstream, string aliasName, int written,"
+    , "                  list<IdrAdmittedGuard> guarded> {"
     , "  Op op = upstream;"
     , "  string alias = aliasName;"
-    , "  string firstStage = first;"
-    , "  string lastStage = last;"
     , "  int frontendWrites = written;"
     , "  list<IdrAdmittedGuard> guards = guarded;"
     , "}"
@@ -186,19 +184,12 @@ admittedGuard g =
 export
 admittedRow : Admitted -> String
 admittedRow a =
-  let (first, last) = bounds a.legal
-      written = case a.writer of
+  let written = case a.writer of
                   FrontendWrites => "1"
                   PassesOnly => "0"
   in "def IdrAdmitted_" ++ identText a.alias ++ " : IdrAdmitted<" ++ identText a.upstreamRecord ++ ", "
-       ++ quoted (identText a.alias) ++ ", " ++ quoted first ++ ", " ++ quoted last ++ ", " ++ written ++ ", ["
+       ++ quoted (identText a.alias) ++ ", " ++ written ++ ", ["
        ++ joinWith ", " (map admittedGuard a.guards) ++ "]>;"
-  where
-    name : Stage -> String
-    name s = identText (stageClosed.describe s).name
-    bounds : Legal -> (String, String)
-    bounds Always = ("Higher", "Lowered")
-    bounds (Between f l _) = (name f, name l)
 
 ||| Whether two dialects are one: their positions in the closed set.
 sameDialect : Dialect -> Dialect -> Bool
@@ -480,6 +471,7 @@ generate =
   ++ map admittedTd admittingDialects
   ++ entriesTds
   ++ [ (generated "AdmittedClasses.h.inc", render (admittedClassesHeader admittingDialects))
+     , (generated "AdmittedStages.h.inc", render (admittedStagesHeader declarations.admitted))
      , (generated "WrittenDialects.txt", writtenDialectsList)
      , (generated "WrittenDialects.h.inc", render (writtenDialectsHeader writtenDialects))
      , (generated "EnumTraits.h.inc", render (odsEnumTraits declarations.enums))

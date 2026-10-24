@@ -322,6 +322,45 @@ admittedClassesHeader ds =
     includes d = [ quoted (cppHeader d)
                  , quoted ("idr/IR/IdrAdmitted" ++ identText (dialectName d) ++ "Classes.h.inc") ]
 
+||| The stages each admitted op may stand at, by the alias of its class, and
+||| the last stage at which every upstream op a program holds is admitted:
+||| what a program's verifier reads an upstream op's place from, through the
+||| op's class, so it names no op and restates no stage. The aliases are the
+||| backend's (`AdmittedClasses.h.inc`), and the stages the dialect's enum,
+||| which the includer declares.
+export
+admittedStagesHeader : List Admitted -> Lines
+admittedStagesHeader admitted =
+  header "AdmittedStages" [quoted "idr/IR/Generated/AdmittedClasses.h.inc"]
+    (inNamespace "idr::admitted"
+      ( slashComment ["An admitted op, by its class, and the stages from `First` to `Last` of the chain it may stand at."]
+        ++ [ "template <class Op, ::idr::Stage First, ::idr::Stage Last>"
+           , "struct Stages {"
+           , "  using Class = Op;"
+           , "  static constexpr ::idr::Stage first = First;"
+           , "  static constexpr ::idr::Stage last = Last;"
+           , "};", "" ]
+        ++ slashComment ["Admitted ops, each with its stages."]
+        ++ ["template <class... Ops>", "struct Rows {};", ""]
+        ++ slashComment ["Every op the dialect admits, once, in the specification's order."]
+        ++ ["using Every = Rows<"] ++ indent 4 (separated (map row admitted)) ++ [">;", ""]
+        ++ slashComment [ "The last stage at which every upstream op a program holds is admitted: past it, upstream's"
+                        , "models write ops of their own that no list names." ]
+        ++ ["inline constexpr ::idr::Stage listedThrough = " ++ stage listedThrough ++ ";"] ))
+  where
+    stage : Stage -> String
+    stage s = "::idr::Stage::" ++ stageName s
+    bounds : Legal -> (Stage, Stage)
+    bounds Always = (Higher, Lowered)
+    bounds (Between first last _) = (first, last)
+    row : Admitted -> String
+    row a = let (first, last) = bounds a.legal
+            in "Stages<" ++ admittedAlias a ++ ", " ++ stage first ++ ", " ++ stage last ++ ">"
+    separated : List String -> Lines
+    separated [] = []
+    separated [x] = [x]
+    separated (x :: xs) = (x ++ ",") :: separated xs
+
 ||| The upstream dialects the frontend writes an op of, as their C++ classes:
 ||| one list type, which the driver registers and tells a module's ops by,
 ||| so no reader names one by its namespace or keeps a list of its own; each

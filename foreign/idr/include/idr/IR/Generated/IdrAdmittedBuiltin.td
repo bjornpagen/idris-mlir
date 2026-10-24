@@ -9,5 +9,5 @@
 include "mlir/IR/BuiltinOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
-def IdrAdmitted_Builtin_ModuleOp : IdrAdmitted<ModuleOp, "Builtin_ModuleOp", "Higher", "Lowered", 1, []>;
+def IdrAdmitted_Builtin_ModuleOp : IdrAdmitted<ModuleOp, "Builtin_ModuleOp", 1, []>;
 #endif // IDR_GENERATED_ADMITTED_BUILTIN

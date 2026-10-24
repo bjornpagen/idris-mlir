@@ -9,5 +9,6 @@
 include "mlir/Dialect/UB/IR/UBOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
-def IdrAdmitted_UB_UnreachableOp : IdrAdmitted<UnreachableOp, "UB_UnreachableOp", "Higher", "Lowered", 1, []>;
+def IdrAdmitted_UB_UnreachableOp : IdrAdmitted<UnreachableOp, "UB_UnreachableOp", 1, []>;
+def IdrAdmitted_UB_PoisonOp : IdrAdmitted<PoisonOp, "UB_PoisonOp", 0, []>;
 #endif // IDR_GENERATED_ADMITTED_UB

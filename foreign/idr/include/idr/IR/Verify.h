@@ -46,6 +46,34 @@ mlir::LogicalResult program(ProgramOp program);
 // the linearity rule, which counts each value's uses.
 mlir::LogicalResult function(FuncOp fn);
 
+// Where upstream's ops stand in a program whose functions are ours, a rule
+// of each function's one walk (families::walkFunction) and of the
+// program's own ops: an upstream op the specification admits stands only
+// at the stages its record gives it, read off the op's class through the
+// generated table (AdmittedStages.h.inc); and through the frontend's stage
+// (admitted::listedThrough) every upstream op is admitted, since the
+// frontend writes upstream's ops only by the builders of admitted ones.
+// Past it, bufferization hands the arrays to upstream's models, whose own
+// ops no list names and no stage bounds. An op of ours is held to its
+// family's stages, never an admitted record's. Every op after the
+// frontend's is a pass's, and the frontend writes only admitted ops legal
+// at its stage, so an op this rule fails at is an internal error, never a
+// refusal of the program.
+class Admission {
+public:
+  explicit Admission(Stage stage) : stage(stage) {}
+
+  // Before the ops of a region: nothing.
+  mlir::LogicalResult enter(mlir::Operation *, mlir::Region &) { return mlir::success(); }
+  // At `op`, before its regions.
+  mlir::LogicalResult check(mlir::Operation *op) const;
+  // After the ops of a region: nothing.
+  void leave() {}
+
+private:
+  Stage stage;
+};
+
 // The one linearity rule of `fn`, after every pass. A value its grade uses
 // once is used at most once on every path, field by field: a field read
 // takes that field alone, an op that ends the value's owner (EndsOwner)

@@ -9,17 +9,17 @@
 include "mlir/Dialect/Tensor/IR/TensorOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
-def IdrAdmitted_Tensor_CastOp : IdrAdmitted<Tensor_CastOp, "Tensor_CastOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_DimOp : IdrAdmitted<Tensor_DimOp, "Tensor_DimOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_EmptyOp : IdrAdmitted<Tensor_EmptyOp, "Tensor_EmptyOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_ExtractOp : IdrAdmitted<Tensor_ExtractOp, "Tensor_ExtractOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_ExtractSliceOp : IdrAdmitted<Tensor_ExtractSliceOp, "Tensor_ExtractSliceOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_FromElementsOp : IdrAdmitted<Tensor_FromElementsOp, "Tensor_FromElementsOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_InsertOp : IdrAdmitted<Tensor_InsertOp, "Tensor_InsertOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_InsertSliceOp : IdrAdmitted<Tensor_InsertSliceOp, "Tensor_InsertSliceOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_ExpandShapeOp : IdrAdmitted<Tensor_ExpandShapeOp, "Tensor_ExpandShapeOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_CollapseShapeOp : IdrAdmitted<Tensor_CollapseShapeOp, "Tensor_CollapseShapeOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_ConcatOp : IdrAdmitted<Tensor_ConcatOp, "Tensor_ConcatOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_PadOp : IdrAdmitted<Tensor_PadOp, "Tensor_PadOp", "Higher", "First", 1, []>;
-def IdrAdmitted_Tensor_YieldOp : IdrAdmitted<Tensor_YieldOp, "Tensor_YieldOp", "Higher", "First", 1, []>;
+def IdrAdmitted_Tensor_CastOp : IdrAdmitted<Tensor_CastOp, "Tensor_CastOp", 1, []>;
+def IdrAdmitted_Tensor_DimOp : IdrAdmitted<Tensor_DimOp, "Tensor_DimOp", 1, []>;
+def IdrAdmitted_Tensor_EmptyOp : IdrAdmitted<Tensor_EmptyOp, "Tensor_EmptyOp", 1, []>;
+def IdrAdmitted_Tensor_ExtractOp : IdrAdmitted<Tensor_ExtractOp, "Tensor_ExtractOp", 1, []>;
+def IdrAdmitted_Tensor_ExtractSliceOp : IdrAdmitted<Tensor_ExtractSliceOp, "Tensor_ExtractSliceOp", 1, []>;
+def IdrAdmitted_Tensor_FromElementsOp : IdrAdmitted<Tensor_FromElementsOp, "Tensor_FromElementsOp", 1, []>;
+def IdrAdmitted_Tensor_InsertOp : IdrAdmitted<Tensor_InsertOp, "Tensor_InsertOp", 1, []>;
+def IdrAdmitted_Tensor_InsertSliceOp : IdrAdmitted<Tensor_InsertSliceOp, "Tensor_InsertSliceOp", 1, []>;
+def IdrAdmitted_Tensor_ExpandShapeOp : IdrAdmitted<Tensor_ExpandShapeOp, "Tensor_ExpandShapeOp", 1, []>;
+def IdrAdmitted_Tensor_CollapseShapeOp : IdrAdmitted<Tensor_CollapseShapeOp, "Tensor_CollapseShapeOp", 1, []>;
+def IdrAdmitted_Tensor_ConcatOp : IdrAdmitted<Tensor_ConcatOp, "Tensor_ConcatOp", 1, []>;
+def IdrAdmitted_Tensor_PadOp : IdrAdmitted<Tensor_PadOp, "Tensor_PadOp", 1, []>;
+def IdrAdmitted_Tensor_YieldOp : IdrAdmitted<Tensor_YieldOp, "Tensor_YieldOp", 1, []>;
 #endif // IDR_GENERATED_ADMITTED_TENSOR

@@ -557,6 +557,19 @@ ubUnreachable = MkAdmitted
   { dialect = UB, upstreamRecord = "UnreachableOp", alias = "UB_UnreachableOp", legal = Always
   , writer = FrontendWrites, guards = [], laws = [], range = Nothing, folding = UpstreamFold }
 
+||| What stands for a value nothing reads or no run computes: a result
+||| dropped from a call that still stands where no return takes it, what a
+||| move or a closure's apply that never runs would give, what a region that
+||| never returns would give. The frontend writes none; passes write it from
+||| the first-order program on, and the flow, the ranges, bufferization and
+||| the lowering read it by its class. Its record's name holds no dialect,
+||| so its alias does.
+public export
+ubPoison : Admitted
+ubPoison = MkAdmitted
+  { dialect = UB, upstreamRecord = "PoisonOp", alias = "UB_PoisonOp", legal = between First Owned
+  , writer = PassesOnly, guards = [], laws = [], range = Nothing, folding = UpstreamFold }
+
 ||| Every upstream op the dialect admits, once.
 public export
 opAdmitted : List Admitted
@@ -565,7 +578,7 @@ opAdmitted =
   , minUI, arithSelect, truncI
   , extUI, extSI, indexCast, indexCastUI, uiToFP, siToFP, addF, subF, mulF, divF, negF, cmpF
   , expF, logF, sinF, cosF, tanF, asinF, acosF, atanF, sqrtF, floorF, ceilF, powF
-  , ubUnreachable ]
+  , ubUnreachable, ubPoison ]
 
 ------------------------------------------------------------------------------
 -- Effects, as each runtime function has them

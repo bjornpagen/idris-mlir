@@ -9,9 +9,12 @@
 include "mlir/Dialect/MemRef/IR/MemRefOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
-def IdrAdmitted_MemRef_DimOp : IdrAdmitted<MemRef_DimOp, "MemRef_DimOp", "Higher", "Owned", 1, []>;
-def IdrAdmitted_MemRef_AllocOp : IdrAdmitted<MemRef_AllocOp, "MemRef_AllocOp", "First", "Owned", 0, []>;
-def IdrAdmitted_MemRef_CopyOp : IdrAdmitted<CopyOp, "MemRef_CopyOp", "First", "Owned", 0, []>;
-def IdrAdmitted_MemRef_LoadOp : IdrAdmitted<LoadOp, "MemRef_LoadOp", "First", "Owned", 0, []>;
-def IdrAdmitted_MemRef_StoreOp : IdrAdmitted<MemRef_StoreOp, "MemRef_StoreOp", "First", "Owned", 0, []>;
+def IdrAdmitted_MemRef_DimOp : IdrAdmitted<MemRef_DimOp, "MemRef_DimOp", 1, []>;
+def IdrAdmitted_MemRef_AllocOp : IdrAdmitted<MemRef_AllocOp, "MemRef_AllocOp", 0, []>;
+def IdrAdmitted_MemRef_CopyOp : IdrAdmitted<CopyOp, "MemRef_CopyOp", 0, []>;
+def IdrAdmitted_MemRef_LoadOp : IdrAdmitted<LoadOp, "MemRef_LoadOp", 0, []>;
+def IdrAdmitted_MemRef_StoreOp : IdrAdmitted<MemRef_StoreOp, "MemRef_StoreOp", 0, []>;
+def IdrAdmitted_MemRef_CastOp : IdrAdmitted<MemRef_CastOp, "MemRef_CastOp", 0, []>;
+def IdrAdmitted_MemRef_GlobalOp : IdrAdmitted<MemRef_GlobalOp, "MemRef_GlobalOp", 0, []>;
+def IdrAdmitted_MemRef_GetGlobalOp : IdrAdmitted<MemRef_GetGlobalOp, "MemRef_GetGlobalOp", 0, []>;
 #endif // IDR_GENERATED_ADMITTED_MEMREF

@@ -126,6 +126,7 @@ add_mlir_dialect_library(IdrIR
 	Verify/Linearity.cpp
 	Verify/Local.cpp
 	Verify/Program.cpp
+	Verify/Stages.cpp
 	Verify/Uses.cpp
 
 	PRECOMPILE_HEADERS
@@ -156,6 +157,7 @@ add_mlir_dialect_library(IdrIR
 	MLIRTensorDialect
 	MLIRMemRefDialect
 	MLIRLinalgDialect
+	MLIRMathDialect
 	MLIRFuncDialect
 	MLIRDialectUtils
 	MLIRMemRefTransforms

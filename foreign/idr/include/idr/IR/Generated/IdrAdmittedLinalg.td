@@ -10,8 +10,8 @@ include "mlir/Dialect/Linalg/IR/LinalgStructuredOps.td"
 include "mlir/Dialect/Linalg/IR/LinalgOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
-def IdrAdmitted_Linalg_TransposeOp : IdrAdmitted<TransposeOp, "Linalg_TransposeOp", "Higher", "Owned", 1, []>;
-def IdrAdmitted_Linalg_GenericOp : IdrAdmitted<GenericOp, "Linalg_GenericOp", "First", "Owned", 0, []>;
-def IdrAdmitted_Linalg_IndexOp : IdrAdmitted<Linalg_IndexOp, "Linalg_IndexOp", "First", "Owned", 0, []>;
-def IdrAdmitted_Linalg_YieldOp : IdrAdmitted<Linalg_YieldOp, "Linalg_YieldOp", "Higher", "Owned", 1, []>;
+def IdrAdmitted_Linalg_TransposeOp : IdrAdmitted<TransposeOp, "Linalg_TransposeOp", 1, []>;
+def IdrAdmitted_Linalg_GenericOp : IdrAdmitted<GenericOp, "Linalg_GenericOp", 0, []>;
+def IdrAdmitted_Linalg_IndexOp : IdrAdmitted<Linalg_IndexOp, "Linalg_IndexOp", 0, []>;
+def IdrAdmitted_Linalg_YieldOp : IdrAdmitted<Linalg_YieldOp, "Linalg_YieldOp", 1, []>;
 #endif // IDR_GENERATED_ADMITTED_LINALG

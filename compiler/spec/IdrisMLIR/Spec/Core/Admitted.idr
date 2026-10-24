@@ -1,21 +1,25 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| What an upstream op the dialect admits is stated with besides its
-||| dialect, its record's name and its guards: whether the frontend writes
-||| it, the laws upstream has no trait for, its range function and whether
-||| upstream's fold may run. The admitted op itself (`Admitted`) is declared
-||| with the op, since its guards are ops of ours. The generator prints one
-||| admitted record file per upstream dialect from these; the one C++
-||| TableGen backend reads upstream's records for them alone, printing
-||| their Idris builders (a guarded op's with its guards) and the C++ table
-||| of their classes, so the specification never restates an upstream class
-||| or an operand list, and a wrong record name, or a guard's position past
-||| the record's operand groups, is that backend's error. Upstream's types
-||| and attributes are admitted by their bytecode records, as its ops are
-||| by theirs (`BytecodeRecords`).
+||| dialect, its record's name, its stages and its guards: whether the
+||| frontend writes it, the laws upstream has no trait for, its range
+||| function and whether upstream's fold may run. The admitted op itself
+||| (`Admitted`) is declared with the op, since its guards are ops of ours.
+||| The generator prints one admitted record file per upstream dialect from
+||| these; the one C++ TableGen backend reads upstream's records for them
+||| alone, printing their Idris builders (a guarded op's with its guards)
+||| and the C++ table of their classes, so the specification never restates
+||| an upstream class or an operand list, and a wrong record name, or a
+||| guard's position past the record's operand groups, is that backend's
+||| error. The generator prints each op's stages beside its class's alias,
+||| with the last stage at which every upstream op is admitted
+||| (`listedThrough`), the table a program's verifier reads an upstream
+||| op's place from. Upstream's types and attributes are admitted by their
+||| bytecode records, as its ops are by theirs (`BytecodeRecords`).
 module IdrisMLIR.Spec.Core.Admitted
 
 import IdrisMLIR.Spec.Core.Text
+import IdrisMLIR.Spec.Pipeline.Stage
 
 import Data.List1
 
@@ -88,3 +92,16 @@ public export
 record RangeFunction where
   constructor InIntRange
   name : Ident
+
+||| The last stage at which every upstream op a program holds is admitted:
+||| the frontend's, which writes upstream's ops only by the builders printed
+||| for the admitted ones it writes (`FrontendWrites`), each legal there.
+||| From the first-order program on, bufferization hands the arrays to
+||| upstream's models, which write ops of their own that no code of ours
+||| makes or reads by class (a slice's `memref.subview`, a pad's
+||| `affine.apply` and `linalg.map`) and upstream's lowerings take, so no
+||| list names them and no stage bounds them; an admitted op stands only at
+||| its stages wherever the program's functions are ours.
+public export
+listedThrough : Stage
+listedThrough = Higher

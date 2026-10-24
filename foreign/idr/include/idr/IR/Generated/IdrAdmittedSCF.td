@@ -9,10 +9,11 @@
 include "mlir/Dialect/SCF/IR/SCFOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
-def IdrAdmitted_SCF_IfOp : IdrAdmitted<IfOp, "SCF_IfOp", "Higher", "Owned", 1, []>;
-def IdrAdmitted_SCF_IndexSwitchOp : IdrAdmitted<IndexSwitchOp, "SCF_IndexSwitchOp", "Owned", "Owned", 0, []>;
-def IdrAdmitted_SCF_YieldOp : IdrAdmitted<YieldOp, "SCF_YieldOp", "Higher", "Owned", 1, []>;
-def IdrAdmitted_SCF_ForOp : IdrAdmitted<ForOp, "SCF_ForOp", "First", "Owned", 0, []>;
-def IdrAdmitted_SCF_WhileOp : IdrAdmitted<WhileOp, "SCF_WhileOp", "Owned", "Owned", 0, []>;
-def IdrAdmitted_SCF_ConditionOp : IdrAdmitted<ConditionOp, "SCF_ConditionOp", "Owned", "Owned", 0, []>;
+def IdrAdmitted_SCF_IfOp : IdrAdmitted<IfOp, "SCF_IfOp", 1, []>;
+def IdrAdmitted_SCF_IndexSwitchOp : IdrAdmitted<IndexSwitchOp, "SCF_IndexSwitchOp", 0, []>;
+def IdrAdmitted_SCF_YieldOp : IdrAdmitted<YieldOp, "SCF_YieldOp", 1, []>;
+def IdrAdmitted_SCF_ForOp : IdrAdmitted<ForOp, "SCF_ForOp", 0, []>;
+def IdrAdmitted_SCF_WhileOp : IdrAdmitted<WhileOp, "SCF_WhileOp", 0, []>;
+def IdrAdmitted_SCF_ConditionOp : IdrAdmitted<ConditionOp, "SCF_ConditionOp", 0, []>;
+def IdrAdmitted_SCF_ExecuteRegionOp : IdrAdmitted<ExecuteRegionOp, "SCF_ExecuteRegionOp", 0, []>;
 #endif // IDR_GENERATED_ADMITTED_SCF

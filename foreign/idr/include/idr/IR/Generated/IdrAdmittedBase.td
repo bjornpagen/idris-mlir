@@ -28,15 +28,13 @@ class IdrAdmittedGuard<string dialect, string check, list<int> given,
 }
 
 // An upstream op the dialect admits: upstream's own record, the alias
-// its C++ class is known by among every dialect's admitted ops, the
-// stages it may stand at, whether the frontend writes it (its Idris
-// builder is printed), and the guards that builder gives it.
-class IdrAdmitted<Op upstream, string aliasName, string first, string last,
-                  int written, list<IdrAdmittedGuard> guarded> {
+// its C++ class is known by among every dialect's admitted ops, whether
+// the frontend writes it (its Idris builder is printed), and the guards
+// that builder gives it.
+class IdrAdmitted<Op upstream, string aliasName, int written,
+                  list<IdrAdmittedGuard> guarded> {
   Op op = upstream;
   string alias = aliasName;
-  string firstStage = first;
-  string lastStage = last;
   int frontendWrites = written;
   list<IdrAdmittedGuard> guards = guarded;
 }

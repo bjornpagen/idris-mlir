@@ -9,16 +9,16 @@
 include "mlir/Dialect/Math/IR/MathOps.td"
 include "idr/IR/Generated/IdrAdmittedBase.td"
 
-def IdrAdmitted_Math_ExpOp : IdrAdmitted<Math_ExpOp, "Math_ExpOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_LogOp : IdrAdmitted<Math_LogOp, "Math_LogOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_SinOp : IdrAdmitted<Math_SinOp, "Math_SinOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_CosOp : IdrAdmitted<Math_CosOp, "Math_CosOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_TanOp : IdrAdmitted<Math_TanOp, "Math_TanOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_AsinOp : IdrAdmitted<Math_AsinOp, "Math_AsinOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_AcosOp : IdrAdmitted<Math_AcosOp, "Math_AcosOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_AtanOp : IdrAdmitted<Math_AtanOp, "Math_AtanOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_SqrtOp : IdrAdmitted<Math_SqrtOp, "Math_SqrtOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_FloorOp : IdrAdmitted<Math_FloorOp, "Math_FloorOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_CeilOp : IdrAdmitted<Math_CeilOp, "Math_CeilOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Math_PowFOp : IdrAdmitted<Math_PowFOp, "Math_PowFOp", "Higher", "Lowered", 1, []>;
+def IdrAdmitted_Math_ExpOp : IdrAdmitted<Math_ExpOp, "Math_ExpOp", 1, []>;
+def IdrAdmitted_Math_LogOp : IdrAdmitted<Math_LogOp, "Math_LogOp", 1, []>;
+def IdrAdmitted_Math_SinOp : IdrAdmitted<Math_SinOp, "Math_SinOp", 1, []>;
+def IdrAdmitted_Math_CosOp : IdrAdmitted<Math_CosOp, "Math_CosOp", 1, []>;
+def IdrAdmitted_Math_TanOp : IdrAdmitted<Math_TanOp, "Math_TanOp", 1, []>;
+def IdrAdmitted_Math_AsinOp : IdrAdmitted<Math_AsinOp, "Math_AsinOp", 1, []>;
+def IdrAdmitted_Math_AcosOp : IdrAdmitted<Math_AcosOp, "Math_AcosOp", 1, []>;
+def IdrAdmitted_Math_AtanOp : IdrAdmitted<Math_AtanOp, "Math_AtanOp", 1, []>;
+def IdrAdmitted_Math_SqrtOp : IdrAdmitted<Math_SqrtOp, "Math_SqrtOp", 1, []>;
+def IdrAdmitted_Math_FloorOp : IdrAdmitted<Math_FloorOp, "Math_FloorOp", 1, []>;
+def IdrAdmitted_Math_CeilOp : IdrAdmitted<Math_CeilOp, "Math_CeilOp", 1, []>;
+def IdrAdmitted_Math_PowFOp : IdrAdmitted<Math_PowFOp, "Math_PowFOp", 1, []>;
 #endif // IDR_GENERATED_ADMITTED_MATH

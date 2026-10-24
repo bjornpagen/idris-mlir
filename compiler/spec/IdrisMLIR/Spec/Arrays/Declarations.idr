@@ -36,7 +36,9 @@ import Data.Vect
 -- these: `memref.subview` of the buffer they fill (as of each slice),
 -- `affine.apply` for a padded size and `linalg.map` for the padding. No
 -- code of ours makes, models or reads one, and upstream's memref, affine
--- and linalg lowerings take each, so no list names them.
+-- and linalg lowerings take each, so no list names them, and none of them
+-- is held to a stage: the lists name every upstream op only through the
+-- frontend's stage (`listedThrough`).
 
 ||| An upstream op whose record's name carries its dialect, its own alias.
 admitNamed : Dialect -> Ident -> Legal -> Writer -> Admitted
@@ -80,15 +82,21 @@ bufferizationAdmitted =
   [ admitNamed Bufferization "Bufferization_ToBufferOp" (between Higher First) FrontendWrites
   , admitNamed Bufferization "Bufferization_AllocTensorOp" (between First First) PassesOnly ]
 
-||| A buffer's size, which the frontend reads, and the buffers bufferization
-||| allocates, copies, reads and writes, until the lowering.
+||| A buffer's size, which the frontend reads; the buffers bufferization
+||| allocates, copies, reads and writes; and, of what upstream's models make
+||| there, what the lowering reads: the cast a cast of an array becomes, and
+||| the static buffer a constant array becomes, with its read. Each until
+||| the lowering.
 memrefAdmitted : List Admitted
 memrefAdmitted =
   [ admitNamed MemRef "MemRef_DimOp" (between Higher Owned) FrontendWrites
   , admitNamed MemRef "MemRef_AllocOp" (between First Owned) PassesOnly
   , admitAliased MemRef "CopyOp" "MemRef_CopyOp" (between First Owned) PassesOnly
   , admitAliased MemRef "LoadOp" "MemRef_LoadOp" (between First Owned) PassesOnly
-  , admitNamed MemRef "MemRef_StoreOp" (between First Owned) PassesOnly ]
+  , admitNamed MemRef "MemRef_StoreOp" (between First Owned) PassesOnly
+  , admitNamed MemRef "MemRef_CastOp" (between First Owned) PassesOnly
+  , admitNamed MemRef "MemRef_GlobalOp" (between First Owned) PassesOnly
+  , admitNamed MemRef "MemRef_GetGlobalOp" (between First Owned) PassesOnly ]
 
 ||| The transpose the frontend writes, and the parallel ops structured loops
 ||| make of word ops, on tensors and then on buffers, until the lowering.
@@ -104,12 +112,16 @@ linalgAdmitted =
 ||| The loops arrays' passes make and read: `scf.for`, which structured
 ||| loops writes and the ordered loops after narrowing write again, until
 ||| the lowering; `scf.while` and its condition, which narrowing reads and
-||| versions where the program's own loops stand once counted.
+||| versions where the program's own loops stand once counted; and the
+||| region a step of the generating set whose region never returns runs
+||| in, made where frames and the ordered loops make an op its loops once
+||| counted, and made blocks by the lowering.
 scfAdmitted : List Admitted
 scfAdmitted =
   [ admitAliased SCF "ForOp" "SCF_ForOp" (between First Owned) PassesOnly
   , admitAliased SCF "WhileOp" "SCF_WhileOp" (between Owned Owned) PassesOnly
-  , admitAliased SCF "ConditionOp" "SCF_ConditionOp" (between Owned Owned) PassesOnly ]
+  , admitAliased SCF "ConditionOp" "SCF_ConditionOp" (between Owned Owned) PassesOnly
+  , admitAliased SCF "ExecuteRegionOp" "SCF_ExecuteRegionOp" (between Owned Owned) PassesOnly ]
 
 ------------------------------------------------------------------------------
 -- What the array library's functions mean
