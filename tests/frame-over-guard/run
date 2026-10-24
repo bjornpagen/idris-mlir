@@ -5,16 +5,11 @@
 # stack: the compiler knows every frame's size, so it proves that when the
 # program is built and takes no probe at run time. A module whose one
 # function keeps 64 MiB in its frame (huge.mlir, upstream's llvm dialect,
-# given the build's target) is no program the compiler may build: the
-# build fails as the compiler's own error, which names the function, and
-# writes no object.
+# which names no target and so takes the build's) is no program the
+# compiler may build: the build fails as the compiler's own error, which
+# names the function, and writes no object.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
-if ! bounded "$idris_mlir_opt" "$here/huge.mlir" --idr-target -o "$work/huge.mlir" 2> "$work/err"; then
-  say "target: fails"
-  show "$work/err"
-  exit 0
-fi
-bounded "$idris_mlir" -c "$work/huge.mlir" -o "$work/huge.o" > "$work/out" 2> "$work/err"
+bounded "$idris_mlir" -c "$here/huge.mlir" -o "$work/huge.o" > "$work/out" 2> "$work/err"
 status=$?
 if [ "$status" -eq 0 ]; then
   say "build: succeeds, with a frame larger than the guard"

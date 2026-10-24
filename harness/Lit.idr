@@ -476,7 +476,7 @@ lowered e module' name counter = do
   let dir = inWork e ("differential." ++ name)
   let log = inWork e "differential.log"
   made e dir
-  lowering <- bounded e ([e.tools.idrisMlirOpt, "--mlir-disable-threading", module', "--idr-target", "--idr-pipeline"]
+  lowering <- bounded e ([e.tools.idrisMlirOpt, "--mlir-disable-threading", module', "--idr-pipeline"]
                          ++ counter ++ ["-o", dir ++ "/lowered.mlir"]) (ToFile log) WithOutput
   if not (succeeded lowering)
      then failure log ("differential: " ++ baseName module' ++ " does not lower")

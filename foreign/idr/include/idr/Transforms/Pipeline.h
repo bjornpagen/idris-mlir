@@ -41,9 +41,9 @@ namespace idr {
 #include "idr/Transforms/Passes.h.inc"
 
 // idris-mlir's pipeline into `pm`, a manager on the builtin.module that
-// holds the program: every step whose stages lie between `from` and `to`,
-// in the specification's order, the whole pipeline from `higher` to
-// `lowered`. Never idr-target: the driver runs it first.
+// holds the program: idr-target first, whatever the slice, then every step
+// whose stages lie between `from` and `to`, in the specification's order,
+// the whole pipeline from `higher` to `lowered`.
 void buildPipeline(mlir::OpPassManager &pm, Stage from = Stage::Higher,
                    Stage to = Stage::Lowered);
 

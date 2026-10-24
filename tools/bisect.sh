@@ -97,7 +97,7 @@ outcome() {
   outcome_name=$1
   shift
   outcome_tool=idris-mlir-opt
-  bounded "$idris_mlir_opt" --mlir-disable-threading "$mlir" --idr-target --idr-pipeline "$@" \
+  bounded "$idris_mlir_opt" --mlir-disable-threading "$mlir" --idr-pipeline "$@" \
     -o "$work/$outcome_name.lowered.mlir" > "$work/$outcome_name.log" 2>&1
   outcome_status=$?
   if [ "$outcome_status" -eq 0 ]; then
@@ -178,7 +178,7 @@ echo "bisect: action $bad of $tag changes the program"
 echo "  with the first $good actions: $(first reference)"
 echo "  with the first $bad actions: $(first bad)"
 diff "$work/reference.outcome" "$work/bad.outcome" | head -n 20 | sed 's/^/  | /'
-echo "  reproduce: idris-mlir-opt --mlir-disable-threading $mlir --idr-target --idr-pipeline \\"
+echo "  reproduce: idris-mlir-opt --mlir-disable-threading $mlir --idr-pipeline \\"
 echo "    $(counter "$bad") -o lowered.mlir && idris-mlir lowered.mlir -o program"
 
 # The IR unit of that action: the one op it transforms, in a log of the

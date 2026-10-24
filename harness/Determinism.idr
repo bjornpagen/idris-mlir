@@ -199,7 +199,7 @@ determinismThreads e given = do
       let threading = if run == "one" then ["--mlir-disable-threading"] else []
       status <- bounded e ([e.tools.idrisMlirOpt] ++ threading
                            ++ ["--mlir-print-debuginfo", "--mlir-pass-statistics", "--mlir-pass-statistics-display=list",
-                               "--remarks-filter=.*", "--idr-target", "--idr-pipeline", input, "-o", inWork e (run ++ ".mlir")])
+                               "--remarks-filter=.*", "--idr-pipeline", input, "-o", inWork e (run ++ ".mlir")])
                         ToCaller (Apart (ToFile (inWork e (run ++ ".err"))))
       if not (succeeded status)
          then do

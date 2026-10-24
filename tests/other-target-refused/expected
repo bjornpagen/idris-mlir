@@ -2,4 +2,8 @@ another target: exit 3
 another target: refused by unsupported (target), the only error, at the module
 another target: the refusal names the triple the module holds and the build's
 no target: exit 0
+lowered, another target: exit 3
+lowered, another target: refused by unsupported (target), the only error, at the module
+lowered, another target: the refusal names the triple the module holds and the build's
+lowered, no target: exit 0
 the build's target, as the driver wrote it: exit 0

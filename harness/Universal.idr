@@ -184,7 +184,7 @@ skipsHold e seed fixture emitted options = do
   made e (inWork e "skipped")
   let out = ToFile (inWork e "skipped.out")
   let err = Apart (ToFile (inWork e "skipped.err"))
-  lowered <- bounded e ([e.tools.idrisMlirOpt, "--mlir-disable-threading", emitted, "--idr-target", "--idr-pipeline"]
+  lowered <- bounded e ([e.tools.idrisMlirOpt, "--mlir-disable-threading", emitted, "--idr-pipeline"]
                         ++ counter ++ options ++ ["-o", inWork e "skipped/lowered.mlir"]) out err
   accepted <- if not (succeeded lowered) then pure lowered else
     bounded e [e.tools.idrisMlir, inWork e "skipped/lowered.mlir", "--runtime=" ++ e.tools.checkedPrepared,
@@ -226,7 +226,7 @@ skipsRefuse e fixture emitted = do
   seed <- actionsSeed
   Just counter <- drawnSkips e seed
     | Nothing => tell e "skipped actions: idris-mlir-opt names no action tags"
-  _ <- bounded e ([e.tools.idrisMlirOpt, "--mlir-disable-threading", emitted, "--idr-target", "--idr-pipeline"]
+  _ <- bounded e ([e.tools.idrisMlirOpt, "--mlir-disable-threading", emitted, "--idr-pipeline"]
                   ++ counter ++ ["--report=" ++ inWork e "skipped.report", "-o", inWork e "skipped.mlir"])
                  (ToFile (inWork e "skipped.out")) (Apart (ToFile (inWork e "skipped.err")))
   output <- (++) <$> bytesIfThere (inWork e "skipped.out") <*> bytesIfThere (inWork e "skipped.err")

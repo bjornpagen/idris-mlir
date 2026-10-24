@@ -4,16 +4,18 @@
 # A module made for another target than the build's is refused by the
 # rule for it: the driver writes its own target on a module before its
 # first step, and refuses one that holds another, since compiling it for
-# the build's would compile something other than what it says. other.mlir
-# names a triple none of the targets has: idris-mlir refuses it, with a
+# the build's would compile something other than what it says. A module of
+# the LLVM dialect alone, the pipeline's output, is held to the same rule.
+# other.mlir, a handoff module, and lowered-other.mlir, a lowered one, name
+# a triple none of the targets has: idris-mlir refuses each, with a
 # refusal's status, by that rule alone, at the module, naming the triple
-# the module holds and the build's. none.mlir names no target, as the
-# frontend's modules name none: it takes the build's and compiles.
-# built.mlir is the module the driver makes of none.mlir before any other
-# step, the first a compilation of it prints, which holds the build's
-# target as the driver writes it: it compiles again, so the driver refuses
-# only another target, never its own. No pass is named: the driver targets
-# every module itself.
+# the module holds and the build's. none.mlir and lowered-none.mlir name
+# no target, as the frontend's modules name none: each takes the build's
+# and compiles. built.mlir is the module the driver makes of none.mlir
+# before any other step, the first a compilation of it prints, which holds
+# the build's target as the driver writes it: it compiles again, so the
+# driver refuses only another target, never its own. No pass is named: the
+# driver targets every module itself.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 triple=$("$idris_mlir" --print-target-triple)
 
@@ -24,11 +26,24 @@ idr.program @targets root(@main) stage(higher) {
   }
 }
 EOF_MODULE
-{
-  say 'module attributes {llvm.target = #llvm.target<triple = "sparc64-unknown-netbsd", chip = "generic">} {'
-  cat "$work/none.mlir"
-  say '}'
-} > "$work/other.mlir"
+cat > "$work/lowered-none.mlir" << 'EOF_MODULE'
+llvm.func @main(%argc: i32, %argv: !llvm.ptr) -> i32 {
+  %status = llvm.mlir.constant(0 : i32) : i32
+  llvm.return %status : i32
+}
+EOF_MODULE
+
+# another NAME FROM: NAME.mlir of the work directory, FROM.mlir's ops in a
+# module that names a triple none of the targets has.
+another() {
+  {
+    say 'module attributes {llvm.target = #llvm.target<triple = "sparc64-unknown-netbsd", chip = "generic">} {'
+    cat "$work/$2.mlir"
+    say '}'
+  } > "$work/$1.mlir"
+}
+another other none
+another lowered-other lowered-none
 
 # compile NAME [OPTION...]: idris-mlir compiles NAME.mlir of the work
 # directory, from there, to an archive of its objects, its report beside
@@ -41,26 +56,40 @@ compile() {
   status=$?
 }
 
-compile other
-say "another target: exit $status"
-if grep -qx 'verdict: refused' "$work/other.report" &&
-   [ "$(grep -c '^diagnostic: error ' "$work/other.report")" -eq 1 ] &&
-   grep -q '^diagnostic: error target \(.*/\)\{0,1\}other\.mlir:1$' "$work/other.report"; then
-  say "another target: refused by unsupported (target), the only error, at the module"
-else
-  say "another target: not refused by unsupported (target) alone, at the module"
-  show "$work/other.report" "$work/other.err"
-fi
-if grep -qF 'sparc64-unknown-netbsd' "$work/other.err" && grep -qF "$triple" "$work/other.err"; then
-  say "another target: the refusal names the triple the module holds and the build's"
-else
-  say "another target: the refusal does not name both triples"
-  show "$work/other.err"
-fi
+# refused NAME WHAT: NAME.mlir, which names another target, is refused by
+# unsupported (target) alone, at the module, naming the triple it holds
+# and the build's; the lines say WHAT it is.
+refused() {
+  compile "$1"
+  say "$2: exit $status"
+  if grep -qx 'verdict: refused' "$work/$1.report" &&
+     [ "$(grep -c '^diagnostic: error ' "$work/$1.report")" -eq 1 ] &&
+     grep -q '^diagnostic: error target \(.*/\)\{0,1\}'"$1"'\.mlir:1$' "$work/$1.report"; then
+    say "$2: refused by unsupported (target), the only error, at the module"
+  else
+    say "$2: not refused by unsupported (target) alone, at the module"
+    show "$work/$1.report" "$work/$1.err"
+  fi
+  if grep -qF 'sparc64-unknown-netbsd' "$work/$1.err" && grep -qF "$triple" "$work/$1.err"; then
+    say "$2: the refusal names the triple the module holds and the build's"
+  else
+    say "$2: the refusal does not name both triples"
+    show "$work/$1.err"
+  fi
+}
 
-compile none
-say "no target: exit $status"
-[ "$status" -eq 0 ] || show "$work/none.err"
+# compiles NAME WHAT: NAME.mlir, which names no target, compiles; the line
+# says WHAT it is.
+compiles() {
+  compile "$1"
+  say "$2: exit $status"
+  [ "$status" -eq 0 ] || show "$work/$1.err"
+}
+
+refused other "another target"
+compiles none "no target"
+refused lowered-other "lowered, another target"
+compiles lowered-none "lowered, no target"
 
 # none.mlir compiled again, printing the module after each step, on one
 # thread, so the first module printed, the driver's own target written on

@@ -11,8 +11,7 @@
 # holds all the same.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 input=$root/upstream/30-aarch64-sibcall-callee-pop/stack-args-sibcall.mlir
-if ! bounded "$idris_mlir_opt" "$input" --idr-target -o "$work/targeted.mlir" 2> "$work/err" ||
-  ! bounded "$idris_mlir" "$work/targeted.mlir" -o "$work/prog" > "$work/err" 2>&1; then
+if ! bounded "$idris_mlir" "$input" -o "$work/prog" > "$work/err" 2>&1; then
   say "the program did not compile, which is not this bug"
   show "$work/err"
 else

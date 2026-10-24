@@ -13,10 +13,9 @@
 # timer by the pass's address, which one manager keeps for the whole
 # compilation: every pass that ran has its own row, under its own name.
 # The passes at the top are those of the one pipeline, which
-# idris-mlir-opt runs as --idr-pipeline after --idr-target: its rows at
-# the top, but for its parser and output, are the driver's, in order, and
-# what runs inside a group is read off the report itself, so no pass is
-# named here.
+# idris-mlir-opt runs as --idr-pipeline: its rows at the top, but for its
+# parser and output, are the driver's, in order, and what runs inside a
+# group is read off the report itself, so no pass is named here.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
 cat > "$work/main.mlir" << 'EOF_MODULE'
@@ -25,10 +24,10 @@ idr.program @timing root(@Prog.main) stage(higher) {
     %y = arith.addi %x, %x : i64
     return %y : i64
   }
-  idr.func @Prog.main() -> i64 {
+  idr.func @Prog.main() {
     %c = arith.constant 21 : i64
     %y = idr.call @twice(%c) <{tail_kind = nontail}> : (i64) -> i64
-    return %y : i64
+    return
   }
 }
 EOF_MODULE
@@ -57,7 +56,7 @@ fi
 
 # The same pipeline run by idris-mlir-opt: its rows at the top, but for
 # the parser's, the output's, the Rest and the Total.
-if bounded "$dev_prefix/foreign/idr/idris-mlir-opt" "$work/main.mlir" --idr-target --idr-pipeline \
+if bounded "$dev_prefix/foreign/idr/idris-mlir-opt" "$work/main.mlir" --idr-pipeline \
     --mlir-timing -o /dev/null 2> "$work/opt.report"; then
   timing_rows "$work/opt.report" | awk -F'\t' '$1 == 0 && $3 != "Parser" && $3 != "Output" &&
       $3 != "Rest" && $3 != "Total" && $3 !~ /Verifier/ && $3 !~ /^\(A\) / { print $3 }' > "$work/opt.passes"

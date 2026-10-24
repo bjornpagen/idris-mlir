@@ -74,8 +74,12 @@ std::unique_ptr<mlir::Pass> idr::pipeline::createWriteRows() {
 }
 
 // A step runs when the stages it runs between lie within the slice asked
-// for: the whole pipeline is the slice from higher to lowered.
+// for: the whole pipeline is the slice from higher to lowered. Every slice
+// starts with idr-target, whatever stage it starts at, so a module takes
+// the build's target where it enters the pipeline, by idr-target's one
+// rule, and --idr-pipeline runs what idris-mlir runs.
 void idr::buildPipeline(mlir::OpPassManager &pm, Stage from, Stage to) {
+  pm.addPass(idr::createIdrTarget());
   for (const pipeline::Step &step : pipeline::steps)
     if (from <= step.at && step.after <= to)
       step.add(pm);

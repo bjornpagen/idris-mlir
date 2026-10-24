@@ -1,5 +1,4 @@
-// RUN: sed "s/@TRIPLE@/$(idris-mlir --print-target-triple)/" %s > %t.mlir
-// RUN: idris-mlir-opt %t.mlir --pass-pipeline='builtin.module(idr-pipeline{from=graded to=lowered})' -o /dev/null
+// RUN: idris-mlir-opt %s --pass-pipeline='builtin.module(idr-pipeline{from=graded to=lowered})' -o /dev/null
 // Whether a reindex builds a cell is one answer, which the reindex's own
 // check, its flow and the lowering's re-pack all read, so a reindex that
 // builds and one that builds nothing are told apart alike by each. Two
@@ -18,11 +17,6 @@
 // and after every pass from the graded stage through the lowering. @main
 // prints the head of the strings @apart gives and of the words @words
 // gives, so every cast's result is read.
-// The lowering's last step asks a machine of the module's target which
-// results come back in registers, so the module names the triple the
-// driver compiles for, as `idris-mlir --print-target-triple` prints it,
-// with the triple's own CPU (chip ""): no result here is a vector, whose
-// registers a CPU's features could change.
 #VS = #idr.family<"VS" [nat] {
     @Nil where 0 ()
     @Cons <nat> where v0 + 1 (!idr.str, !idr.self[v0])
@@ -42,7 +36,6 @@
 !V3 = !idr.data<#Vect[3]>
 !V4 = !idr.data<#Vect[4]>
 !V4Built = !idr.graded<many, counted unique self, !idr.data<#Vect[4] open>>
-module attributes {llvm.target = #llvm.target<triple = "@TRIPLE@", chip = "">} {
 idr.program @repacks root(@main) stage(graded) {
   idr.func @main() {
     %seven = arith.constant 7 : i64
@@ -78,5 +71,4 @@ idr.program @repacks root(@main) stage(graded) {
     %built = idr.data.reindex %v4 : !V4 to !V4Built
     idr.return %built : !V4Built
   }
-}
 }

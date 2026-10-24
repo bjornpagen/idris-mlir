@@ -124,7 +124,7 @@ fuzzCheck e seed threads part = do
            -- graded: the emitted module through the pipeline's slice up to
            -- that stage, the property checked there.
            emitted <- fromMaybe "" <$> artifactFile (dir ++ "/prog") (Named "prog") Module
-           folding <- bounded e [e.tools.idrisMlirOpt, "--mlir-disable-threading", emitted, "--idr-target",
+           folding <- bounded e [e.tools.idrisMlirOpt, "--mlir-disable-threading", emitted,
                                  "--idr-pipeline=to=graded", "--idr-expect=holds=folded=@Main.main", "-o", "/dev/null"]
                               (ToFile (inWork e "expect.log")) WithOutput
            folded <- if succeeded folding then pure [] else do

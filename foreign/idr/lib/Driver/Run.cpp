@@ -3,8 +3,8 @@
 // The in-process part of a compilation, from a module to the objects of
 // its bins: the refusals a module of the frontend's holds, re-emitted; a
 // handoff module through the idr pipeline in one pass manager and then
-// LLVM, the pipeline's output through LLVM alone. What the compiler
-// registers for it is Register.cpp's.
+// LLVM, the pipeline's output through idr-target alone in that manager and
+// then LLVM. What the compiler registers for it is Register.cpp's.
 
 #include "idr/Conversion/Runtime.h"
 #include "idr/Driver/Artifacts.h"
@@ -23,7 +23,6 @@
 
 #include "mlir/Debug/BreakpointManagers/TagBreakpointManager.h"
 #include "mlir/Debug/CLOptionsSetup.h"
-#include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -66,10 +65,11 @@ namespace {
 // What a module is, by what it holds, never by an option: the frontend's, a
 // handoff module, which holds an idr.program and goes through the pipeline
 // and then LLVM; or the pipeline's output, the LLVM dialect alone, which
-// goes to LLVM as it is, compiled for the target it names, which a module
-// of it must name: the build's, the one target idris-mlir compiles for.
-// Named as kinds of module, since the driver's code sits inside `idr`,
-// whose `Lowered` is what a lowered lifetime is.
+// goes to LLVM as it is. Either takes the build's target, the one target
+// idris-mlir compiles for, by idr-target's one rule, the pipeline's first
+// pass: a module that names no target takes the build's, and one that
+// names another is refused. Named as kinds of module, since the driver's
+// code sits inside `idr`, whose `Lowered` is what a lowered lifetime is.
 struct HandoffModule {};
 struct LoweredModule {};
 using ModuleKind = std::variant<HandoffModule, LoweredModule>;
@@ -91,11 +91,10 @@ mlir::LogicalResult holdsOnly(mlir::ModuleOp module, Holds holds, llvm::StringLi
 
 // The module's kind: an idr.program among its ops makes it a handoff
 // module, whose every op must be of a dialect the frontend writes;
-// otherwise every op must be the LLVM dialect's, and the module must name
-// the build's target. An error at the first op that is not, or at the
-// module that names no such target: a module half lowered (an arith op in
-// an llvm.func) is neither kind, and LLVM's translation would fail on it
-// with no word of why.
+// otherwise every op must be the LLVM dialect's. An error at the first op
+// that is not: a module half lowered (an arith op in an llvm.func) is
+// neither kind, and LLVM's translation would fail on it with no word of
+// why.
 mlir::FailureOr<ModuleKind>
 moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
   if (!module.getOps<idr::ProgramOp>().empty()) {
@@ -115,28 +114,18 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
           "is no op of the LLVM dialect, in a module that holds no idr.program: such a module "
           "is the pipeline's output")))
     return mlir::failure();
-  auto target = module->getAttrOfType<mlir::LLVM::TargetAttr>(
-      mlir::LLVM::LLVMDialect::getTargetAttrName());
-  // The runtime it is linked with, every link and the machine its code is
-  // compiled by are for the build's target, the program's CPU among it; a
-  // module lowered for another, or for none it names, cannot join them.
-  if (!target)
-    return idr::refuse(module, idr::Rule::OtherTarget)
-           << "the module names no target (#llvm.target): a module of the LLVM dialect alone, "
-              "the pipeline's output, is compiled for the target it names";
-  mlir::LLVM::TargetAttr built = idr::target::programTarget(module.getContext());
-  if (target != built)
-    return idr::refuse(module, idr::Rule::OtherTarget)
-           << "the module is compiled for " << target << ", and idris-mlir for " << built;
   return ModuleKind(LoweredModule{});
 }
 
-// The pipeline, idr-target first, in one manager, so that what a pass
-// preserves the next one finds. --stats, LLVM's own option, prints its
-// statistics too; MLIR's own pass-manager options (IR printing, the module
-// after each pass with -mlir-print-ir-tree-dir, crash reproducers,
-// -mlir-pass-statistics) apply to it, which the command line's reading
-// has checked they can. The report's instrumentation (foldPasses, as
+// The passes of a module of `kind`, in one manager, so that what a pass
+// preserves the next one finds: a handoff module's, the pipeline, whose
+// first pass is idr-target; a lowered module's, idr-target alone, so that
+// either takes the build's target by the one rule, the target the runtime
+// it is linked with, every link and the machine its code is compiled by
+// are for. --stats, LLVM's own option, prints its statistics too; MLIR's
+// own pass-manager options (IR printing, the module after each pass with
+// -mlir-print-ir-tree-dir, crash reproducers, -mlir-pass-statistics) apply
+// to it, which the command line's reading has checked they can. The report's instrumentation (foldPasses, as
 // idris-mlir-opt's report has it) reads each pass's statistics and
 // footprint around each of its runs, before MLIR merges the copies'
 // statistics to print them. The timer is added last: the
@@ -147,8 +136,9 @@ moduleKindOf(mlir::ModuleOp module, const mlir::DialectRegistry &handoff) {
 // of the stages. The pass manager instruments no end of its own pipeline,
 // so each check's last word on the module it left is asked here. The
 // manager goes, and prints its statistics, before LLVM starts.
-mlir::LogicalResult runPipeline(mlir::ModuleOp module, const Compile &invocation,
-                                Outcome &outcome, mlir::TimingScope &rootTiming) {
+mlir::LogicalResult runPipeline(mlir::ModuleOp module, const ModuleKind &kind,
+                                const Compile &invocation, Outcome &outcome,
+                                mlir::TimingScope &rootTiming) {
   mlir::PassManager pm(module.getContext());
   if (llvm::AreStatisticsEnabled())
     pm.enableStatistics(mlir::PassDisplayMode::List);
@@ -169,11 +159,9 @@ mlir::LogicalResult runPipeline(mlir::ModuleOp module, const Compile &invocation
     idr::profile::addInstrumentation(pm);
     foldPasses(pm, outcome);
     pm.enableTiming(rootTiming);
-    // The module's target, which every pass reads: idr-entry tells the
-    // runtime's entry which of its features to test; the object code is
-    // compiled for it.
-    pm.addPass(idr::createIdrTarget());
-    idr::buildPipeline(pm);
+    idr::match(
+        kind, [&](HandoffModule) { idr::buildPipeline(pm); },
+        [&](LoweredModule) { pm.addPass(idr::createIdrTarget()); });
     ran = pm.run(module);
     if (mlir::succeeded(ran) && contracts != nullptr)
       ran = contracts->finish(module);
@@ -310,13 +298,7 @@ mlir::LogicalResult idr::driver::run(int made, const Compile &invocation, Artifa
     debugConfig.addLogActionLocFilter(&loggedTags);
   mlir::tracing::InstallDebugHandler debugHandler(context, debugConfig);
 
-  // A handoff module goes through the pipeline, whose first pass,
-  // idr-target, writes the build's target on it; a lowered module names it
-  // already.
-  mlir::LogicalResult lowered = idr::match(
-      *kind, [&](HandoffModule) { return runPipeline(*module, invocation, outcome, rootTiming); },
-      [](LoweredModule) { return mlir::success(); });
-  if (mlir::failed(lowered))
+  if (mlir::failed(runPipeline(*module, *kind, invocation, outcome, rootTiming)))
     return mlir::failure();
   return toObjects(*module, invocation.runtime, artifacts, **target, triple, pool, rootTiming);
 }
