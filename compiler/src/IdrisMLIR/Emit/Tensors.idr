@@ -49,7 +49,7 @@ import Data.Vect
 
 ||| `arith.constant n : index`.
 indexConst : Loc -> Integer -> E Value
-indexConst l n = mlirValue l IndexType (Arith.constantOp (IntegerAttr n IndexType))
+indexConst l n = mlirValue l IndexType (Arith.constantOp (IntegerAttr n OfIndex))
 
 ||| Size arithmetic on `index`, which no size overflows: a sum of two sizes
 ||| of arrays that exist is below 2^63.
@@ -316,7 +316,7 @@ groups : Nat -> Nat -> List MlirAttr
 groups n rest = group (take n [0 .. n]) :: map (\i => group [i]) (take rest [n .. n + rest])
   where
     group : List Nat -> MlirAttr
-    group is = ArrayAttr (map (\i => IntegerAttr (cast i) (IntegerType 64)) is)
+    group is = ArrayAttr (map (\i => IntegerAttr (cast i) (OfWidth 64)) is)
 
 ||| A slice of `xv`, of element `e`, at the offsets and sizes given, strides
 ||| 1, at the type its sizes give, then at `rt`.
@@ -508,8 +508,8 @@ tensorOp ix l binder (Reshape a rt x extents) = do
     unitGroups : Nat -> List (List MlirAttr)
     unitGroups Z = []
     unitGroups (S c) =
-      map (\i => IntegerAttr (cast i) (IntegerType 64)) [0, 1]
-        :: map (\i => [IntegerAttr (cast i) (IntegerType 64)]) (take c [2 .. S c])
+      map (\i => IntegerAttr (cast i) (OfWidth 64)) [0, 1]
+        :: map (\i => [IntegerAttr (cast i) (OfWidth 64)]) (take c [2 .. S c])
 
 ------------------------------------------------------------------------------
 -- New arrays and reductions

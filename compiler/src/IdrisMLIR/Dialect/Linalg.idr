@@ -22,8 +22,8 @@ import Data.List
 
 ||| An attribute of the linalg dialect, spelled as its syntax writes it.
 export
-linalg : LinalgAttr MlirType MlirAttr -> MlirAttr
-linalg x = Spelled Dialect.Linalg (MkSpelling (linalgAttrText typeText attrText x))
+linalg : LinalgAttr IntegerOrIndex Void -> MlirAttr
+linalg x = Spelled Dialect.Linalg (MkSpelling (linalgAttrText integerOrIndexText absurd x))
 
 ------------------------------------------------------------------------------
 -- Ops

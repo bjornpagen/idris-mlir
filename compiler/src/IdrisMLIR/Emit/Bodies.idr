@@ -238,7 +238,7 @@ rebound ix l scrut = do
 
 ||| A field's position as `idr.data.field` holds it.
 fieldIndex : Nat -> MlirAttr
-fieldIndex i = IntegerAttr (natToInteger i) (IntegerType 64)
+fieldIndex i = IntegerAttr (natToInteger i) (OfWidth 64)
 
 ||| The yield that ends a region with its value; a region that never
 ||| returns has ended in a terminator already.
@@ -930,7 +930,7 @@ alg ix (ExtentsBackF {k} l x body) sc w = do
     readExtents : (j : Nat) -> Nat -> Val -> E (Vect j InScope, Val)
     readExtents Z a arr = pure ([], arr)
     readExtents (S j) a arr = do
-      n <- numbered (At l) (Idr.arrayExtentOp (IntegerAttr (natToInteger a) (IntegerType 64)) (operand ix arr)
+      n <- numbered (At l) (Idr.arrayExtentOp (IntegerAttr (natToInteger a) (OfWidth 64)) (operand ix arr)
                               (gradedType ix Many made (NatT IOpaque)) (operand ix arr).type)
       (rest, final) <- readExtents j (S a) ({ name := Bound n 1 } arr)
       pure (Whole (val (Bound n 0) (NatT IOpaque) Many made) :: rest, final)

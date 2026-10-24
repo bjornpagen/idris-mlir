@@ -30,7 +30,7 @@ import Data.List
 ||| the writer of a guard's check.
 export
 enumAttr : Closed a -> a -> MlirAttr
-enumAttr set x = IntegerAttr (natToInteger (position set x)) (IntegerType 32)
+enumAttr set x = IntegerAttr (natToInteger (position set x)) (OfWidth 32)
 
 ||| `idr.refusal`: a refusal of the program, which the driver reports in place of compiling it
 export

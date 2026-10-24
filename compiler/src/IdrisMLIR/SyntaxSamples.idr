@@ -32,6 +32,7 @@ import IdrisMLIR.Dialect.Linalg as Linalg
 import IdrisMLIR.Dialect.SCF as SCF
 import IdrisMLIR.Dialect.Tensor as Tensor
 import IdrisMLIR.Dialect.UB as UB
+import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.MLIR.Bytecode
@@ -78,13 +79,19 @@ i64 = IntegerType 64
 consTail : MlirType
 consTail = Idr (SelfType 0 [TermNodeLevel 0])
 
-||| A family of naturals' lists, recursive through itself.
-natLists : MlirAttr
-natLists = Idr (FamilyAttr
+||| A family of naturals' lists, recursive through itself: its group's one
+||| member.
+natListMembers : List (MemberOf MlirType MlirAttr)
+natListMembers =
   [ MemberOfData (MkDataMember "List[Nat]" None (LocAttr (At noLoc)) [SortOfNatSort]
       [ MkCtorDecl "Nil" [] [TermNodeNatural 0] []
       , MkCtorDecl "Cons" [SortOfNatSort] [TermNodeSuccessor 1, TermNodeLevel 0]
-          [nat, consTail] ]) ])
+          [nat, consTail] ]) ]
+
+||| The group of that family, as every data type of it names the group: the
+||| samples' one group.
+natLists : MlirAttr
+natLists = GroupAttr (MkGroupId 0) natListMembers
 
 ||| A vector of naturals of the length given: no refinement, since a known
 ||| length leaves one constructor possible.
@@ -135,22 +142,22 @@ types =
   ]
 
 int : Integer -> MlirAttr
-int n = IntegerAttr n i64
+int n = IntegerAttr n (OfWidth 64)
 
 -- The attributes of the dialects whose attributes cross as text, each list
 -- of its dialect's generated sum, so each is checked against that sum's
 -- mnemonics.
 
-arithAttrs : List (ArithAttr MlirType MlirAttr)
+arithAttrs : List (ArithAttr IntegerOrIndex Void)
 arithAttrs =
   [ FastMathFlagsAttr []
   , FastMathFlagsAttr [Nnan, Ninf]
   , IntegerOverflowFlagsAttr [Nsw, Nuw] ]
 
-ubAttrs : List (UBAttr MlirType MlirAttr)
+ubAttrs : List (UBAttr IntegerOrIndex Void)
 ubAttrs = [PoisonAttr]
 
-linalgAttrs : List (LinalgAttr MlirType MlirAttr)
+linalgAttrs : List (LinalgAttr IntegerOrIndex Void)
 linalgAttrs =
   [ ElementwiseKindAttr ElementwiseKind.Add
   , UnaryFnAttr UnaryFn.Exp
@@ -182,7 +189,7 @@ constantList =
 
 attrs : List MlirAttr
 attrs =
-  [ natLists
+  [ Idr (FamilyAttr natListMembers)
   , Idr (BigAttr (-12345678901234567890))
   , Idr (SiteAttr "Main.idr" 3 7 "Main.main")
   , Idr MutableAttr
@@ -281,7 +288,7 @@ block : List Value -> List Statement -> Region
 block vs ss = MkRegion (map (\v => MkArgument v (At noLoc)) vs) ss
 
 index : Integer -> Op
-index n = Arith.constantOp (IntegerAttr n IndexType) IndexType
+index n = Arith.constantOp (IntegerAttr n OfIndex) IndexType
 
 ||| One op of each shape, in a function of the values they use.
 sample : Statement
@@ -321,11 +328,11 @@ sample =
                                  [ block [bound 13 (Idr (DataType natLists 0 [TermNodeOpaque] (Just (DenseI32ArrayAttr [0])) [] ByIndices))]
                                      [stmt (Idr.yieldOp [bound 8 i64])]
                                  , block [cons]
-                                     [ binding 15 (Idr.dataFieldOp (IntegerAttr 0 (IntegerType 64)) cons [] nat)
-                                     , binding 16 (Idr.dataFieldOp (IntegerAttr 1 (IntegerType 64)) cons [] (Idr (DataType natLists 0 [TermNodeLevel 1] Nothing [] ByIndices)))
+                                     [ binding 15 (Idr.dataFieldOp (IntegerAttr 0 (OfWidth 64)) cons [] nat)
+                                     , binding 16 (Idr.dataFieldOp (IntegerAttr 1 (OfWidth 64)) cons [] (Idr (DataType natLists 0 [TermNodeLevel 1] Nothing [] ByIndices)))
                                      , stmt (Idr.yieldOp [x]) ] ]
                                  [i64])
-               , binding 17 (Arith.constantOp (IntegerAttr 4 IndexType) IndexType)
+               , binding 17 (Arith.constantOp (IntegerAttr 4 OfIndex) IndexType)
                , binding 18 (Tensor.emptyOp [c4] vec)
                , binding 19 (Idr.arrayTabulateOp [bound 18 vec]
                                  (block [i] [ binding 21 (Arith.indexCastOp i i64)

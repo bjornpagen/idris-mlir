@@ -6,16 +6,19 @@
 ||| the dialect's specification beside their bytecode encoders
 ||| (IdrisMLIR.Encoding.Idr), which this module's types and attributes
 ||| hold. The handoff is MLIR bytecode (IdrisMLIR.MLIR.Bytecode): every
-||| `idr` type and attribute is an entry of the dialect's bytecode encoding,
-||| which refers to what it holds by entry, so no `idr` text crosses the
-||| handoff; a double crosses as its 64 bits. Only the attributes of the
-||| upstream dialects whose attributes cross as text (`arith`'s, `ub`'s,
-||| `linalg`'s), and an identity layout, are their text, in the syntax their
-||| dialects declare, which upstream's parsers read. Every op is its parts:
-||| name, operands, attributes (its inherent ones, which become its
-||| properties when it is made, with its discardable ones), regions, result
-||| types and location. The generated builders make the ops
-||| (IdrisMLIR.Dialect.*). A dialect is the specification's
+||| type, every `idr` attribute and each builtin attribute that holds
+||| another is an entry of its dialect's bytecode encoding, which refers to
+||| what it holds by entry, so no `idr` text crosses the handoff; a double
+||| crosses as its 64 bits. The builtin attributes that hold nothing else
+||| (a unit, a boolean, an integer, a symbol reference, a dense array, an
+||| identity layout) and the attributes of the upstream dialects whose
+||| attributes cross as text (`arith`'s, `ub`'s, `linalg`'s) are their
+||| text, in the syntax their dialects declare, which upstream's parsers
+||| read; nothing such text holds is a type of the `idr` dialect. Every op
+||| is its parts: name, operands, attributes (its inherent ones, which
+||| become its properties when it is made, with its discardable ones),
+||| regions, result types and location. The generated builders make the
+||| ops (IdrisMLIR.Dialect.*). A dialect is the specification's
 ||| (IdrisMLIR.Spec.Core.Dialect): an op's name and a text attribute hold
 ||| theirs, so none is told by its text.
 module IdrisMLIR.MLIR
@@ -23,6 +26,7 @@ module IdrisMLIR.MLIR
 import public IdrisMLIR.MLIR.Text
 import public IdrisMLIR.Encoding.Idr
 import public IdrisMLIR.Encoding.Wire
+import IdrisMLIR.Ids
 import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Runtime.Endings
 
@@ -58,6 +62,19 @@ Eq Dim where
 ||| (IdrisMLIR.Dialect.*), so it is that value's, under that dialect.
 public export
 data Spelling = MkSpelling (Lazy String)
+
+namespace IntegerOrIndex
+  ||| The type an integer attribute is of: a signless integer type of the
+  ||| width given, or `index`. It is the one type an attribute that crosses
+  ||| as text holds, so an integer of an `idr` type cannot be written.
+  public export
+  data IntegerOrIndex = OfWidth Nat | OfIndex
+
+||| An integer attribute's type as its text writes it.
+export
+integerOrIndexText : IntegerOrIndex -> String
+integerOrIndexText (OfWidth w) = "i" ++ show w
+integerOrIndexText OfIndex = "index"
 
 namespace MlirAttr
   ||| An attribute, defined below: a memref's memory space is one, so the
@@ -105,7 +122,7 @@ namespace MlirAttr
   data MlirAttr
     = UnitAttr
     | BoolAttr Bool
-    | IntegerAttr Integer MlirType
+    | IntegerAttr Integer IntegerOrIndex
     | FloatAttr Double MlirType
     | StringAttr String
     | SymbolRefAttr SymbolRef
@@ -119,6 +136,12 @@ namespace MlirAttr
       LocAttr Location
     | ||| An attribute of the `idr` dialect.
       Idr (IdrAttr MlirType MlirAttr)
+    | ||| A group of families declared together: its members, which its
+      ||| `#idr.family` attribute holds, and its identity among the
+      ||| program's groups. Every data type of the group holds this one
+      ||| value, and the writer encodes the members the first time it meets
+      ||| the identity, giving every later occurrence that entry.
+      GroupAttr GroupId (List (MemberOf MlirType MlirAttr))
     | ||| An attribute of an upstream dialect whose attributes cross as
       ||| text: the dialect, and the attribute spelled in its syntax, made
       ||| by the smart constructor printed with the dialect.
@@ -129,80 +152,6 @@ namespace MlirAttr
 export
 dynamicExtent : Integer
 dynamicExtent = -9223372036854775808
-
-||| A dimension as a shaped type writes it, with the `x` after it.
-dimText : Dim -> String
-dimText (Static n) = show n ++ "x"
-dimText Dynamic = "?x"
-
-mutual
-  ||| A builtin type's text, as an attribute that crosses as text holds it:
-  ||| `arith`'s and `ub`'s attributes hold builtin types only. An `idr` type
-  ||| never crosses as text; it is its entry (`MLIR.Bytecode`).
-  export
-  typeText : MlirType -> String
-  typeText (IntegerType w) = "i" ++ show w
-  typeText F64Type = "f64"
-  typeText IndexType = "index"
-  typeText NoneType = "none"
-  typeText MlirType.TokenType = "token"
-  typeText (RankedTensorType ds e) = fastConcat ("tensor<" :: map dimText ds ++ [typeText e, ">"])
-  typeText (MemRefType ds e Nothing) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ">"])
-  typeText (MemRefType ds e (Just a)) = fastConcat ("memref<" :: map dimText ds ++ [typeText e, ", " ++ attrText a, ">"])
-  typeText (FunctionType (MkSignature ins outs)) = signature id (MkSignature (typesText ins) (typesText outs))
-  -- No text attribute holds one, so this is never read.
-  typeText (Idr _) = "none"
-
-  typesText : List MlirType -> List String
-  typesText [] = []
-  typesText (t :: ts) = typeText t :: typesText ts
-
-  ||| The text of an attribute that crosses as text: an upstream dialect's
-  ||| spelled when made, and an identity layout. Every other attribute is
-  ||| its entry (`MLIR.Bytecode`); a builtin attribute that a spelled
-  ||| attribute's text holds is written by this function.
-  export
-  attrText : MlirAttr -> String
-  attrText UnitAttr = "unit"
-  attrText (BoolAttr b) = if b then "true" else "false"
-  attrText (IntegerAttr n t) = show n ++ " : " ++ typeText t
-  -- A float never crosses as text: its entry holds its bits.
-  attrText (FloatAttr _ t) = "0 : " ++ typeText t
-  attrText (StringAttr s) = utf8Literal s
-  attrText (SymbolRefAttr r) = symbolRef r
-  attrText (TypeAttr t) = typeText t
-  attrText (ArrayAttr as) = array id (attrsText as)
-  attrText (DenseI32ArrayAttr []) = "array<i32>"
-  attrText (DenseI32ArrayAttr ns) = "array<i32: " ++ commaSeparated (map show ns) ++ ">"
-  attrText (DenseI64ArrayAttr []) = "array<i64>"
-  attrText (DenseI64ArrayAttr ns) = "array<i64: " ++ commaSeparated (map show ns) ++ ">"
-  attrText (DictionaryAttr as) = "{" ++ commaSeparated (entriesText as) ++ "}"
-  attrText (IdentityMap n) =
-    let dims = commaSeparated (map (\i => "d" ++ show i) (take n [0 .. n])) in
-    fastConcat ["affine_map<(", dims, ") -> (", dims, ")>"]
-  -- No text attribute holds one of these, so this is never read.
-  attrText (LocAttr _) = "unit"
-  attrText (Idr _) = "unit"
-  attrText (Spelled _ (MkSpelling s)) = s
-
-  attrsText : List MlirAttr -> List String
-  attrsText [] = []
-  attrsText (a :: as) = attrText a :: attrsText as
-
-  ||| The entries of a dictionary: a unit attribute is its name alone.
-  entriesText : List (String, MlirAttr) -> List String
-  entriesText [] = []
-  entriesText ((name, UnitAttr) :: es) = name :: entriesText es
-  entriesText ((name, a) :: es) = (name ++ " = " ++ attrText a) :: entriesText es
-
-||| The dialect of an attribute that crosses as text: a spelled one's own,
-||| and builtin's for an identity layout and the builtin attributes the
-||| writer writes as text.
-export
-attrDialect : MlirAttr -> Dialect
-attrDialect (Spelled d _) = d
-attrDialect (Idr _) = Dialect.Idr
-attrDialect _ = Builtin
 
 ||| A tensor's or a memref's element type, any other type itself, as
 ||| upstream's `getElementTypeOrSelf` gives it: what the builder of an op

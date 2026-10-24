@@ -280,23 +280,8 @@ odsEnumTraits es =
     (inNamespace "idr" (concatMap (\e => enumTraits ("::idr::" ++ identText e.name) e) es))
 
 ------------------------------------------------------------------------------
--- Op identity
+-- Upstream classes
 ------------------------------------------------------------------------------
-
-||| Every op of ours and every admitted upstream op, in declaration order:
-||| the dense index every per-op table is keyed by.
-public export
-data OpKey = OurOp AnyOp | AdmittedOp Admitted
-
-export
-keyName : OpKey -> String
-keyName (OurOp (SomeOp op)) = opClass op
-keyName (AdmittedOp a) = identText a.alias
-
-export
-keyClass : OpKey -> String
-keyClass (OurOp (SomeOp op)) = opQualifiedClass op
-keyClass (AdmittedOp a) = admittedAlias a
 
 ||| Each upstream dialect that admits an op, in the dialects' order, has the
 ||| classes of its admitted ops aliased by one run of the backend over its
@@ -335,21 +320,6 @@ writtenDialectsHeader ds =
     namespaceHeld d =
       "static_assert(std::string_view(" ++ cppDialect d ++ "::getDialectNamespace()) == "
         ++ quoted (wordText (namespaceWord d)) ++ ");"
-
-export
-opIndexHeader : List OpKey -> Lines
-opIndexHeader keys =
-  header "OpIndex" ["\"idr/Support/Enum.h\"", "\"idr/IR/Generated/AdmittedClasses.h.inc\"", "<array>", "<cstdint>", "<string_view>", "<type_traits>"]
-    (inNamespace "idr"
-      ( slashComment ["Every op of the dialect and every admitted upstream op, the key of every per-op table."]
-        ++ ["enum class OpIndex : std::uint16_t {"] ++ indent 2 (map (\k => keyName k ++ ",") keys) ++ ["};", ""]
-        ++ [ "template <>", "struct EnumTraits<OpIndex> {"
-           , "  static constexpr std::size_t count = " ++ decimal (length keys) ++ ";"
-           , "};", "" ]
-        ++ slashComment ["The index of an op's class; no primary definition, so a class outside the set has none."]
-        ++ ["template <class OpT>", "struct IndexOf;", ""]
-        ++ concatMap (\k => [ "template <>", "struct IndexOf<" ++ keyClass k ++ "> : std::integral_constant<OpIndex, OpIndex::" ++ keyName k ++ "> {};" ]) keys
-        ++ ["", "template <class OpT>", "inline constexpr OpIndex indexOf = IndexOf<OpT>::value;"] ))
 
 ------------------------------------------------------------------------------
 -- Specializations: families' constants, word ops

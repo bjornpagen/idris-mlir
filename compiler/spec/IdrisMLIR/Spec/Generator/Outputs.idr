@@ -393,11 +393,6 @@ refusals =
   ++ concatMap (\(SomeOp op) => carrierGroups op) allOps
   ++ stringOutputRefusals allOps
 
-||| Every op key: ours, then the admitted upstream allOps.
-export
-opKeys : List OpKey
-opKeys = map OurOp ourOps ++ map AdmittedOp declarations.admitted
-
 ||| Every file the generator writes, in order.
 export
 generate : List (Path, String)
@@ -419,7 +414,6 @@ generate =
      , (generated "Storages.h.inc", render (storagesHeader declarations.types declarations.attributes))
      , (generated "Defaults.h.inc", render (defaultsHeader declarations.interfaces))
      , (generated "PassDialects.h.inc", render (passDialectsHeader passes))
-     , (generated "OpIndex.h.inc", render (opIndexHeader opKeys))
      , (generated "Guards.h.inc", render (guardsHeader ourOps))
      , (generated "InlineMeanings.h.inc", render (inlineMeaningsHeader ourOps))
      , (generated "RuntimeAbi.h.inc", render (runtimeAbi ourOps declarations.helpers))

@@ -22,8 +22,8 @@ import Data.List
 
 ||| An attribute of the ub dialect, spelled as its syntax writes it.
 export
-ub : UBAttr MlirType MlirAttr -> MlirAttr
-ub x = Spelled Dialect.UB (MkSpelling (ubAttrText typeText attrText x))
+ub : UBAttr IntegerOrIndex Void -> MlirAttr
+ub x = Spelled Dialect.UB (MkSpelling (ubAttrText integerOrIndexText absurd x))
 
 ------------------------------------------------------------------------------
 -- Ops

@@ -348,7 +348,7 @@ buildersModule ops =
                    , "dialect is stored at. Every builder encodes a case by it, and so does"
                    , "the writer of a guard's check." ]
      ++ [ "export", "enumAttr : Closed a -> a -> MlirAttr"
-        , "enumAttr set x = IntegerAttr (natToInteger (position set x)) (IntegerType " ++ decimal enumBits ++ ")", "" ]
+        , "enumAttr set x = IntegerAttr (natToInteger (position set x)) (OfWidth " ++ decimal enumBits ++ ")", "" ]
      ++ concatMap (\(SomeOp op) => builder op) writtenOps
   where
     once : List String -> List String -> List String

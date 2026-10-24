@@ -36,7 +36,7 @@ collapseShapeOp src reassociation result =
 export
 concatOp : (dim : Integer) -> (inputs : List Value) -> (result : MlirType) -> Op
 concatOp dim inputs result =
-  MkOp (MkOpName Dialect.Tensor "concat") inputs [("dim", IntegerAttr dim (IntegerType 64))] [] [] [result]
+  MkOp (MkOpName Dialect.Tensor "concat") inputs [("dim", IntegerAttr dim (OfWidth 64))] [] [] [result]
 
 ||| `tensor.dim`: dimension index operation
 export

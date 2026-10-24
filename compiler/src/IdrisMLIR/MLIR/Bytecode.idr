@@ -6,10 +6,13 @@
 ||| attribute, each builtin attribute that holds another, each float (as
 ||| its bits), each location and each string an entry of its dialect's
 ||| bytecode encoding (IdrisMLIR.Encoding.*), which refers to what it holds
-||| by entry; only an identity layout and `arith`'s and `ub`'s attributes
-||| are their text, the bytecode's own fallback, which upstream's parsers
-||| read. A data type holds its family's group by entry, so a family is
-||| written once however many types apply it;
+||| by entry; only the builtin attributes that hold nothing else (a unit, a
+||| boolean, an integer, a symbol reference, a dense array, an identity
+||| layout) and `arith`'s, `ub`'s and `linalg`'s attributes are their text,
+||| the bytecode's own fallback, which upstream's parsers read. A data type
+||| holds its family's group by entry, and the writer encodes a group the
+||| first time a type names it, by the group's identity, so a family is
+||| written and walked once however many types apply it;
 ||| every op name recorded as registered, as it is where the file is read;
 ||| every op's inherent attributes in its one attribute dictionary, with its
 ||| discardable ones. Creating an op moves each inherent attribute into its
@@ -326,6 +329,9 @@ record Writer where
   opNameTable : Numbered (Nat, String) (Nat, Nat)
   attrTable : Numbered AttrKey Entry
   typeTable : Numbered Entry Entry
+  ||| The entry of each family group encoded so far, by the group's
+  ||| identity.
+  groups : IORef (SortedMap GroupId AttrRef)
   ||| Those ops, encoded, how many, and how many values they define.
   body : Bytes
   count : IORef Nat
@@ -388,17 +394,30 @@ attrEntry w d parts = do
   e <- (\n, bs => (n, Encoded bs)) <$> dialectNumber w (dialectOf d) <*> encoded w parts
   MkAttrRef <$> number w.attrTable (Holding e) (pure e)
 
-||| An attribute's entry as its text, of its dialect.
-textual : Writer -> MlirAttr -> W Entry
-textual w a = (\n => (n, Textual (attrText a))) <$> dialectNumber w (attrDialect a)
-
-||| An attribute's entry as its text: a symbol reference's found by its
-||| names, so that its text is made once.
-attrTextEntry : Writer -> MlirAttr -> W AttrRef
-attrTextEntry w a@(SymbolRefAttr r) = MkAttrRef <$> number w.attrTable (SymbolKey r.root r.nested) (textual w a)
-attrTextEntry w a = do
-  e <- textual w a
+||| The entry of an attribute that crosses as text: of the dialect given,
+||| its text that.
+textEntry : Writer -> Dialect -> String -> W AttrRef
+textEntry w d text = do
+  e <- (\n => (n, Textual text)) <$> dialectNumber w d
   MkAttrRef <$> number w.attrTable (Holding e) (pure e)
+
+||| A symbol reference's entry, builtin's text: found by its names, so that
+||| its text is made once.
+symbolEntry : Writer -> SymbolRef -> W AttrRef
+symbolEntry w r =
+  MkAttrRef <$> number w.attrTable (SymbolKey r.root r.nested)
+                  ((\n => (n, Textual (symbolRef r))) <$> dialectNumber w Builtin)
+
+||| A dense array's text, its element type given: `array<i32>` when empty.
+denseText : String -> List String -> String
+denseText element [] = "array<" ++ element ++ ">"
+denseText element xs = "array<" ++ element ++ ": " ++ commaSeparated xs ++ ">"
+
+||| The identity layout of a memref of the rank given, builtin's text.
+identityLayout : Writer -> Nat -> W AttrRef
+identityLayout w n =
+  let dims = commaSeparated (map (\i => "d" ++ show i) (take n [0 .. n])) in
+  textEntry w Builtin (fastConcat ["affine_map<(", dims, ") -> (", dims, ")>"])
 
 ||| A string attribute's entry, builtin's record.
 stringAttrNumber : Writer -> String -> W AttrRef
@@ -465,7 +484,7 @@ locationNumber w (Binder n p def k) = do
   named <- case p of
     Spanned l => namedNumber w n l
     Lowered d l => library w l !(nameNumber w n !(nameNumber w d !(placeNumber w l.located)))
-  definition <- attrTextEntry w (SymbolRefAttr (MkSymbolRef def []))
+  definition <- symbolEntry w (MkSymbolRef def [])
   identity <- attrEntry w IdrDialect (encodeBinderAttr definition k)
   attrEntry w BuiltinDialect (encodeFusedLocWithMetadata [named] identity)
 
@@ -551,11 +570,11 @@ mutual
   -- Upstream has a record for a memref in the default memory space and one
   -- for a memref in another; each names its identity layout.
   native w (MemRefType ds e Nothing) = do
-    layout <- attrTextEntry w (IdentityMap (length ds))
+    layout <- identityLayout w (length ds)
     recordOf BuiltinDialect (\x => encodeMemRefType (map extent ds) x layout) <$> held w e
   native w (MemRefType ds e (Just space)) = do
     s <- attrNumber w space
-    layout <- attrTextEntry w (IdentityMap (length ds))
+    layout <- identityLayout w (length ds)
     recordOf BuiltinDialect (\x => encodeMemRefTypeWithMemSpace s (map extent ds) x layout) <$> held w e
   -- Upstream packs a signless integer type's width with its signedness,
   -- 0, in the two low bits (`IntegerType`'s bytecode record).
@@ -674,9 +693,12 @@ mutual
   numberOptional w (Just a) = Just <$> attrNumber w a
 
   ||| An attribute's entry: an array, a dictionary, a type, a string and a
-  ||| float are builtin's records, every `idr` attribute the dialect's, the
-  ||| specification's encoding of it, what it holds by its entries; an
-  ||| identity layout and the spelled upstream attributes are their text.
+  ||| float are builtin's records, every `idr` attribute and family group
+  ||| the dialect's, the specification's encoding of it, what it holds by
+  ||| its entries; the builtin attributes that hold nothing else and the
+  ||| spelled upstream attributes are their text. A group is encoded the
+  ||| first time its identity is met, and every later occurrence is given
+  ||| that entry.
   attrNumber : Writer -> MlirAttr -> W AttrRef
   attrNumber w (ArrayAttr as) = do
     rs <- attrNumbers w as
@@ -695,8 +717,21 @@ mutual
     bits <- doubleBits w d
     attrEntry w BuiltinDialect [VarInt floatAttrCode, TypeAt r, SignedVarInt bits]
   attrNumber w (Idr a) = attrEntry w IdrDialect . encodeIdrAttr =<< numberIdrAttr w a
+  attrNumber w (GroupAttr g ms) = case lookup g !(readIORef w.groups) of
+    Just r => pure r
+    Nothing => do
+      r <- attrEntry w IdrDialect . encodeIdrAttr . FamilyAttr =<< numberMembers w ms
+      modifyIORef w.groups (insert g r)
+      pure r
   attrNumber w (LocAttr l) = locationNumber w l
-  attrNumber w a = attrTextEntry w a
+  attrNumber w UnitAttr = textEntry w Builtin "unit"
+  attrNumber w (BoolAttr b) = textEntry w Builtin (if b then "true" else "false")
+  attrNumber w (IntegerAttr n t) = textEntry w Builtin (show n ++ " : " ++ integerOrIndexText t)
+  attrNumber w (SymbolRefAttr r) = symbolEntry w r
+  attrNumber w (DenseI32ArrayAttr ns) = textEntry w Builtin (denseText "i32" (map show ns))
+  attrNumber w (DenseI64ArrayAttr ns) = textEntry w Builtin (denseText "i64" (map show ns))
+  attrNumber w (IdentityMap n) = identityLayout w n
+  attrNumber w (Spelled d (MkSpelling s)) = textEntry w d s
 
   ||| Attributes' entries, in order.
   attrNumbers : Writer -> List MlirAttr -> W (List AttrRef)
@@ -747,7 +782,7 @@ export
 newWriter : IO (Either String Writer)
 newWriter = runEitherT $
   MkWriter <$> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered <*> newNumbered
-           <*> newBytes <*> newIORef 0 <*> newIORef 0 <*> newWord
+           <*> newIORef SortedMap.empty <*> newBytes <*> newIORef 0 <*> newIORef 0 <*> newWord
 
 ------------------------------------------------------------------------------
 -- Ops and regions

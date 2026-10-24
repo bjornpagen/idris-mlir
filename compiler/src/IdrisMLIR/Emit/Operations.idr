@@ -80,7 +80,7 @@ unguarded at t build = do
 ||| `Int`, the variable `binder` bound to it.
 memrefLength : {default Nothing binder : Maybe Binding} -> {default Nothing stands : Maybe Shown} -> Loc -> Value -> E Value
 memrefLength l a = do
-  zero <- unguarded (At l) IndexType (Arith.constantOp (IntegerAttr 0 IndexType))
+  zero <- unguarded (At l) IndexType (Arith.constantOp (IntegerAttr 0 OfIndex))
   n <- unguarded (At l) IndexType (MemRef.dimOp a zero)
   unguarded (madeAtPlace binder (placeOf stands l) Many) (IntegerType 64) (Arith.indexCastOp n)
 
@@ -265,8 +265,8 @@ coerce ix l use v = case (v.uses, use) of
 export
 literal : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Lit -> E Val
 literal ix l (LInt t n) = value {binder} ix l (IntT t)
-  (Arith.constantOp (IntegerAttr (twos (width t) n) (IntegerType (width t))))
-literal ix l (LChar c) = value {binder} ix l CharT (Arith.constantOp (IntegerAttr c (IntegerType 32)))
+  (Arith.constantOp (IntegerAttr (twos (width t) n) (OfWidth (width t))))
+literal ix l (LChar c) = value {binder} ix l CharT (Arith.constantOp (IntegerAttr c (OfWidth 32)))
 literal ix l (LDouble d) = value {binder} ix l DoubleT (Arith.constantOp (FloatAttr d F64Type))
 literal ix l (LStr s) = heldValue {binder} ix l Hold.Static StrT (Idr.constantOp (StringAttr s))
 literal ix l (LBig n) = heldValue {binder} ix l Hold.Static BigT (Idr.constantOp (Idr (BigAttr n)))
@@ -496,7 +496,7 @@ effect binder ix l a gives vs res = do
     answer GivesValue (ActedOne r) = con {binder} ix l Many res [] [val r given Many made, worldVal]
 
     int64 : Integer -> E Value
-    int64 n = mlirValue l (IntegerType 64) (Arith.constantOp (IntegerAttr n (IntegerType 64)))
+    int64 n = mlirValue l (IntegerType 64) (Arith.constantOp (IntegerAttr n (OfWidth 64)))
 
     -- An op written where it stands, after its guards, giving as many
     -- values as its action does.

@@ -38,6 +38,16 @@ record FamilyId where
   constructor MkFamilyId
   index : Nat
 
+||| A group of families declared together (one `#idr.family` attribute), by
+||| its place in the program's declaration order, minted once when the
+||| groups are declared. Its identity in the module is its content; this
+||| number only lets the writer encode that content once, however many
+||| types name the group.
+public export
+record GroupId where
+  constructor MkGroupId
+  index : Nat
+
 ||| A constructor of a family instance of `tags` constructors: the family,
 ||| and the constructor's position among them, which is Idris's tag for it,
 ||| so a constructor's identity is read off its family's table at that
@@ -168,6 +178,9 @@ Show FnId where
 export Eq FamilyId where a == b = a.index == b.index
 export Ord FamilyId where compare a b = compare a.index b.index
 export Show FamilyId where show f = "family " ++ show f.index
+
+export Eq GroupId where a == b = a.index == b.index
+export Ord GroupId where compare a b = compare a.index b.index
 
 export Eq (ConId tags) where a == b = a.family == b.family && a.index == b.index
 export Ord (ConId tags) where compare a b = compare (a.family, a.index) (b.family, b.index)

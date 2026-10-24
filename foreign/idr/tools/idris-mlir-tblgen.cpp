@@ -493,14 +493,15 @@ void emitCaseFields(const Enum &used, llvm::raw_ostream &os) {
 enum class Match { TheDef, OfClass };
 
 // What an op attribute holds besides itself that its Idris value writes:
-// nothing, or the value type ODS gives it, which must be one exact builtin
-// type.
-enum class Valued { Alone, ByBuiltinType };
+// nothing; or the value type ODS gives it, which must be one exact type:
+// for an integer, an integer type or index, as an integer attribute holds
+// its type; for a float, a builtin float type.
+enum class Valued { Alone, ByIntegerType, ByFloatType };
 
 // An upstream attribute the Idris side gives as a value of its own: the
 // record ODS declares it by, how an attribute's base record is matched
 // against it, its kind's form and item type, and the expression that writes
-// `{0}`, in which `{1}` is the builtin value type of a row valued by it.
+// `{0}`, in which `{1}` is the value type of a row valued by it.
 // Each record is named here once and resolved once per run, so an op
 // attribute's kind is read off the record it is built on, never off the C++
 // class that stores it. A def's row comes before the row of a class that
@@ -516,11 +517,11 @@ struct AttrRow {
 
 constexpr AttrRow attrRows[] = {
     {"BoolAttr", Match::TheDef, Valued::Alone, ItemOrList::Item, "Bool", "BoolAttr {0}"},
-    {"SignlessIntegerAttrBase", Match::OfClass, Valued::ByBuiltinType, ItemOrList::Item,
+    {"SignlessIntegerAttrBase", Match::OfClass, Valued::ByIntegerType, ItemOrList::Item,
      "Integer", "IntegerAttr {0} ({1})"},
-    {"IndexAttr", Match::TheDef, Valued::ByBuiltinType, ItemOrList::Item, "Integer",
+    {"IndexAttr", Match::TheDef, Valued::ByIntegerType, ItemOrList::Item, "Integer",
      "IntegerAttr {0} ({1})"},
-    {"FloatAttrBase", Match::OfClass, Valued::ByBuiltinType, ItemOrList::Item, "Double",
+    {"FloatAttrBase", Match::OfClass, Valued::ByFloatType, ItemOrList::Item, "Double",
      "FloatAttr {0} ({1})"},
     {"StringBasedAttr", Match::OfClass, Valued::Alone, ItemOrList::Item, "String",
      "StringAttr {0}"},
@@ -584,16 +585,27 @@ bool lists(const Operator &op, const llvm::Record *trait) {
                       [&](const mlir::tblgen::Trait &each) { return &each.getDef() == trait; });
 }
 
-// The builtin type an ODS type constraint names when it is one exact type,
+// The type an ODS type constraint names when it is one exact type, as the
+// attribute its row makes holds it: an integer attribute's type, an integer
+// type or index, as IdrisMLIR.MLIR's integer-or-index; a float attribute's,
 // as a constructor of IdrisMLIR.MLIR's types.
-std::optional<std::string> builtinType(const Upstream &u, const llvm::Record &type) {
-  if (type.isSubClassOf("I"))
-    return llvm::formatv("IntegerType {0}", type.getValueAsInt("bitwidth")).str();
-  if (type.isSubClassOf("F") && type.getValueAsInt("bitwidth") == 64)
-    return std::string("F64Type");
-  if (&type == u.index)
-    return std::string("IndexType");
-  return std::nullopt;
+std::optional<std::string> heldType(const Upstream &u, Valued valued, const llvm::Record &type) {
+  switch (valued) {
+  case Valued::ByIntegerType:
+    if (type.isSubClassOf("I"))
+      return llvm::formatv("OfWidth {0}", type.getValueAsInt("bitwidth")).str();
+    if (&type == u.index)
+      return std::string("OfIndex");
+    return std::nullopt;
+  case Valued::ByFloatType:
+    if (type.isSubClassOf("F") && type.getValueAsInt("bitwidth") == 64)
+      return std::string("F64Type");
+    return std::nullopt;
+  // An attribute valued alone holds no type.
+  case Valued::Alone:
+    return std::nullopt;
+  }
+  llvm_unreachable("a closed set of ways an attribute is valued");
 }
 
 // How the ops' module writes a value of an enum stored as an integer of
@@ -604,7 +616,7 @@ Kind enumValue(Enums &enums, const llvm::Record *def, int64_t width) {
   std::string name = enumName(info);
   useEnum(enums, def);
   return Kind{ItemOrList::Item, name,
-              llvm::formatv("IntegerAttr (natToInteger ({0}Value {{0})) (IntegerType {1})",
+              llvm::formatv("IntegerAttr (natToInteger ({0}Value {{0})) (OfWidth {1})",
                             camel(name, Initial::Lowered), width)
                   .str(),
               DefKind::Type};
@@ -632,10 +644,10 @@ Kind attributeKind(Enums &enums, const Upstream &u, const mlir::tblgen::Attribut
     if (row.valued == Valued::Alone)
       return {row.form, row.item.str(), row.text.str(), DefKind::Type};
     std::optional<mlir::tblgen::Type> type = mlir::tblgen::Attribute(def).getValueType();
-    std::optional<std::string> builtin =
-        type ? builtinType(u, type->getDef()) : std::optional<std::string>();
-    if (builtin)
-      return {row.form, row.item.str(), llvm::formatv(row.text.data(), "{0}", *builtin).str(),
+    std::optional<std::string> held =
+        type ? heldType(u, row.valued, type->getDef()) : std::optional<std::string>();
+    if (held)
+      return {row.form, row.item.str(), llvm::formatv(row.text.data(), "{0}", *held).str(),
               DefKind::Type};
     break;
   }
@@ -1562,7 +1574,11 @@ bool emitIdrisSyntax(const llvm::RecordKeeper &records, llvm::raw_ostream &os) {
 // The smart constructor of a dialect's attributes, where its syntax holds
 // them in a sum: an attribute spelled as the syntax writes it, under the
 // dialect, so no writer spells one by hand and none is spelled under
-// another dialect.
+// another dialect. The sum is taken over what crosses as text: the one
+// type an attribute that crosses as text holds, an integer type or index,
+// and no attribute (`Void`), since none of the handoff's attributes is
+// spelled inside another's text; so a spelled attribute cannot hold a type
+// or an attribute its text could not write.
 std::string spelledAttributes(const Vocabulary &v) {
   if (v.attrs.empty())
     return "";
@@ -1570,8 +1586,8 @@ std::string spelledAttributes(const Vocabulary &v) {
   std::string sum = (lastName(moduleName) + "Attr").str();
   return llvm::formatv("||| An attribute of the {0} dialect, spelled as its syntax writes it.\n"
                        "export\n"
-                       "{1} : {2} MlirType MlirAttr -> MlirAttr\n"
-                       "{1} x = Spelled {3} (MkSpelling ({1}AttrText typeText attrText x))\n\n",
+                       "{1} : {2} IntegerOrIndex Void -> MlirAttr\n"
+                       "{1} x = Spelled {3} (MkSpelling ({1}AttrText integerOrIndexText absurd x))\n\n",
                        dialectName.getValue(), lower, sum, dialectConstructor())
       .str();
 }

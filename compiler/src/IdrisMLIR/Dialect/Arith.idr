@@ -26,8 +26,8 @@ import Data.List
 
 ||| An attribute of the arith dialect, spelled as its syntax writes it.
 export
-arith : ArithAttr MlirType MlirAttr -> MlirAttr
-arith x = Spelled Dialect.Arith (MkSpelling (arithAttrText typeText attrText x))
+arith : ArithAttr IntegerOrIndex Void -> MlirAttr
+arith x = Spelled Dialect.Arith (MkSpelling (arithAttrText integerOrIndexText absurd x))
 
 ------------------------------------------------------------------------------
 -- Ops
@@ -37,7 +37,7 @@ arith x = Spelled Dialect.Arith (MkSpelling (arithAttrText typeText attrText x))
 export
 addfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 addfOp lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "addf") [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp (MkOpName Dialect.Arith "addf") [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (OfWidth 32)) roundingmode) [] [] [result]
 
 ||| `arith.addi`: integer addition operation
 export
@@ -55,13 +55,13 @@ andiOp lhs rhs result =
 export
 cmpfOp : {default Nothing fastmath : Maybe MlirAttr} -> (predicate : CmpFPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 cmpfOp predicate lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "cmpf") [lhs, rhs] ([("predicate", IntegerAttr (natToInteger (cmpFPredicateValue predicate)) (IntegerType 64))] ++ attrIf "fastmath" id fastmath) [] [] [result]
+  MkOp (MkOpName Dialect.Arith "cmpf") [lhs, rhs] ([("predicate", IntegerAttr (natToInteger (cmpFPredicateValue predicate)) (OfWidth 64))] ++ attrIf "fastmath" id fastmath) [] [] [result]
 
 ||| `arith.cmpi`: integer comparison operation
 export
 cmpiOp : (predicate : CmpIPredicate) -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 cmpiOp predicate lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "cmpi") [lhs, rhs] [("predicate", IntegerAttr (natToInteger (cmpIPredicateValue predicate)) (IntegerType 64))] [] [] [result]
+  MkOp (MkOpName Dialect.Arith "cmpi") [lhs, rhs] [("predicate", IntegerAttr (natToInteger (cmpIPredicateValue predicate)) (OfWidth 64))] [] [] [result]
 
 ||| `arith.constant`: integer or floating point constant
 export
@@ -73,7 +73,7 @@ constantOp value result =
 export
 divfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 divfOp lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "divf") [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp (MkOpName Dialect.Arith "divf") [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (OfWidth 32)) roundingmode) [] [] [result]
 
 ||| `arith.divui`: unsigned integer division operation
 export
@@ -134,7 +134,7 @@ minuiOp lhs rhs result =
 export
 mulfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 mulfOp lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "mulf") [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp (MkOpName Dialect.Arith "mulf") [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (OfWidth 32)) roundingmode) [] [] [result]
 
 ||| `arith.muli`: Integer multiplication operation.
 export
@@ -183,7 +183,7 @@ shruiOp lhs rhs result =
 export
 subfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 subfOp lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "subf") [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (IntegerType 32)) roundingmode) [] [] [result]
+  MkOp (MkOpName Dialect.Arith "subf") [lhs, rhs] (attrIf "fastmath" id fastmath ++ attrIf "roundingmode" (\v => IntegerAttr (natToInteger (roundingModeValue v)) (OfWidth 32)) roundingmode) [] [] [result]
 
 ||| `arith.subi`: Integer subtraction operation.
 export

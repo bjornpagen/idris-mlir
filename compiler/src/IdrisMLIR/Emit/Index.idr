@@ -93,8 +93,8 @@ reaches ix = reachesIn (MkAmong ix.families empty)
 ||| `idr.lit.match`.
 export
 litAttr : Lit -> MlirAttr
-litAttr (LInt t n) = IntegerAttr (twos (width t) n) (IntegerType (width t))
-litAttr (LChar c) = IntegerAttr c (IntegerType 32)
+litAttr (LInt t n) = IntegerAttr (twos (width t) n) (OfWidth (width t))
+litAttr (LChar c) = IntegerAttr c (OfWidth 32)
 litAttr (LStr s) = StringAttr s
 litAttr (LDouble d) = FloatAttr d F64Type
 litAttr (LBig n) = Idr (BigAttr n)
@@ -398,16 +398,18 @@ groupReaches a fs =
 
 ||| The families of a program declared, group by group in order, each
 ||| group one `#idr.family` attribute naming the earlier groups' members
-||| by their attributes and its own by `self`.
+||| by their groups and its own by `self`, numbered by its place in that
+||| order: the identity by which the writer encodes it once, however many
+||| types name it.
 declare : List FamilyGroup -> SortedMap FamilyId FamilyEntry
-declare = foldl group empty
+declare gs = foldl group empty (zip gs [0 .. length gs])
   where
-    group : SortedMap FamilyId FamilyEntry -> FamilyGroup -> SortedMap FamilyId FamilyEntry
-    group done g =
+    group : SortedMap FamilyId FamilyEntry -> (FamilyGroup, Nat) -> SortedMap FamilyId FamilyEntry
+    group done (g, k) =
       let fs = forget g
           numbered = zip fs [0 .. length fs]
           a = MkAmong done (fromList (map (\(f, m) => (f.id, m)) numbered))
-          attr = Idr (FamilyAttr (map (MemberOfData . memberDecl a) fs))
+          attr = GroupAttr (MkGroupId k) (map (MemberOfData . memberDecl a) fs)
           r = groupReaches a fs
       in foldl (\m, (f, i) => insert f.id (MkFamilyEntry f attr i r a.members) m) done numbered
 
