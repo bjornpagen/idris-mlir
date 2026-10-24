@@ -14,8 +14,9 @@
 // family taken apart at each constructor both types leave possible, its
 // fields re-packed in turn, and built again, in place or in a cell. A cell
 // is allocated as every counted cell is, and an atom of a family in cells
-// is the static cell of its constructor (idr-lower-statics makes every
-// one). Where the two layouts agree the value is its words, as they are.
+// is the static cell of its constructor (idr-lower's static data holds
+// every one). Where the two layouts agree the value is its words, as they
+// are.
 // No layout is refused.
 //
 // What the value holds goes on to the result. A cell taken apart gives its
@@ -212,7 +213,7 @@ struct Repacker {
     if (to.empty()) {
       MLIRContext *ctx = b.getContext();
       auto atom = ConAttr::get(ctx, target.refinedTo(tag, {}), ArrayAttr::get(ctx, {}));
-      return constantComponents(b, loc, layouts, atom, target);
+      return constantComponents(b, loc, layouts, runtime.statics(), atom, target);
     }
     const layout::Cell &shape = layouts.cells(target).cell(tag);
     Value cell = runtime.allocate(b, loc, shape);

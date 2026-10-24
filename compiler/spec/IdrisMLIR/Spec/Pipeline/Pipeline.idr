@@ -465,17 +465,11 @@ lowerRuntime = MkPass ("lower" ::: ["runtime"]) OnProgram (At Owned) Apply Keeps
   (MkDoc "Declare every runtime function the program's ops call, once" "")
 
 public export
-lowerStatics : Pass
-lowerStatics = MkPass ("lower" ::: ["statics"]) OnProgram (At Owned) Apply Keeps [] [] [] NoOptions
-  [LoadsLLVM] Registered
-  (MkDoc "Make every static datum the program's constants need, once" "")
-
-public export
 lower : Pass
 lower = MkPass ("lower" ::: []) OnProgram (moves Owned Lowered) Restructure Invalidates [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions
   [LoadsArith, LoadsSCF, LoadsUB, LoadsLLVM, LoadsCF, LoadsMath, LoadsMemRef, LoadsAffine] Registered
   (MkDoc "Lower each function to the LLVM dialect: llvm.func, llvm.call, llvm.return built directly"
-     "Each function on its own, in parallel: every idr op and type takes its runtime layout,\nthe join ops lower with upstream's SCF patterns in one conversion, a call in tail\nposition becomes a musttail call under tailcc, and a function's row becomes LLVM's\nattributes.")
+     "Every static datum the functions name made first, once, on the program. Then each\nfunction on its own, in parallel: every idr op and type takes its runtime layout,\nthe join ops lower with upstream's SCF patterns in one conversion, a call in tail\nposition becomes a musttail call under tailcc, and a function's row becomes LLVM's\nattributes.")
 
 public export
 entry : Pass
@@ -553,7 +547,7 @@ passes =
   [ target, defunctionalize, knots, inPlace, deduplicate, contify, optimize, inline
   , columns, simplify, structureLoops, uniqueResults, bufferize, accumulate, rcCells, lifetimes
   , rcBorrows, rcPlace, rcExclusive, rcReuse, rcExpand, trmc, frames, tailLoops
-  , narrow, narrowWords, orderedLoops, lowerRuntime, lowerStatics, lower, entry, narrowLanes
+  , narrow, narrowWords, orderedLoops, lowerRuntime, lower, entry, narrowLanes
   , tailCalls, expect, redirect, inlineLeaves, widenRows, writeRows ]
 
 ||| Every action a pass takes, in the passes' order: the tags a test draws
@@ -608,7 +602,6 @@ programPipeline =
     (Run narrowWords "each function's bigs made words under the program's summaries" Done) $
   Nest OnFunction (Run orderedLoops "the generating ops as loops, right before the lowering" Done) $
   Run lowerRuntime "every runtime function declared before any function is lowered" $
-  Run lowerStatics "every static datum made before any function is lowered" $
   Run lower "each function to the LLVM dialect" $
   Done
 

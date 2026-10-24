@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The runtime's C functions as idr-lower calls them, the crashes it reports
-// through them, counting by the kind of each word, and a constant array's
-// static cell; a constant's components are StaticData.cpp's, and the reads
-// and writes of a cell RuntimeCells.cpp's.
+// through them, and counting by the kind of each word; a constant's
+// components are StaticData.cpp's, and the reads and writes of a cell
+// RuntimeCells.cpp's.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
@@ -145,8 +145,9 @@ HeaderLayout HeaderLayout::of(const Layouts &layouts, MLIRContext *ctx) {
 
 // The converter reads no data layout of its own: the options carry what it
 // needs, and a query of the shared layout would fill its caches.
-Runtime::Runtime(MLIRContext *ctx, const Layouts &l, const LowerToLLVMOptions &options)
-    : layouts(l), llvmTypes(ctx, options, /*analysis=*/nullptr),
+Runtime::Runtime(MLIRContext *ctx, const Layouts &l, const Statics &statics,
+                 const LowerToLLVMOptions &options)
+    : layouts(l), staticData(statics), llvmTypes(ctx, options, /*analysis=*/nullptr),
       headerLayout(HeaderLayout::of(l, ctx)) {}
 
 LLVM::CallOp Runtime::call(OpBuilder &b, Location loc, const idr::runtime::Function &function,
@@ -176,8 +177,8 @@ LLVM::CallOp Runtime::call(OpBuilder &b, Operation *op, const idr::runtime::Func
 }
 
 SmallVector<Value, 4> Runtime::siteOperands(OpBuilder &b, Location loc, SiteAttr site) const {
-  return {staticAddress(b, loc, StaticNames::text(StringRef(site.getFunction()))),
-          staticAddress(b, loc, StaticNames::text(StringRef(site.getFile()))),
+  SiteTexts texts = staticData.site(site);
+  return {staticAddress(b, loc, texts.function), staticAddress(b, loc, texts.file),
           i32Constant(b, loc, static_cast<int64_t>(site.getLine())),
           i32Constant(b, loc, static_cast<int64_t>(site.getColumn()))};
 }
@@ -235,10 +236,6 @@ void Runtime::dec(OpBuilder &b, Location loc, layout::Word word, Value value) co
 
 Value Runtime::isUnique(OpBuilder &b, Location loc, Value cell) const {
   return call(b, loc, idr::runtime::helper::isUnique, cell).getResult();
-}
-
-Value Runtime::constantArray(OpBuilder &b, Location loc, const ConstantArray &array) const {
-  return staticAddress(b, loc, array.name());
 }
 
 } // namespace idr::conversion

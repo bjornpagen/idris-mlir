@@ -201,8 +201,9 @@ struct LowerDataCon : IdrPattern<DataConOp> {
         return rewriter.notifyMatchFailure(op, "a constructor of a cell with fields is counting's");
       MLIRContext *ctx = getContext();
       auto atom = ConAttr::get(ctx, data.refinedTo(tag, {}), ArrayAttr::get(ctx, {}));
-      rewriter.replaceOpWithMultiple(
-          op, {constantComponents(rewriter, loc, layouts, atom, op.getResult().getType())});
+      rewriter.replaceOpWithMultiple(op, {constantComponents(rewriter, loc, layouts,
+                                                             runtime.statics(), atom,
+                                                             op.getResult().getType())});
       return success();
     }
     default:

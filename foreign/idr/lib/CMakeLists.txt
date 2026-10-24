@@ -54,7 +54,6 @@ add_mlir_library(IdrConversion
 	Conversion/Scalars.cpp
 	Conversion/StaticBytes.cpp
 	Conversion/StaticData.cpp
-	Conversion/StaticNames.cpp
 	Conversion/Strings.cpp
 	Conversion/TailCalls.cpp
 	Conversion/Words.cpp

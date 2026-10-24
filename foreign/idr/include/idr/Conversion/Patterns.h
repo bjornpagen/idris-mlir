@@ -14,7 +14,6 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/DenseMap.h"
 
 namespace idr::conversion {
 
@@ -46,12 +45,11 @@ mlir::Value numeralOf(mlir::OpBuilder &b, mlir::Location loc, const Runtime &run
 // The cells memrefs live in, allocated or constant, and the arrays of
 // mutable memory: their reads, writes and updates in place; and the
 // movements a step of a generating op makes in its buffers (a take, a copy,
-// a place) and the copy placed in a buffer allocated for it. `arrays` holds
-// every memref.global of the program by name, read as a constant array.
+// a place) and the copy placed in a buffer allocated for it. A constant
+// array is the static cell the runtime's statics hold for its global.
 void populateArrayPatterns(mlir::RewritePatternSet &patterns,
                            const mlir::TypeConverter &converter, const Layouts &layouts,
-                           Runtime &runtime,
-                           const llvm::DenseMap<mlir::StringAttr, ConstantArray> &arrays);
+                           Runtime &runtime);
 
 // The ops on buffers whose meaning is the runtime's: the elements of ours
 // they hold, and the copies upstream's memcpy does not cover.

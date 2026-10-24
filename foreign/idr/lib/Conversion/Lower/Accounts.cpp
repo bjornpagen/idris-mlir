@@ -104,7 +104,7 @@ void keepAccount(FuncOp fn, const FrozenRewritePatternSet &tells, const Layouts 
   Location loc = fn.getLoc();
   OpBuilder b = OpBuilder::atBlockBegin(&fn.getBody().front());
   runtime.call(b, loc, idr::runtime::helper::peakEnter,
-               ValueRange{staticAddress(b, loc, StaticNames::text(fn.getSymName())),
+               ValueRange{staticAddress(b, loc, runtime.statics().account(fn.getSymNameAttr())),
                           i64Constant(b, loc, bound)});
 }
 

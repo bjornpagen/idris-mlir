@@ -2,10 +2,11 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-lower, which takes the program's functions out of idr into the LLVM
 // dialect, and the dialects upstream's conversions to LLVM take after it.
-// Every runtime function was declared and every static datum made before
-// it (idr-lower-runtime, idr-lower-statics), so a function's lowering
-// writes nothing outside the function, and every function is lowered at
-// once.
+// Every runtime function was declared before it (idr-lower-runtime), and
+// every static datum is made in its serial phase, before any function is
+// lowered, into a table every function's lowering reads, so a function's
+// lowering writes nothing outside the function, and every function is
+// lowered at once.
 //
 // First the rows are written, last before they become LLVM's attributes.
 // Then, on the program: each call that gives a lifetime where its callee
@@ -107,8 +108,7 @@ struct LowerAsOperand : OpTraitConversionPattern<Trait> {
 // phases 1 and 2, and phase 3's conversion of regions into blocks. None is
 // written while the functions are lowered.
 struct Lowering {
-  Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
-           const DenseMap<StringAttr, ConstantArray> &arrays);
+  Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime);
 
   TypeConverter converter;
   ConversionTarget target;
@@ -126,8 +126,7 @@ struct Lowering {
 // vectorizes: the reads and writes of words in buffers, and the linalg ops
 // over words. Every other op of a function is one of the dialects the
 // lowering gives, or the conversion fails, the compiler's error.
-Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
-                   const DenseMap<StringAttr, ConstantArray> &arrays)
+Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime)
     : target(*program.getContext()), controlFlow(*program.getContext()) {
   MLIRContext *ctx = program.getContext();
   converter.addConversion([](Type type) { return type; });
@@ -187,7 +186,7 @@ Lowering::Lowering(ProgramOp program, const Layouts &layouts, Runtime &runtime,
   populateLifetimePatterns(set, converter, layouts, runtime);
   populatePackagePatterns(set, converter, layouts, runtime);
   populateBigPatterns(set, converter, layouts, runtime);
-  populateArrayPatterns(set, converter, layouts, runtime, arrays);
+  populateArrayPatterns(set, converter, layouts, runtime);
   populateMemrefPatterns(set, converter, layouts, runtime);
   populateBufferPatterns(set, converter, layouts, runtime);
   populateStringPatterns(set, converter, layouts, runtime);
@@ -262,18 +261,15 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     // its caches as it is asked, so no function's lowering may ask it.
     LowerToLLVMOptions options(ctx, getAnalysis<DataLayoutAnalysis>().getAtOrAbove(program));
     options.allocLowering = LowerToLLVMOptions::AllocLowering::None;
-    Runtime runtime(ctx, layouts, options);
+    // Every static datum, made once, here, serially, each memref.global read
+    // once as the constant array it must be: what every function's lowering
+    // names of static data, it reads off this table.
+    FailureOr<Statics> statics = makeStatics(program, layouts);
+    if (failed(statics))
+      return signalPassFailure();
+    Runtime runtime(ctx, layouts, *statics, options);
 
-    // Each memref.global read once as the constant array it must be.
-    DenseMap<StringAttr, ConstantArray> arrays;
-    for (auto global : program->getRegion(0).getOps<memref::GlobalOp>()) {
-      FailureOr<ConstantArray> array = ConstantArray::of(global);
-      if (failed(array))
-        return signalPassFailure();
-      arrays.try_emplace(global.getSymNameAttr(), *array);
-    }
-
-    Lowering lowering(program, layouts, runtime, arrays);
+    Lowering lowering(program, layouts, runtime);
     // Each callee is resolved through the program graph, the one index of
     // calls, until the functions become LLVM's below.
     viewsWhereAsked(program, graph);
@@ -294,7 +290,7 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
           return lowerFunction(fn, lowering);
         })))
       return signalPassFailure();
-    // A constant array is static data now, under its content's name.
+    // A constant array is a static cell now, made with the static data.
     for (memref::GlobalOp global :
          llvm::make_early_inc_range(program->getRegion(0).getOps<memref::GlobalOp>()))
       global.erase();

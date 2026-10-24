@@ -103,20 +103,20 @@ namespace {
 
 // The slot of the home of site `site`: its entry in the thread's array of
 // home cursors, a static datum.
-Value homeSlot(OpBuilder &b, Location loc, uint32_t site) {
-  Value homes = staticAddress(b, loc, StaticNames::homes());
+Value homeSlot(OpBuilder &b, Location loc, const Runtime &runtime, uint32_t site) {
+  Value homes = staticAddress(b, loc, runtime.statics().homes());
   return LLVM::GEPOp::create(b, loc, ptrType(b.getContext()), ptrType(b.getContext()), homes,
                              ArrayRef<LLVM::GEPArg>{static_cast<int32_t>(site)});
 }
 
 // The cursor's slot that a put into `lifetime`, converted to `converted`,
 // bumps: a cursor's own, or a home's, which has no value of its own.
-Value cursorSlot(OpBuilder &b, Location loc, TypedValue<LifetimeType> lifetime,
-                 ValueRange converted) {
+Value cursorSlot(OpBuilder &b, Location loc, const Runtime &runtime,
+                 TypedValue<LifetimeType> lifetime, ValueRange converted) {
   return lifetimes::kindOf(lifetime).fold(
       [&]() -> Value { return {}; }, [&]() -> Value { return {}; },
       [&]() -> Value { return converted.front(); },
-      [&](uint32_t site) -> Value { return homeSlot(b, loc, site); });
+      [&](uint32_t site) -> Value { return homeSlot(b, loc, runtime, site); });
 }
 
 //===----------------------------------------------------------------------===//
@@ -138,7 +138,8 @@ struct LowerCellArena : IdrPattern<CellArenaOp> {
     Value place = lifetimes::kindOf(lifetime).isRoom()
                       ? adaptor.getLifetime().front()
                       : bump(rewriter, loc, runtime,
-                             cursorSlot(rewriter, loc, lifetime, adaptor.getLifetime()), cell.size);
+                             cursorSlot(rewriter, loc, runtime, lifetime, adaptor.getLifetime()),
+                             cell.size);
     Value address = runtime.launder(rewriter, loc, place);
     runtime.storeUncountedHeader(rewriter, loc, address, cell);
     rewriter.replaceOp(op, address);
@@ -181,7 +182,7 @@ struct LowerReserve : IdrPattern<LifetimeReserveOp> {
   LogicalResult matchAndRewrite(LifetimeReserveOp op, OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    Value slot = cursorSlot(rewriter, loc, op.getLifetime(), adaptor.getLifetime());
+    Value slot = cursorSlot(rewriter, loc, runtime, op.getLifetime(), adaptor.getLifetime());
     rewriter.replaceOp(op,
                        bump(rewriter, loc, runtime, slot, static_cast<uint64_t>(op.getBytes())));
     return success();
@@ -279,7 +280,7 @@ struct LowerHomeOpener : IdrPattern<LifetimeHomeOp> {
                         .fold([] { return 0u; }, [] { return 0u; }, [] { return 0u; },
                               [](uint32_t k) { return k; });
     return runRegion(op, rewriter, *getTypeConverter(), {}, {}, {}, [&] {
-      Value slot = homeSlot(rewriter, loc, site);
+      Value slot = homeSlot(rewriter, loc, runtime, site);
       Type ptr = ptrType(getContext());
       Value cursor = LLVM::LoadOp::create(rewriter, loc, ptr, slot);
       runtime.call(rewriter, loc, idr::runtime::helper::arenaClose, cursor);

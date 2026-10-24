@@ -313,7 +313,6 @@
   "foreign/idr/lib/Conversion/RuntimeCells.cpp",
   "foreign/idr/lib/Conversion/StaticBytes.cpp",
   "foreign/idr/lib/Conversion/StaticData.cpp",
-  "foreign/idr/lib/Conversion/StaticNames.cpp",
   "foreign/idr/include/idr/Conversion/IdrPattern.h",
   "foreign/idr/include/idr/Conversion/Mangle.h",
   "foreign/idr/include/idr/Conversion/Passes.h",

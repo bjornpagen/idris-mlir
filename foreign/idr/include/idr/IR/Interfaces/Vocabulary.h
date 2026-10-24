@@ -16,6 +16,7 @@
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -176,9 +177,9 @@ bool isCellMemory(mlir::Type type);
 //===----------------------------------------------------------------------===//
 
 // The answer of ConstantAttrInterface::getStaticForm for an attribute of
-// ours, and of staticFormOf for any constant: a string's bytes, at the
-// string's own datum; an Integer or a natural, at a big's datum or in its
-// word; a numeral, its value at its place, a word of its layout's width or
+// ours, and of staticFormOf for any constant: a string, its attribute, at
+// the string's own datum; an Integer or a natural, at a big's datum or in
+// its word; a numeral, its value at its place, a word of its layout's width or
 // a natural where its place is laid out as one; an integer or a Double,
 // its own type's literal; poison, which stands for a cell pointer only; a
 // constructor of a family laid out in place, its fields in its words; or a
@@ -188,7 +189,7 @@ bool isCellMemory(mlir::Type type);
 // refused at every writer that forgot it.
 namespace static_form {
 struct Text {
-  llvm::StringRef bytes;
+  mlir::StringAttr value;
 };
 struct Big {
   AttrOf<BigAttr> value;

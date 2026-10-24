@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// What the steps of idr-lower share, inside the lowering: the functions as
-// LLVM's (phase 0), what LLVM is told of a row, how a cell is read and a
-// value dropped, what is made ready of a function before its ops are
-// converted (its lifetimes and its account), and a value re-packed from
-// one layout into another.
+// What the steps of idr-lower share, inside the lowering: the static data
+// and the functions as LLVM's (phase 0), what LLVM is told of a row, how a
+// cell is read and a value dropped, what is made ready of a function before
+// its ops are converted (its lifetimes and its account), and a value
+// re-packed from one layout into another.
 #ifndef IDR_CONVERSION_LOWER_LOWER_H
 #define IDR_CONVERSION_LOWER_LOWER_H
 
@@ -23,6 +23,17 @@
 #include <cstdint>
 
 namespace idr::conversion {
+
+//===----------------------------------------------------------------------===//
+// Static data
+//===----------------------------------------------------------------------===//
+
+// Every static datum the program's lowering names, made once, on the
+// program, serially, before any function is lowered or made LLVM's, and the
+// table of the globals made, which every function's lowering then reads at
+// once. Fails, having reported it, where a memref.global is no constant
+// array of words: an internal error.
+mlir::FailureOr<Statics> makeStatics(ProgramOp program, const Layouts &layouts);
 
 //===----------------------------------------------------------------------===//
 // What LLVM is told

@@ -129,52 +129,49 @@ inline void step34(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().nest
 // every runtime function declared before any function is lowered
 inline void step35(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrLowerRuntime()); }
 
-// every static datum made before any function is lowered
-inline void step36(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrLowerStatics()); }
-
 // each function to the LLVM dialect
-inline void step37(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrLower()); }
+inline void step36(::mlir::OpPassManager &pm) { pm.nest<::idr::ProgramOp>().addPass(::idr::createIdrLower()); }
 
 // the program taken apart, its root the module's entry
-inline void step38(::mlir::OpPassManager &pm) { pm.addPass(::idr::createIdrEntry()); }
+inline void step37(::mlir::OpPassManager &pm) { pm.addPass(::idr::createIdrEntry()); }
 
 // a subprogram on every function, which LLVM's line tables need
-inline void step39(::mlir::OpPassManager &pm) { pm.addPass(::mlir::LLVM::createDIScopeForLLVMFuncOpPass()); }
+inline void step38(::mlir::OpPassManager &pm) { pm.addPass(::mlir::LLVM::createDIScopeForLLVMFuncOpPass()); }
 
 // each loop over an array on the target's vector lanes
-inline void step40(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::idr::scheduleInterpreter()); }
+inline void step39(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::idr::scheduleInterpreter()); }
 
 // the integer lanes in 32 bits under a bound on the sizes
-inline void step41(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::idr::createIdrNarrowLanes()); }
+inline void step40(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::idr::createIdrNarrowLanes()); }
 
 // the loops the schedule left
-inline void step42(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createConvertLinalgToLoopsPass()); }
+inline void step41(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createConvertLinalgToLoopsPass()); }
 
 // transfers of a rank above one to loops of 1-D ones
-inline void step43(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createConvertVectorToSCFPass()); }
+inline void step42(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createConvertVectorToSCFPass()); }
 
 // views to offsets
-inline void step44(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::memref::createExpandStridedMetadataPass()); }
+inline void step43(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::memref::createExpandStridedMetadataPass()); }
 
 // the affine arithmetic of the offsets
-inline void step45(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createLowerAffinePass()); }
+inline void step44(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createLowerAffinePass()); }
 
 // the loops upstream's lowering made, to blocks; the join points were lowered with the functions
-inline void step46(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createSCFToControlFlowPass()); }
+inline void step45(::mlir::OpPassManager &pm) { pm.nest<::mlir::LLVM::LLVMFuncOp>().addPass(::mlir::createSCFToControlFlowPass()); }
 
 // the vector ops, with their pre-lowering
-inline void step47(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createConvertVectorToLLVMPass()); }
+inline void step46(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createConvertVectorToLLVMPass()); }
 
 // everything else
-inline void step48(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createConvertToLLVMPass()); }
+inline void step47(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createConvertToLLVMPass()); }
 
 // the casts the conversions left
-inline void step49(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createReconcileUnrealizedCastsPass()); }
+inline void step48(::mlir::OpPassManager &pm) { pm.addPass(::mlir::createReconcileUnrealizedCastsPass()); }
 
 // on the final control flow, each musttail call's block ended by its return
-inline void step50(::mlir::OpPassManager &pm) { pm.addPass(::idr::createIdrTailCalls()); }
+inline void step49(::mlir::OpPassManager &pm) { pm.addPass(::idr::createIdrTailCalls()); }
 
-inline constexpr std::array<Step, 51> steps{{
+inline constexpr std::array<Step, 50> steps{{
     {::idr::Stage::Higher, ::idr::Stage::First, &step0},
     {::idr::Stage::First, ::idr::Stage::First, &step1},
     {::idr::Stage::First, ::idr::Stage::First, &step2},
@@ -211,8 +208,8 @@ inline constexpr std::array<Step, 51> steps{{
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step33},
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step34},
     {::idr::Stage::Owned, ::idr::Stage::Owned, &step35},
-    {::idr::Stage::Owned, ::idr::Stage::Owned, &step36},
-    {::idr::Stage::Owned, ::idr::Stage::Lowered, &step37},
+    {::idr::Stage::Owned, ::idr::Stage::Lowered, &step36},
+    {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step37},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step38},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step39},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step40},
@@ -225,7 +222,6 @@ inline constexpr std::array<Step, 51> steps{{
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step47},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step48},
     {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step49},
-    {::idr::Stage::Lowered, ::idr::Stage::Lowered, &step50},
 }};
 
 // Every upstream pass the pipeline runs, registered so a pipeline's text can name it.

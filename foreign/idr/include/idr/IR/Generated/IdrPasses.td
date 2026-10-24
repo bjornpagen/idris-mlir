@@ -362,16 +362,11 @@ def IdrLowerRuntime : Pass<"idr-lower-runtime", "::idr::ProgramOp"> {
   let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
 }
 
-def IdrLowerStatics : Pass<"idr-lower-statics", "::idr::ProgramOp"> {
-  let summary = "Make every static datum the program's constants need, once";
-  let baseClass = "::idr::StagedPass<DerivedT, ::idr::ProgramOp, ::idr::Stage::Owned, ::idr::Stage::Owned>";
-  let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
-}
-
 def IdrLower : Pass<"idr-lower", "::idr::ProgramOp"> {
   let summary = "Lower each function to the LLVM dialect: llvm.func, llvm.call, llvm.return built directly";
   let description = [{
-    Each function on its own, in parallel: every idr op and type takes its runtime layout,
+    Every static datum the functions name made first, once, on the program. Then each
+    function on its own, in parallel: every idr op and type takes its runtime layout,
     the join ops lower with upstream's SCF patterns in one conversion, a call in tail
     position becomes a musttail call under tailcc, and a function's row becomes LLVM's
     attributes.

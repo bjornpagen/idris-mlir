@@ -269,7 +269,7 @@ StaticForm idr::staticFormOf(Attribute value, Type held) {
   if (auto constant = dyn_cast<ConstantAttrInterface>(value))
     return constant.getStaticForm(held);
   if (auto text = dyn_cast<StringAttr>(value))
-    return static_form::Text{text.getValue()};
+    return static_form::Text{text};
   if (isa<IntegerAttr, FloatAttr>(value))
     return static_form::Word{cast<TypedAttr>(value)};
   if (isa<ub::PoisonAttr>(value))

@@ -52,14 +52,16 @@ struct LowerAssume : IdrPattern<IndexAssumeOp> {
   }
 };
 
-// Strings, bigs and cells, memo cells among them, are static data; a
-// constant in place is its components.
+// Strings, bigs and cells, memo cells among them, are static data, the
+// globals made for them before any function is lowered; a constant in place
+// is its components.
 struct LowerConstant : IdrPattern<ConstantOp> {
   using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(ConstantOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithMultiple(
-        op, {constantComponents(rewriter, op.getLoc(), layouts, op.getValue(), op.getType())});
+    rewriter.replaceOpWithMultiple(op, {constantComponents(rewriter, op.getLoc(), layouts,
+                                                           runtime.statics(), op.getValue(),
+                                                           op.getType())});
     return success();
   }
 };
@@ -78,9 +80,8 @@ struct LowerPoison : IdrPattern<ub::PoisonOp> {
     Location loc = op.getLoc();
     Type type = op.getType();
     if (isCellPointer(type)) {
-      Attribute poison = ub::PoisonAttr::get(getContext());
-      rewriter.replaceOpWithMultiple(op,
-                                     {constantComponents(rewriter, loc, layouts, poison, type)});
+      rewriter.replaceOpWithMultiple(
+          op, {SmallVector<Value>{staticAddress(rewriter, loc, runtime.statics().nothing())}});
       return success();
     }
     SmallVector<Value> out;

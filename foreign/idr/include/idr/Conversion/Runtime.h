@@ -3,10 +3,11 @@
 // What idr-lower adds to a function besides converted ops: calls of the
 // runtime's C functions, crashes at their sites, cells, counting by the
 // kind of each counted word, and references to static data. Every runtime
-// function is declared by idr-lower-runtime and every static datum made by
-// idr-lower-statics before any function is lowered, so a Runtime writes
-// nothing outside the function it lowers into: it holds no state, and one
-// serves every function at once.
+// function is declared by idr-lower-runtime, and every static datum made in
+// idr-lower's serial phase, before any function is lowered, so a Runtime
+// writes nothing outside the function it lowers into: it holds no state but
+// the table of the static data made, read only, and one serves every
+// function at once.
 
 #ifndef IDR_CONVERSION_RUNTIME_H
 #define IDR_CONVERSION_RUNTIME_H
@@ -73,10 +74,11 @@ struct HeaderLayout {
 class Runtime {
 public:
   // The runtime of the lowering of a program whose values are laid out as
-  // `layouts`. `options` are what convert-to-llvm reads from the module's
-  // data layout, made once, before any function is lowered, since reading a
-  // data layout fills its caches.
-  Runtime(mlir::MLIRContext *ctx, const Layouts &layouts, const mlir::LowerToLLVMOptions &options);
+  // `layouts` and whose static data `statics` holds. `options` are what
+  // convert-to-llvm reads from the module's data layout, made once, before
+  // any function is lowered, since reading a data layout fills its caches.
+  Runtime(mlir::MLIRContext *ctx, const Layouts &layouts, const Statics &statics,
+          const mlir::LowerToLLVMOptions &options);
 
   // How upstream's memref patterns, here and in convert-to-llvm, convert a
   // memref to its descriptor: the same options, so that a descriptor built
@@ -85,6 +87,9 @@ public:
   const mlir::LLVMTypeConverter &llvmTypeConverter() const { return llvmTypes; }
 
   const HeaderLayout &header() const { return headerLayout; }
+
+  // The global made for each static datum the program's lowering names.
+  const Statics &statics() const { return staticData; }
 
   // Calls `function` with `args`, C values already of its kinds. The call
   // names its callee, which idr-lower-runtime declared with the same type,
@@ -124,7 +129,8 @@ public:
   void outOfMemoryIf(mlir::OpBuilder &b, mlir::Location loc, mlir::Value condition) const;
 
   // The four values every crash entry takes after what it says: its
-  // function's and its file's texts, its line and its column.
+  // function's and its file's texts (the globals made for its site), its
+  // line and its column.
   llvm::SmallVector<mlir::Value, 4> siteOperands(mlir::OpBuilder &b, mlir::Location loc,
                                                  SiteAttr site) const;
 
@@ -191,12 +197,9 @@ public:
   // is 1 (idris_rt_is_unique); an i1.
   mlir::Value isUnique(mlir::OpBuilder &b, mlir::Location loc, mlir::Value cell) const;
 
-  // The static cell of the constant array `array`.
-  mlir::Value constantArray(mlir::OpBuilder &b, mlir::Location loc,
-                            const ConstantArray &array) const;
-
 private:
   const Layouts &layouts;
+  const Statics &staticData;
   mlir::LLVMTypeConverter llvmTypes;
   HeaderLayout headerLayout;
 };

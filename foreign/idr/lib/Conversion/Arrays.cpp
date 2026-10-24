@@ -98,22 +98,17 @@ struct LowerAlloc : IdrPattern<memref::AllocOp> {
 // A constant array: its static cell, the header in front of the data. Its
 // value is any constant elements bufferization gave the global: dense, a
 // resource, or another form, each written as the cell's data. Every global
-// of the program was read as a constant array before any function is
-// lowered, and a verified get_global names one of them.
+// of the program was made a static cell before any function is lowered, and
+// a verified get_global names one of them.
 struct LowerGetGlobal : IdrPattern<memref::GetGlobalOp> {
-  LowerGetGlobal(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
-                 Runtime &runtime, const DenseMap<StringAttr, ConstantArray> &arrays)
-      : IdrPattern(converter, ctx, layouts, runtime), arrays(arrays) {}
-
+  using IdrPattern::IdrPattern;
   LogicalResult matchAndRewrite(memref::GetGlobalOp op, OneToNOpAdaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    const ConstantArray &array = arrays.at(op.getNameAttr().getAttr());
-    rewriter.replaceOpWithMultiple(
-        op, {SmallVector<Value>{runtime.constantArray(rewriter, op.getLoc(), array)}});
+    Value cell =
+        staticAddress(rewriter, op.getLoc(), runtime.statics().array(op.getNameAttr().getAttr()));
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>{cell}});
     return success();
   }
-
-  const DenseMap<StringAttr, ConstantArray> &arrays;
 };
 
 // A new array of mutable memory, of the given sizes (an array of rank 0 has
@@ -261,12 +256,10 @@ struct LowerUpdateYield : IdrPattern<ArrayUpdateYieldOp> {
 // mutable memory, of the elements of a buffer rebuilt in place, and of a
 // step's movements and a fresh buffer's placed copy (Movements.cpp).
 void populateArrayPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
-                           const Layouts &layouts, Runtime &runtime,
-                           const DenseMap<StringAttr, ConstantArray> &arrays) {
+                           const Layouts &layouts, Runtime &runtime) {
   MLIRContext *ctx = patterns.getContext();
   patterns.add<LowerAlloc, LowerArrayNew, LowerArrayGet, LowerArraySet, LowerUpdate,
-               LowerUpdateYield>(converter, ctx, layouts, runtime);
-  patterns.add<LowerGetGlobal>(converter, ctx, layouts, runtime, arrays);
+               LowerUpdateYield, LowerGetGlobal>(converter, ctx, layouts, runtime);
   populateMovementPatterns(patterns, converter, layouts, runtime);
 }
 
