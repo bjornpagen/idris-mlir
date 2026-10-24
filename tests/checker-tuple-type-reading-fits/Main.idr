@@ -12,6 +12,7 @@ module Main
 -- pattern matches. `head round` is the same shape, as the frontend's
 -- growth check writes it.
 
+import Prelude
 import Data.List1
 
 %default total
