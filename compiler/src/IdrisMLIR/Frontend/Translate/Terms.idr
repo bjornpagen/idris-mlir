@@ -54,8 +54,14 @@ import Decidable.Equality
 
 %default total
 
+||| What Idris proved of the clauses of the definition being translated:
+||| that they cover every input, so a leaf no clause reaches is never
+||| reached; or that some input meets none, and crashes there.
+public export
+data CaseCoverage = Complete | Incomplete
+
 ||| What a function's translation reads beside each term: who owns it, for
-||| a message; where it is; whether Idris found no missing case; the type
+||| a message; where it is; whether its clauses cover every input; the type
 ||| every leaf of its tree gives (`result`), its expected type, which a
 ||| lambda there that a polymorphic function's choice holds needs, its own
 ||| binders not saying it (`atType`), and its Core type, the function's
@@ -76,7 +82,7 @@ record Ctx (kc : Nat) where
   constructor MkCtx
   owner : String
   fc : FC
-  complete : Bool     -- Idris found no missing case
+  coverage : CaseCoverage
   result : ClosedTerm
   resultType : Ty
   depth : Nat

@@ -791,16 +791,17 @@ std::string valuesType(StringRef single, char arity) {
 std::string dialectConstructor() { return ("Dialect." + lastName(moduleName)).str(); }
 
 // The body of an admitted op's builder, `made` the op: its guards, each
-// written before the op as the check of the operand group the guard is
-// given first, against the groups it is given after, its continuation
-// binding that group's parameter again to what the check gives, so every
-// later guard and the op itself take the checked value; then the op. A
-// group of one operand is checked by `Checking`; one that holds any number,
-// or none, by `checkingEach`, operand by operand against the same others,
-// its parameter then the list of what the checks give, which the op's
-// operand list and a later guard read as a group's operands either way.
-// The specification cannot know upstream's operand groups, so a position
-// past them is refused here, where the record is read.
+// written before the op as the check op of its kind (the record's
+// `guardCheck`, the Idris printer's), on its cause and the groups it is
+// given after the first, checking the group it is given first, its
+// continuation binding that group's parameter again to what the check
+// gives, so every later guard and the op itself take the checked value;
+// then the op. A group of one operand is checked by `Checking`; one that
+// holds any number, or none, by `checkingEach`, operand by operand against
+// the same others, its parameter then the list of what the checks give,
+// which the op's operand list and a later guard read as a group's operands
+// either way. The specification cannot know upstream's operand groups, so
+// a position past them is refused here, where the record is read.
 std::string guardedBody(const Operator &op,
                         llvm::ArrayRef<const llvm::Record *> guards,
                         const std::vector<std::pair<std::string, char>> &operands,
@@ -817,8 +818,6 @@ std::string guardedBody(const Operator &op,
       llvm::PrintFatalError(op.getLoc(), op.getOperationName() +
                                              " has a guard whose operand groups are not among "
                                              "its record's");
-    std::string check = "(MkOpName Dialect." + guard->getValueAsString("guardDialect").str() +
-                        ' ' + literal(guard->getValueAsString("guardName")) + ")";
     // The cause typed, as the case at its position in the closed set of
     // causes the specification names, which the module's type check holds
     // to be one of the set's.
@@ -828,14 +827,13 @@ std::string guardedBody(const Operator &op,
     std::vector<std::pair<std::string, char>> others;
     for (std::int64_t group : llvm::ArrayRef(given).drop_front())
       others.push_back(operands[static_cast<std::size_t>(group)]);
+    std::string check = "(" + guard->getValueAsString("guardCheck").str() + ' ' + cause + ' ' +
+                        listOf(others) + ")";
     const auto &[checked, checkedArity] = operands[static_cast<std::size_t>(given.front())];
-    std::string opening = checkedArity == '1'   ? "Checking " + check + ' ' + cause + ' ' + checked
-                          : checkedArity == '?' ? "checkingEach " + check + ' ' + cause +
-                                                      " (toList " + checked + ")"
-                                                : "checkingEach " + check + ' ' + cause + ' ' +
-                                                      checked;
-    body += std::string(2 + 2 * depth, ' ') + opening + ' ' + listOf(others) + " (\\" + checked +
-            " =>\n";
+    std::string opening = checkedArity == '1'   ? "Checking " + check + ' ' + checked
+                          : checkedArity == '?' ? "checkingEach " + check + " (toList " + checked + ")"
+                                                : "checkingEach " + check + ' ' + checked;
+    body += std::string(2 + 2 * depth, ' ') + opening + " (\\" + checked + " =>\n";
     ++depth;
   }
   return body + std::string(2 + 2 * depth, ' ') + "Unguarded (" + made + ")" +
@@ -1449,8 +1447,8 @@ struct Vocabulary {
   std::string ops;
   Enums enums;
   // The modules the builders' guards import, each once: those they name
-  // their causes from, then those `caseAt`, by which they write a cause,
-  // needs, as each guard's record gives them.
+  // their causes from, then those their checks and `caseAt`, by which they
+  // write a cause, need, as each guard's record gives them.
   std::vector<std::string> guardImports;
 };
 
@@ -1502,7 +1500,7 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
     if (op.getDialect() != *v.dialect || admitted->getValueAsInt("frontendWrites") == 0)
       continue;
     for (const llvm::Record *guard : admitted->getValueAsListOfDefs("guards")) {
-      std::vector<StringRef> imports = guard->getValueAsListOfStrings("caseImports");
+      std::vector<StringRef> imports = guard->getValueAsListOfStrings("guardImports");
       imports.insert(imports.begin(), guard->getValueAsString("causeModule"));
       for (StringRef imported : imports)
         if (!llvm::is_contained(v.guardImports, imported))
@@ -1620,8 +1618,9 @@ bool emitIdrisDialect(const llvm::RecordKeeper &records, llvm::raw_ostream &os) 
      << "module " << moduleName
      << "\n\nimport IdrisMLIR.MLIR\nimport IdrisMLIR.Spec.Core.Dialect\nimport "
      << syntaxModuleName << "\n";
-  // A guarded builder writes its cause as a case of the specification's
-  // closed set of causes, by `caseAt`.
+  // A guarded builder writes its check by the idr dialect's builders'
+  // `checkOf`, at a kind of the specification's, and its cause as a case of
+  // the specification's closed set of causes, by `caseAt`.
   for (const std::string &module : v.guardImports)
     os << "import " << module << "\n";
   os << "\nimport Data.List\n\n%default total\n\n";

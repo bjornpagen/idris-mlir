@@ -25,7 +25,6 @@ import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Op as Spec
 import IdrisMLIR.Spec.Core.Text
-import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Ops.IO
 import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Platform
@@ -84,18 +83,15 @@ memrefLength l a = do
   n <- unguarded (At l) IndexType (MemRef.dimOp a zero)
   unguarded (madeAtPlace binder (placeOf stands l) Many) (IntegerType 64) (Arith.indexCastOp n)
 
-||| The op of a guarded builder after its guards: each guard's check op
-||| written at `l`, its site the op's, in order, on the operand it checks
-||| and the others it is given, with the cause its crash reports, its
-||| result what follows takes in place of the operand checked.
+||| The op of a guarded builder after its guards: each guard's check op, as
+||| its builder makes it, written at `l`, its site the op's, in order, on
+||| the operand it checks, its result, of that operand's type, what
+||| follows takes in place of the operand checked.
 checked : Loc -> Guarded -> E Op
 checked l (Unguarded o) = pure o
-checked l (Checking check cause x others next) = do
+checked l (Checking check x next) = do
   site <- siteOf l
-  c <- unguarded (At l) x.type
-         (\ty => MkOp check (x :: others)
-                      [ ("cause", Idr.enumAttr causeClosed cause)
-                      , ("site", site) ] [] [] [ty])
+  c <- unguarded (At l) x.type (const (check site x))
   checked l (next c)
 
 ||| The name of the specification's op value: of the dialect its home is.
@@ -105,17 +101,16 @@ specName op = case op.home of
   InTransform _ => MkOpName Transform (mnemonicText op.mnemonic)
 
 ||| The guards the specification declares for an op, on its operands, one
-||| per group, before the op `made` of their results: each its check op on
-||| the operand at its first position and those at the others, with its
-||| cause's number, and the op takes its result in that operand's place. A
-||| position is a `Fin` of the op's own groups, so it names an operand the
-||| op has.
+||| per group, before the op `made` of their results: each its kind's check
+||| op (`checkOf`) on the operand at its first position and those at the
+||| others, with its cause, and the op takes its result in that operand's
+||| place. A position is a `Fin` of the op's own groups, so it names an
+||| operand the op has.
 specGuarded : List (Guard (Fin i)) -> Vect i Value -> (Vect i Value -> Op) -> Guarded
 specGuarded [] vs made = Unguarded (made vs)
 specGuarded (g :: gs) vs made =
   let at = Vect.head g.given in
-  Checking (specName (guardOpOf g.check)) g.cause (index at vs)
-           (toList (map (\k => index k vs) (Vect.tail g.given)))
+  Checking (Idr.checkOf g.check g.cause (map (\k => index k vs) (Vect.tail g.given))) (index at vs)
            (\c => specGuarded gs (replaceAt at c vs) made)
 
 ||| A fixed result type, as the specification names it.

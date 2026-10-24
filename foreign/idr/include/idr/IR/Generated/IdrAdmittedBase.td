@@ -9,22 +9,22 @@
 include "mlir/IR/OpBase.td"
 
 // A guard an admitted op takes, which its Idris builder gives with it:
-// the guard op's dialect, as the specification names it, and its name
-// there; the positions among upstream's operand groups of those it is
-// given (the one it guards first); and the cause its crash names, by
-// its position in the closed set of causes, which the module and name
-// give, so the builder writes the cause typed, by `caseAt`; and what a
-// module that writes a case by `caseAt` imports, the Idris printer's
-// own list, so the backend does not restate it.
-class IdrAdmittedGuard<string dialect, string check, list<int> given,
+// its check op at its kind, as the Idris printer names it, which the
+// builder applies to the cause and the others; the positions among
+// upstream's operand groups of those it is given (the one it guards
+// first); and the cause its crash names, by its position in the closed
+// set of causes, which the module and name give, so the builder writes
+// the cause typed, by `caseAt`; and what a module that writes a
+// guard's check imports, the Idris printer's own list, so the backend
+// does not restate it.
+class IdrAdmittedGuard<string check, list<int> given,
                        string causeHome, string causeSet, int cause> {
-  string guardDialect = dialect;
-  string guardName = check;
+  string guardCheck = check;
   list<int> operandGroups = given;
   string causeModule = causeHome;
   string causeSetName = causeSet;
   int causeNumber = cause;
-  list<string> caseImports = ["IdrisMLIR.Spec.Core.Enums", "Data.Fin", "Data.List1"];
+  list<string> guardImports = ["IdrisMLIR.Dialect.Idr", "IdrisMLIR.Spec.Core.Op", "Data.Vect", "IdrisMLIR.Spec.Core.Enums", "Data.Fin", "Data.List1"];
 }
 
 // An upstream op the dialect admits: upstream's own record, the alias

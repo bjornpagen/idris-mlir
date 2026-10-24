@@ -5,7 +5,7 @@
 ||| Here the form is read off a normal form, an erased shape is keyed by its
 ||| form where a value array's type needs it, and the dimensions that one
 ||| size variable fixes are found, so that a function's entry and a call's
-||| result state them equal (`idr.tie_shape`).
+||| result state them equal (`idr.array.tie_shape`).
 module IdrisMLIR.Frontend.Translate.Shapes
 
 import Core.Context

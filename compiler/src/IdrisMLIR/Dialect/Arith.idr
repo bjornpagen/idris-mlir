@@ -12,6 +12,9 @@ import IdrisMLIR.MLIR
 import IdrisMLIR.Spec.Core.Dialect
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Spec.Runtime.Endings
+import IdrisMLIR.Dialect.Idr
+import IdrisMLIR.Spec.Core.Op
+import Data.Vect
 import IdrisMLIR.Spec.Core.Enums
 import Data.Fin
 import Data.List1
@@ -79,7 +82,7 @@ divfOp lhs rhs result =
 export
 divuiOp : {default False isExact : Bool} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Guarded
 divuiOp lhs rhs result =
-  Checking (MkOpName Dialect.Idr "check.nonzero") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) rhs [] (\rhs =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.NonZero (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) []) rhs (\rhs =>
     Unguarded (MkOp (MkOpName Dialect.Arith "divui") [lhs, rhs] (unitIf "isExact" isExact) [] [] [result]))
 
 ||| `arith.extsi`: integer sign extension operation
@@ -140,7 +143,7 @@ oriOp lhs rhs result =
 export
 remuiOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Guarded
 remuiOp lhs rhs result =
-  Checking (MkOpName Dialect.Idr "check.nonzero") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) rhs [] (\rhs =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.NonZero (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) []) rhs (\rhs =>
     Unguarded (MkOp (MkOpName Dialect.Arith "remui") [lhs, rhs] [] [] [] [result]))
 
 ||| `arith.sitofp`: cast from integer type to floating-point

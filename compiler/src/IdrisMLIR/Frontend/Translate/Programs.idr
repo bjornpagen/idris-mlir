@@ -137,12 +137,12 @@ translateDefinition p n m counted = do
   let fc = location def
   let ty = d.type
   -- A missing case crashes.
-  let complete = case isCovering (totality def) of
-                   MissingCases _ => False
-                   _ => True
+  let coverage = case isCovering (totality def) of
+                   MissingCases _ => Incomplete
+                   _ => Complete
   let (names, env) = runtimeParams {sp = OfTree} 0 (parameterNames ty) m.args p.signature.kinds counted
                                    (Data.Vect.allFins (length p.signature.kinds))
-  tree' <- tree (MkCtx owner fc complete p.signature.result p.signature.callee.result
+  tree' <- tree (MkCtx owner fc coverage p.signature.result p.signature.callee.result
                        (length (telescopeOf p.signature.kinds)) (givesAfter (length m.args) (memberPlaces d)) p Refl)
                 env (clauses m.args m.pats) m.tree
   loc <- toLoc fc
@@ -221,7 +221,7 @@ translateApplication p uses counted = do
   let (_ :: form :: arguments) = variablesOf (appliedScope app uses)
   -- No definition is translated, so what its result is the instance
   -- decides.
-  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc True p.signature.result p.signature.callee.result (length (telescopeOf p.signature.kinds)) ByInstance p Refl) env p.signature.result
+  body <- atType asWritten start (sizeAccessible start) (MkCtx owner fc Complete p.signature.result p.signature.callee.result (length (telescopeOf p.signature.kinds)) ByInstance p Refl) env p.signature.result
                  (foldl (App fc) form arguments)
   loc <- toLoc fc
   extents <- signatureExtents p.signature.kinds p.signature.result

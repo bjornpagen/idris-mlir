@@ -75,10 +75,13 @@ resultList x = case x.arity of
   Variadic => primed x.name
   OneOrMore => "toList " ++ primed x.name
 
+||| A region group's type, the module's own `Region` by its full name: the
+||| builders' module imports the specification's kinds of guard, whose
+||| module declares a `Region` too.
 export
 regionType : RegionArity -> String
-regionType OneRegion = "Region"
-regionType AnyRegions = "List Region"
+regionType OneRegion = "IdrisMLIR.MLIR.Region"
+regionType AnyRegions = "List IdrisMLIR.MLIR.Region"
 
 export
 regionList : Region -> String
@@ -136,10 +139,55 @@ caseValue e k = "(caseAt " ++ enumSet e ++ " " ++ decimal k ++ ")"
 ||| `Fin`, whose literal the position is, and `forget`, by which the check
 ||| counts the set's cases to hold the position one of them. Both printers
 ||| of builders read it, this one directly and idris-mlir-tblgen from the
-||| guard's admitted record, so neither restates what `caseAt` needs.
-export
+||| guard's admitted record (`guardImports`), so neither restates what
+||| `caseAt` needs.
 caseImports : List String
 caseImports = ["IdrisMLIR.Spec.Core.Enums", "Data.Fin", "Data.List1"]
+
+||| The module of the kinds a guard names its check by, and of the count of
+||| the others each kind's op takes.
+guardKindHome : String
+guardKindHome = "IdrisMLIR.Spec.Core.Op"
+
+||| A guard's kind, by its constructor's full name, as a printed builder
+||| names the check it gives.
+kindIdris : GuardKind -> String
+kindIdris k = guardKindHome ++ "." ++ named k
+  where
+    named : GuardKind -> String
+    named NonZero = "NonZero"
+    named InBounds = "InBounds"
+    named NonEmpty = "NonEmpty"
+    named Finite = "Finite"
+    named Range = "Range"
+    named HoldsString = "HoldsString"
+    named Byte = "Byte"
+
+||| The module the idr dialect's builders are printed as, which holds the
+||| check op of each kind of guard (`checkOf`).
+buildersHome : String
+buildersHome = "IdrisMLIR.Dialect.Idr"
+
+||| A guard's check op, by its full name, at its kind: what a printed
+||| builder applies to the cause its crash names and the others it is
+||| given, and hands `Checking`, which gives it the site and the operand it
+||| checks.
+export
+checkHead : GuardKind -> String
+checkHead k = buildersHome ++ ".checkOf " ++ kindIdris k
+
+||| What a module that writes a guard's check imports besides the module
+||| of `checkOf`: the module of its kind, `Data.Vect`, which holds the
+||| others it is given, as many as the kind's op takes, and what writing
+||| its cause by `caseAt` needs.
+checkImports : List String
+checkImports = guardKindHome :: "Data.Vect" :: caseImports
+
+||| What a module of an upstream dialect that writes a guard's check
+||| imports: the module of `checkOf` and what its arguments name.
+export
+guardImports : List String
+guardImports = buildersHome :: checkImports
 
 ||| What a builder takes for an attribute: the attribute, as made; or, for
 ||| an enum property, its case, typed, which the builder encodes as the
@@ -231,28 +279,29 @@ padding : Nat -> String
 padding depth = pack (replicate (2 + 2 * depth) ' ')
 
 ||| A partial op's body, `depth` guards in: each guard written as the check
-||| of the operand group it is given first, against the groups it is given
-||| after, its continuation binding that group's binder again to what the
-||| check gives, so every later guard and the op itself take the checked
-||| value; then the op `made`. A group of one operand is checked by
-||| `Checking`; one that holds any number, or none, by `checkingEach`,
-||| operand by operand against the same others, its binder then the list of
-||| what the checks give, which the op's operand list and a later guard
-||| read as a group's operands either way.
+||| of its kind on the operand group it is given first, against the groups
+||| it is given after, its continuation binding that group's binder again
+||| to what the check gives, so every later guard and the op itself take
+||| the checked value; then the op `made`. A group of one operand is
+||| checked by `Checking`; one that holds any number, or none, by
+||| `checkingEach`, operand by operand against the same others, its binder
+||| then the list of what the checks give, which the op's operand list and
+||| a later guard read as a group's operands either way. The others are as
+||| many as the kind's op takes besides, each a group of one operand, so a
+||| guard given another group does not type.
 guardedLines : Nat -> Vect i Operand -> List (Guard (Fin i)) -> String -> Lines
 guardedLines depth ins [] made = [padding depth ++ "Unguarded (" ++ made ++ ")" ++ pack (replicate depth ')')]
 guardedLines depth ins (g :: gs) made =
   let checked = index (Vect.head g.given) ins
       others = argument (concatList (map (\k => operandList (index k ins)) (toList (Vect.tail g.given))))
-      check = opNameOf (guardOpOf g.check)
-      cause = caseValue causeEnum (position causeClosed g.cause)
+      check = "(" ++ checkHead g.check ++ " " ++ caseValue causeEnum (position causeClosed g.cause) ++ " " ++ others ++ ")"
       binder = primed checked.name
       opening = case checked.arity of
-                  Single => "Checking " ++ check ++ " " ++ cause ++ " " ++ binder
-                  Optional => "checkingEach " ++ check ++ " " ++ cause ++ " (toList " ++ binder ++ ")"
-                  Variadic => "checkingEach " ++ check ++ " " ++ cause ++ " " ++ binder
-                  OneOrMore => "checkingEach " ++ check ++ " " ++ cause ++ " (toList " ++ binder ++ ")"
-  in (padding depth ++ opening ++ " " ++ others ++ " (\\" ++ binder ++ " =>")
+                  Single => "Checking " ++ check ++ " " ++ binder
+                  Optional => "checkingEach " ++ check ++ " (toList " ++ binder ++ ")"
+                  Variadic => "checkingEach " ++ check ++ " " ++ binder
+                  OneOrMore => "checkingEach " ++ check ++ " (toList " ++ binder ++ ")"
+  in (padding depth ++ opening ++ " (\\" ++ binder ++ " =>")
      :: guardedLines (S depth) ins gs made
 
 ||| The Idris type a fixed result's type is.
@@ -323,6 +372,23 @@ resultsOf op = case op.typing of
   InferredTypes rules => ([], [], concatList (map (\rule => "[" ++ typeByRule op.ins rule ++ "]") (toList rules)))
   CarriersAt grades => (toList op.outs, [], concatList (map carriedList (toList (zip op.outs grades))))
 
+||| The name an op's builder is printed under: `idr.str.length`'s is
+||| `strLengthOp`.
+builderName : Op i o a r -> String
+builderName op = lowerCamel (camelMnemonic op.mnemonic) ++ "Op"
+
+||| An op's builder's arguments past the named ones, as their binders, in
+||| the order it takes them: each result group given as its carriers,
+||| required attribute, operand group, region group and result group whose
+||| types are stated.
+explicitBinders : Op i o a r -> List String
+explicitBinders op =
+  let (carriers, outs, _) = resultsOf op
+  in map (\x => primed x.name) carriers
+     ++ map (\x => primed x.name) (filter (not . optionalAttr) (toList op.attrs))
+     ++ map (\x => primed x.name) (toList op.ins)
+     ++ map (\x => primed x.name) (toList op.regions) ++ map (\x => primed x.name) outs
+
 ||| An op's builder: one argument per result group given as its carriers,
 ||| required attribute, operand group, region group and result group whose
 ||| types are stated, in that order, each attribute that may be left out a
@@ -333,17 +399,14 @@ resultsOf op = case op.typing of
 export
 builder : Op i o a r -> Lines
 builder op =
-  let name = lowerCamel (camelMnemonic op.mnemonic) ++ "Op"
+  let name = builderName op
       attrs = toList op.attrs
       ins = toList op.ins
       regions = toList op.regions
       (carriers, outs, resultTypes) = resultsOf op
       required = filter (not . optionalAttr) attrs
       optional = filter optionalAttr attrs
-      binders = map (\x => "{" ++ primed x.name ++ "}") optional
-                ++ map (\x => primed x.name) carriers
-                ++ map (\x => primed x.name) required ++ map (\x => primed x.name) ins
-                ++ map (\x => primed x.name) regions ++ map (\x => primed x.name) outs
+      binders = map (\x => "{" ++ primed x.name ++ "}") optional ++ explicitBinders op
       implicits = map (\x => "{default Nothing " ++ primed x.name ++ " : " ++ attrType x ++ "}") optional
       types = implicits ++ map (\x => resultType x.arity) carriers
               ++ map attrType required ++ map (\x => operandType x.arity) ins
@@ -357,6 +420,33 @@ builder op =
   in barComment ["`" ++ opName op ++ "`: " ++ lineText op.doc.summary]
      ++ ["export", name ++ " : " ++ joinWith " -> " (types ++ [resultTy])]
      ++ [name ++ spaced binders ++ " ="] ++ body ++ [""]
+
+||| The check op of a guard by its kind, which the frontend writes before
+||| the op it guards (`checkOf`): its declaration, before the builders
+||| whose guards name it, and its clauses, after the builders of the guard
+||| ops, one per kind, each its kind's op's builder on the cause, the
+||| site, the operand it checks and the others it is given, as many as the
+||| kind's op takes besides. Each kind's op is the specification's
+||| (`guardOpOf`), so no check op is named by its text.
+checkDeclaration : Lines
+checkDeclaration =
+  barComment [ "A guard's check op, by its kind's op's builder: on the cause its crash"
+             , "names and the others it is given, then its site and the operand it"
+             , "checks." ]
+  ++ [ "export"
+     , "checkOf : (kind : " ++ guardKindHome ++ ".GuardKind) -> " ++ enumType causeEnum
+       ++ " -> Vect (" ++ guardKindHome ++ ".guardOthers kind) Value -> MlirAttr -> Value -> Op", "" ]
+
+checkClauses : Lines
+checkClauses = map clause everyGuardKind ++ [""]
+  where
+    clause : GuardKind -> String
+    clause k =
+      let op = guardOpOf k
+      in "checkOf " ++ kindIdris k ++ " " ++ primed (index 0 op.attrs).name
+           ++ " [" ++ joinWith ", " (map (\x => primed x.name) (toList (Vect.tail op.ins))) ++ "] "
+           ++ primed (index 1 op.attrs).name ++ " " ++ primed (Vect.head op.ins).name ++ " = "
+           ++ builderName op ++ spaced (explicitBinders op)
 
 ||| Whether the frontend may write a form legal at `stages`: they include
 ||| the frontend's. What it may write of an op, a type, an attribute and a
@@ -398,20 +488,23 @@ propertyHomes (SomeOp op) =
       AsCase e => homesOf e
       AsAttribute => []
 
-||| The builders of every op the frontend writes, as one module. A partial
-||| op's builder gives `Guarded`, which the frontend declares with its ops,
-||| and writes its guards' causes by `caseAt`, so the module imports what
-||| that names; `enumAttr` names the closed set and its positions.
+||| The builders of every op the frontend writes, as one module, and the
+||| check op of each kind of guard (`checkOf`). A partial op's builder
+||| gives `Guarded`, which the frontend declares with its ops, and names
+||| each guard's check by its kind and its cause by `caseAt`, so the module
+||| imports what those name; `enumAttr` names the closed set and its
+||| positions.
 export
 buildersModule : List AnyOp -> Lines
 buildersModule ops =
   let writtenOps = filter written ops
       homes = [ "IdrisMLIR.MLIR", "IdrisMLIR.Spec.Core.Dialect", "IdrisMLIR.Spec.Core.Enums" ]
-              ++ concatMap propertyHomes writtenOps ++ caseImports
+              ++ concatMap propertyHomes writtenOps
+              ++ [moduleName causeEnum.source.typeHome, moduleName causeEnum.source.setHome] ++ checkImports
   in banner (map (\l => "-- " ++ l))
      ++ barComment ["The idr dialect's ops the frontend writes, one builder each, printed"
                    , "from the dialect's specification."]
-     ++ [ "module IdrisMLIR.Dialect.Idr", "" ]
+     ++ [ "module " ++ buildersHome, "" ]
      ++ map ("import " ++) (once [] homes)
      ++ [ ""
         , "import Data.List", ""
@@ -422,7 +515,9 @@ buildersModule ops =
                    , "the writer of a guard's check." ]
      ++ [ "export", "enumAttr : Closed a -> a -> MlirAttr"
         , "enumAttr set x = IntegerAttr (natToInteger (position set x)) (OfWidth " ++ decimal enumBits ++ ")", "" ]
+     ++ checkDeclaration
      ++ concatMap (\(SomeOp op) => builder op) writtenOps
+     ++ checkClauses
   where
     once : List String -> List String -> List String
     once _ [] = []

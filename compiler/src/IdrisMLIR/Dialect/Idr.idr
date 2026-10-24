@@ -18,6 +18,8 @@ import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Ops.Platform
 import IdrisMLIR.Spec.Runtime.Clocks
+import IdrisMLIR.Spec.Core.Op
+import Data.Vect
 import Data.Fin
 import Data.List1
 
@@ -33,6 +35,12 @@ export
 enumAttr : Closed a -> a -> MlirAttr
 enumAttr set x = IntegerAttr (natToInteger (position set x)) (OfWidth 32)
 
+||| A guard's check op, by its kind's op's builder: on the cause its crash
+||| names and the others it is given, then its site and the operand it
+||| checks.
+export
+checkOf : (kind : IdrisMLIR.Spec.Core.Op.GuardKind) -> IdrisMLIR.Spec.Runtime.Endings.Cause -> Vect (IdrisMLIR.Spec.Core.Op.guardOthers kind) Value -> MlirAttr -> Value -> Op
+
 ||| `idr.refusal`: a refusal of the program, which the driver reports in place of compiling it
 export
 refusalOp : IdrisMLIR.Spec.Core.Rules.SomeRule -> MlirAttr -> Op
@@ -41,13 +49,13 @@ refusalOp rule' message' =
 
 ||| `idr.program`: a closed program: its functions, its root and its stage
 export
-programOp : MlirAttr -> MlirAttr -> IdrisMLIR.Spec.Pipeline.Stage.Stage -> Region -> Op
+programOp : MlirAttr -> MlirAttr -> IdrisMLIR.Spec.Pipeline.Stage.Stage -> IdrisMLIR.MLIR.Region -> Op
 programOp sym_name' root' stage' body' =
   MkOp (MkOpName Dialect.Idr "program") ([]) ([("sym_name", sym_name')] ++ [("root", root')] ++ [("stage", enumAttr IdrisMLIR.Spec.Pipeline.Stage.stageClosed stage')]) ([body']) [] ([])
 
 ||| `idr.func`: a function of the program, with what is known of a run of it
 export
-funcOp : {default Nothing arg_attrs' : Maybe MlirAttr} -> {default Nothing res_attrs' : Maybe MlirAttr} -> {default Nothing binders' : Maybe MlirAttr} -> {default Nothing extents' : Maybe MlirAttr} -> {default Nothing row' : Maybe MlirAttr} -> {default Nothing untouched' : Maybe MlirAttr} -> {default Nothing bounded' : Maybe MlirAttr} -> {default Nothing terminates' : Maybe MlirAttr} -> {default Nothing lives_in' : Maybe MlirAttr} -> {default Nothing copy' : Maybe MlirAttr} -> {default Nothing frame_bound' : Maybe MlirAttr} -> MlirAttr -> MlirAttr -> Region -> Op
+funcOp : {default Nothing arg_attrs' : Maybe MlirAttr} -> {default Nothing res_attrs' : Maybe MlirAttr} -> {default Nothing binders' : Maybe MlirAttr} -> {default Nothing extents' : Maybe MlirAttr} -> {default Nothing row' : Maybe MlirAttr} -> {default Nothing untouched' : Maybe MlirAttr} -> {default Nothing bounded' : Maybe MlirAttr} -> {default Nothing terminates' : Maybe MlirAttr} -> {default Nothing lives_in' : Maybe MlirAttr} -> {default Nothing copy' : Maybe MlirAttr} -> {default Nothing frame_bound' : Maybe MlirAttr} -> MlirAttr -> MlirAttr -> IdrisMLIR.MLIR.Region -> Op
 funcOp {arg_attrs'} {res_attrs'} {binders'} {extents'} {row'} {untouched'} {bounded'} {terminates'} {lives_in'} {copy'} {frame_bound'} sym_name' function_type' body' =
   MkOp (MkOpName Dialect.Idr "func") ([]) ([("sym_name", sym_name')] ++ [("function_type", function_type')] ++ attrIf "arg_attrs" id arg_attrs' ++ attrIf "res_attrs" id res_attrs' ++ attrIf "binders" id binders' ++ attrIf "extents" id extents' ++ attrIf "row" id row' ++ attrIf "untouched" id untouched' ++ attrIf "bounded" id bounded' ++ attrIf "terminates" id terminates' ++ attrIf "lives_in" id lives_in' ++ attrIf "copy" id copy' ++ attrIf "frame_bound" id frame_bound') ([body']) [] ([])
 
@@ -89,7 +97,7 @@ dataReindexOp value' outers' result' =
 
 ||| `idr.index.assume`: a region in which an erased equality of index terms holds
 export
-indexAssumeOp : MlirAttr -> List Value -> Region -> List MlirType -> Op
+indexAssumeOp : MlirAttr -> List Value -> IdrisMLIR.MLIR.Region -> List MlirType -> Op
 indexAssumeOp equation' forwarded' body' results' =
   MkOp (MkOpName Dialect.Idr "index.assume") (forwarded') ([("equation", equation')]) ([body']) [] (results')
 
@@ -113,7 +121,7 @@ linCastOp value' outers' result' =
 
 ||| `idr.lifetime`: opens a lifetime nothing allocates into
 export
-lifetimeOp : List Value -> Region -> List MlirType -> Op
+lifetimeOp : List Value -> IdrisMLIR.MLIR.Region -> List MlirType -> Op
 lifetimeOp outers' body' results' =
   MkOp (MkOpName Dialect.Idr "lifetime") (outers') ([]) ([body']) [] (results')
 
@@ -125,7 +133,7 @@ activationOp lifetime' =
 
 ||| `idr.lend`: lends a counted value for a region, giving it back
 export
-lendOp : Value -> List Value -> Region -> MlirType -> List MlirType -> Op
+lendOp : Value -> List Value -> IdrisMLIR.MLIR.Region -> MlirType -> List MlirType -> Op
 lendOp owner' outers' body' returned' results' =
   MkOp (MkOpName Dialect.Idr "lend") ([owner'] ++ outers') ([]) ([body']) [] ([returned'] ++ results')
 
@@ -137,13 +145,13 @@ lifetimeForgetOp lifetime' view' =
 
 ||| `idr.data.match`: branches on the constructor of a data value, binding it refined in each case
 export
-dataMatchOp : MlirAttr -> Value -> List Value -> List Value -> Region -> List Region -> List MlirType -> Op
+dataMatchOp : MlirAttr -> Value -> List Value -> List Value -> IdrisMLIR.MLIR.Region -> List IdrisMLIR.MLIR.Region -> List MlirType -> Op
 dataMatchOp cases' scrutinee' forwarded' outers' default_region' case_regions' results' =
   MkOp (MkOpName Dialect.Idr "data.match") ([scrutinee'] ++ forwarded' ++ outers') ([("cases", cases')] ++ [("operandSegmentSizes", DenseI32ArrayAttr [1, length forwarded', length outers'])]) ([default_region'] ++ case_regions') [] (results')
 
 ||| `idr.lit.match`: branches on the value of a word, a string, a big integer or a natural
 export
-litMatchOp : MlirAttr -> Value -> List Value -> Region -> List Region -> List MlirType -> Op
+litMatchOp : MlirAttr -> Value -> List Value -> IdrisMLIR.MLIR.Region -> List IdrisMLIR.MLIR.Region -> List MlirType -> Op
 litMatchOp cases' scrutinee' outers' default_region' case_regions' results' =
   MkOp (MkOpName Dialect.Idr "lit.match") ([scrutinee'] ++ outers') ([("cases", cases')]) ([default_region'] ++ case_regions') [] (results')
 
@@ -155,13 +163,13 @@ yieldOp results' =
 
 ||| `idr.join`: join points that never repeat: tokens in the body alone
 export
-joinOp : MlirAttr -> List Value -> Region -> List Region -> List MlirType -> Op
+joinOp : MlirAttr -> List Value -> IdrisMLIR.MLIR.Region -> List IdrisMLIR.MLIR.Region -> List MlirType -> Op
 joinOp binders' outers' body' join_regions' results' =
   MkOp (MkOpName Dialect.Idr "join") (outers') ([("binders", binders')]) ([body'] ++ join_regions') [] (results')
 
 ||| `idr.loop`: a recursive group of join points: tokens at the head of every region
 export
-loopOp : MlirAttr -> List Value -> Region -> List Region -> List MlirType -> Op
+loopOp : MlirAttr -> List Value -> IdrisMLIR.MLIR.Region -> List IdrisMLIR.MLIR.Region -> List MlirType -> Op
 loopOp binders' outers' body' join_regions' results' =
   MkOp (MkOpName Dialect.Idr "loop") (outers') ([("binders", binders')]) ([body'] ++ join_regions') [] (results')
 
@@ -179,19 +187,19 @@ mayLoopOp =
 
 ||| `idr.array.tabulate`: each destination written at each index with what the region gives there
 export
-arrayTabulateOp : List1 Value -> Region -> List MlirType -> Op
+arrayTabulateOp : List1 Value -> IdrisMLIR.MLIR.Region -> List MlirType -> Op
 arrayTabulateOp outs' region' arrays' =
   MkOp (MkOpName Dialect.Idr "array.tabulate") (toList outs') ([]) ([region']) [] (arrays')
 
 ||| `idr.array.fold_last`: for each index of a frame, a left fold along one more dimension
 export
-arrayFoldLastOp : Value -> List1 Value -> Region -> List MlirType -> Op
+arrayFoldLastOp : Value -> List1 Value -> IdrisMLIR.MLIR.Region -> List MlirType -> Op
 arrayFoldLastOp length' inits' region' results' =
   MkOp (MkOpName Dialect.Idr "array.fold_last") ([length'] ++ toList inits') ([]) ([region']) [] (results')
 
 ||| `idr.array.scan_last`: for each index of a frame, every accumulator of a left fold
 export
-arrayScanLastOp : Value -> List1 Value -> List1 Value -> Region -> List MlirType -> Op
+arrayScanLastOp : Value -> List1 Value -> List1 Value -> IdrisMLIR.MLIR.Region -> List MlirType -> Op
 arrayScanLastOp length' inits' outs' region' results' =
   MkOp (MkOpName Dialect.Idr "array.scan_last") ([length'] ++ toList inits' ++ toList outs') ([("operandSegmentSizes", DenseI32ArrayAttr [1, length (toList inits'), length (toList outs')])]) ([region']) [] (results')
 
@@ -211,19 +219,19 @@ arrayNewOp sizes' fill' array' =
 export
 arrayGetOp : Value -> List Value -> MlirType -> Guarded
 arrayGetOp array' indices' value' =
-  checkingEach (MkOpName Dialect.Idr "check.in_bounds") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 1) indices' [array'] (\indices' =>
+  checkingEach (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.InBounds (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 1) [array']) indices' (\indices' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "array.get") ([array'] ++ indices') ([]) ([]) [] ([value'])))
 
 ||| `idr.array.set`: writes an element of an array of mutable memory, releasing the one it replaces
 export
 arraySetOp : Value -> List Value -> Value -> Guarded
 arraySetOp array' indices' value' =
-  checkingEach (MkOpName Dialect.Idr "check.in_bounds") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 1) indices' [array'] (\indices' =>
+  checkingEach (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.InBounds (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 1) [array']) indices' (\indices' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "array.set") ([array'] ++ indices' ++ [value']) ([]) ([]) [] ([])))
 
 ||| `idr.array.update`: an element of an array rebuilt in its place
 export
-arrayUpdateOp : Value -> List Value -> Region -> List MlirType -> Op
+arrayUpdateOp : Value -> List Value -> IdrisMLIR.MLIR.Region -> List MlirType -> Op
 arrayUpdateOp array' indices' region' outs' =
   MkOp (MkOpName Dialect.Idr "array.update") ([array'] ++ indices') ([]) ([region']) [] (outs')
 
@@ -279,14 +287,14 @@ platformOsOp result' =
 export
 intDivSOp : Value -> Value -> MlirType -> Guarded
 intDivSOp lhs' rhs' result' =
-  Checking (MkOpName Dialect.Idr "check.nonzero") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) rhs' [] (\rhs' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.NonZero (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) []) rhs' (\rhs' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "int.div_s") ([lhs'] ++ [rhs']) ([]) ([]) [] ([result'])))
 
 ||| `idr.int.mod_s`: Idris mod of a signed integer: Euclidean, by a divisor that is not zero
 export
 intModSOp : Value -> Value -> MlirType -> Guarded
 intModSOp lhs' rhs' result' =
-  Checking (MkOpName Dialect.Idr "check.nonzero") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) rhs' [] (\rhs' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.NonZero (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) []) rhs' (\rhs' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "int.mod_s") ([lhs'] ++ [rhs']) ([]) ([]) [] ([result'])))
 
 ||| `idr.int.shl_s`: Idris shiftL of a signed integer: defined for every amount, wrapped to the width
@@ -329,7 +337,7 @@ intToCharUOp value' =
 export
 f64ToIntOp : Value -> MlirType -> Guarded
 f64ToIntOp value' result' =
-  Checking (MkOpName Dialect.Idr "check.finite") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 6) value' [] (\value' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.Finite (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 6) []) value' (\value' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "f64.to_int") ([value']) ([]) ([]) [] ([result'])))
 
 ||| `idr.big.add`: the sum of two bigs or two naturals
@@ -384,14 +392,14 @@ bigShrOp lhs' rhs' result' =
 export
 bigDivOp : Value -> Value -> MlirType -> Guarded
 bigDivOp lhs' rhs' result' =
-  Checking (MkOpName Dialect.Idr "check.nonzero") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) rhs' [] (\rhs' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.NonZero (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) []) rhs' (\rhs' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "big.div") ([lhs'] ++ [rhs']) ([]) ([]) [] ([result'])))
 
 ||| `idr.big.mod`: the remainder of two bigs, as Integer's mod, by a divisor that is not zero
 export
 bigModOp : Value -> Value -> MlirType -> Guarded
 bigModOp lhs' rhs' result' =
-  Checking (MkOpName Dialect.Idr "check.nonzero") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) rhs' [] (\rhs' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.NonZero (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 0) []) rhs' (\rhs' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "big.mod") ([lhs'] ++ [rhs']) ([]) ([]) [] ([result'])))
 
 ||| `idr.big.neg`: the negation of a big
@@ -452,7 +460,7 @@ bigToIntOp value' result' =
 export
 bigFromDoubleOp : Value -> MlirType -> Guarded
 bigFromDoubleOp value' result' =
-  Checking (MkOpName Dialect.Idr "check.finite") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 6) value' [] (\value' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.Finite (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 6) []) value' (\value' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "big.from_double") ([value']) ([]) ([]) [] ([result'])))
 
 ||| `idr.big.to_double`: a big as the nearest Double
@@ -531,7 +539,7 @@ strDropBytesOp str' offset' result' =
 export
 strTailOp : Value -> MlirType -> Guarded
 strTailOp str' result' =
-  Checking (MkOpName Dialect.Idr "check.nonempty") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 4) str' [] (\str' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.NonEmpty (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 4) []) str' (\str' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "str.tail") ([str']) ([]) ([]) [] ([result'])))
 
 ||| `idr.str.pack`: the string of a list of characters, built once
@@ -574,14 +582,14 @@ strScalarBytesOp value' =
 export
 strIndexOp : Value -> Value -> Guarded
 strIndexOp str' index' =
-  Checking (MkOpName Dialect.Idr "check.in_bounds") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 2) index' [str'] (\index' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.InBounds (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 2) [str']) index' (\index' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "str.index") ([str'] ++ [index']) ([]) ([]) [] ([IntegerType 32])))
 
 ||| `idr.str.head`: the first character of a string that is not empty
 export
 strHeadOp : Value -> Guarded
 strHeadOp str' =
-  Checking (MkOpName Dialect.Idr "check.nonempty") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 3) str' [] (\str' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.NonEmpty (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 3) []) str' (\str' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "str.head") ([str']) ([]) ([]) [] ([IntegerType 32])))
 
 ||| `idr.str.cmp`: compares two strings
@@ -708,7 +716,7 @@ ioNProcessorsOp =
 export
 ioExitOp : Value -> Guarded
 ioExitOp status' =
-  Checking (MkOpName Dialect.Idr "check.byte") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 10) status' [] (\status' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.Byte (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 10) []) status' (\status' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "io.exit") ([status']) ([]) ([]) [] ([])))
 
 ||| `idr.buffer.load`: a machine word read from a buffer at a byte offset
@@ -991,7 +999,7 @@ ioClockOp kind' =
 export
 handleStringOp : Value -> MlirType -> Guarded
 handleStringOp handle' str' =
-  Checking (MkOpName Dialect.Idr "check.holds_string") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 7) handle' [] (\handle' =>
+  Checking (IdrisMLIR.Dialect.Idr.checkOf IdrisMLIR.Spec.Core.Op.HoldsString (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 7) []) handle' (\handle' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "handle.string") ([handle']) ([]) ([]) [] ([str'])))
 
 ||| `idr.io.handle_free`: releases a handle's slot
@@ -1023,4 +1031,12 @@ export
 fnApplyOp : {default Nothing arg_attrs' : Maybe MlirAttr} -> {default Nothing res_attrs' : Maybe MlirAttr} -> Value -> List Value -> List MlirType -> Op
 fnApplyOp {arg_attrs'} {res_attrs'} callee' args' results' =
   MkOp (MkOpName Dialect.Idr "fn.apply") ([callee'] ++ args') (attrIf "arg_attrs" id arg_attrs' ++ attrIf "res_attrs" id res_attrs') ([]) [] (results')
+
+checkOf IdrisMLIR.Spec.Core.Op.NonZero cause' [] site' value' = checkNonzeroOp cause' site' value'
+checkOf IdrisMLIR.Spec.Core.Op.InBounds cause' [indexed'] site' index' = checkInBoundsOp cause' site' index' indexed'
+checkOf IdrisMLIR.Spec.Core.Op.NonEmpty cause' [] site' str' = checkNonemptyOp cause' site' str'
+checkOf IdrisMLIR.Spec.Core.Op.Finite cause' [] site' value' = checkFiniteOp cause' site' value'
+checkOf IdrisMLIR.Spec.Core.Op.Range cause' [count', size'] site' offset' = checkRangeOp cause' site' offset' count' size'
+checkOf IdrisMLIR.Spec.Core.Op.HoldsString cause' [] site' handle' = checkHoldsStringOp cause' site' handle'
+checkOf IdrisMLIR.Spec.Core.Op.Byte cause' [] site' value' = checkByteOp cause' site' value'
 

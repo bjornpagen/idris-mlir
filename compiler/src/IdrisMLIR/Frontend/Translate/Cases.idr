@@ -234,8 +234,9 @@ variableOf _ = Nothing
 ||| A leaf no input reaches: `Unreachable` in a covering definition
 ||| (Idris proved no input reaches it), a crash otherwise.
 missingCase : {0 nv : Nat} -> Ctx kc -> Loc -> IdrisMLIR.Term.Term nv
-missingCase ctx loc =
-  if ctx.complete then Unreachable loc NoClause else Crash loc NoClauseMatched
+missingCase ctx loc = case ctx.coverage of
+  Complete => Unreachable loc NoClause
+  Incomplete => Crash loc NoClauseMatched
 
 ||| The head a type is matched by, and the types it is applied to, as
 ||| Idris's trees name a type's alternative: a type constructor by its
@@ -269,7 +270,9 @@ orElse (Present t) _ = t
 ||| definition nothing, Idris having proved no value there is built with
 ||| it; a crash otherwise.
 missingArm : {0 nv : Nat} -> Ctx kc -> Loc -> IdrisMLIR.Term.Term nv
-missingArm ctx loc = if ctx.complete then Unreachable loc ImpossibleConstructor else Crash loc NoClauseMatched
+missingArm ctx loc = case ctx.coverage of
+  Complete => Unreachable loc ImpossibleConstructor
+  Incomplete => Crash loc NoClauseMatched
 
 ||| What a match's default stands for, by what its alternatives and the
 ||| matched value's shape leave to it: no value, since the alternatives name
@@ -578,7 +581,9 @@ mutual
       literals : Loc -> Fin nv -> (lits : List (CaseAlt vars)) -> (0 _ : OfKind ConstAlts lits) -> Front (Term nv)
       literals loc i lits consts = do
         (litAlts, def) <- litAlternatives ctx env cls scrutinee lits consts
-        let d = def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc))
+        let d = def <|> (case ctx.coverage of
+                           Complete => Nothing
+                           Incomplete => Just (missingCase ctx loc))
         case litAlts of
           a :: as => CaseLit loc i <$> litMatch ctx.fc ctx.owner a as d
           [] => pure (maybe (Unreachable loc NoClause) (CaseLit loc i . OnlyDefault) d)
@@ -629,9 +634,9 @@ mutual
             -- The constructors a tree with no default leaves out are one
             -- default: impossible when the definition is covering, a
             -- crash otherwise.
-            let crashing = case (fallback, ctx.complete) of
-                             (Absent, False) => if all (\l => contains l.con.tag named) df.layouts
-                                                  then Absent else Present (missingCase ctx loc)
+            let crashing = case (fallback, ctx.coverage) of
+                             (Absent, Incomplete) => if all (\l => contains l.con.tag named) df.layouts
+                                                       then Absent else Present (missingCase ctx loc)
                              _ => fallback
             pure (armsOf loc df.id i conAlts crashing)
 

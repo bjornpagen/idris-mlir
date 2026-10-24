@@ -28,7 +28,6 @@ import public IdrisMLIR.Encoding.Idr
 import public IdrisMLIR.Encoding.Wire
 import IdrisMLIR.Ids
 import IdrisMLIR.Spec.Core.Dialect
-import IdrisMLIR.Spec.Runtime.Endings
 
 import Data.List
 import Data.Maybe
@@ -256,25 +255,26 @@ mutual
 
 ||| An op as the builder of a partial op gives it: the op, or a guard to
 ||| write before it and what follows given the guard's result. A guard is
-||| its check op, the cause its crash names, the operand it
-||| checks and the others it is given; the op takes the guard's result in
-||| place of the operand it checks. A builder names each of its operands by
-||| its own binder, so no guard names an operand by its position, and none
-||| can name one the op lacks.
+||| its check op, as the check op's generated builder makes it once given
+||| its site and the operand it checks (the cause its crash names and the
+||| others it is given are the builder's already); the operand it checks;
+||| and what follows, the op taking the guard's result in that operand's
+||| place. A builder names each of its operands by its own binder, so no
+||| guard names an operand by its position, and none can name one the op
+||| lacks.
 public export
 data Guarded : Type where
   Unguarded : Op -> Guarded
-  Checking : (check : OpName) -> (cause : Cause) -> (checked : Value) -> (others : List Value)
-          -> (Value -> Guarded) -> Guarded
+  Checking : (check : MlirAttr -> Value -> Op) -> (checked : Value) -> (Value -> Guarded) -> Guarded
 
-||| Each of `xs` checked in turn by `check` against the same `others`, and
-||| what follows given their results, in order: how a builder guards a
-||| group of operands that holds any number.
+||| Each of `xs` checked in turn by `check`, and what follows given their
+||| results, in order: how a builder guards a group of operands that holds
+||| any number.
 export
-checkingEach : (check : OpName) -> (cause : Cause) -> (xs, others : List Value) -> (List Value -> Guarded) -> Guarded
-checkingEach check cause [] others next = next []
-checkingEach check cause (x :: xs) others next =
-  Checking check cause x others (\x' => checkingEach check cause xs others (\xs' => next (x' :: xs')))
+checkingEach : (check : MlirAttr -> Value -> Op) -> (xs : List Value) -> (List Value -> Guarded) -> Guarded
+checkingEach check [] next = next []
+checkingEach check (x :: xs) next =
+  Checking check x (\x' => checkingEach check xs (\xs' => next (x' :: xs')))
 
 ||| The values a statement binds, its results in order.
 export

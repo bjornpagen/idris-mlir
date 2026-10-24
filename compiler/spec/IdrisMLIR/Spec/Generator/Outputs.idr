@@ -137,22 +137,22 @@ admittedBaseTd : String
 admittedBaseTd =
   tdFile "IDR_GENERATED_ADMITTED_BASE" ["mlir/IR/OpBase.td"]
     [ "// A guard an admitted op takes, which its Idris builder gives with it:"
-    , "// the guard op's dialect, as the specification names it, and its name"
-    , "// there; the positions among upstream's operand groups of those it is"
-    , "// given (the one it guards first); and the cause its crash names, by"
-    , "// its position in the closed set of causes, which the module and name"
-    , "// give, so the builder writes the cause typed, by `caseAt`; and what a"
-    , "// module that writes a case by `caseAt` imports, the Idris printer's"
-    , "// own list, so the backend does not restate it."
-    , "class IdrAdmittedGuard<string dialect, string check, list<int> given,"
+    , "// its check op at its kind, as the Idris printer names it, which the"
+    , "// builder applies to the cause and the others; the positions among"
+    , "// upstream's operand groups of those it is given (the one it guards"
+    , "// first); and the cause its crash names, by its position in the closed"
+    , "// set of causes, which the module and name give, so the builder writes"
+    , "// the cause typed, by `caseAt`; and what a module that writes a"
+    , "// guard's check imports, the Idris printer's own list, so the backend"
+    , "// does not restate it."
+    , "class IdrAdmittedGuard<string check, list<int> given,"
     , "                       string causeHome, string causeSet, int cause> {"
-    , "  string guardDialect = dialect;"
-    , "  string guardName = check;"
+    , "  string guardCheck = check;"
     , "  list<int> operandGroups = given;"
     , "  string causeModule = causeHome;"
     , "  string causeSetName = causeSet;"
     , "  int causeNumber = cause;"
-    , "  list<string> caseImports = [" ++ joinWith ", " (map quoted caseImports) ++ "];"
+    , "  list<string> guardImports = [" ++ joinWith ", " (map quoted guardImports) ++ "];"
     , "}"
     , ""
     , "// An upstream op the dialect admits: upstream's own record, the alias"
@@ -168,17 +168,15 @@ admittedBaseTd =
     , "}"
     , "" ]
 
-||| A guard of an admitted op, as its record's argument: its kind's op by
-||| the dialect it is defined in and its name there, its groups, and its
-||| cause by the closed set's module and name and its position there.
+||| A guard of an admitted op, as its record's argument: its check op at
+||| its kind, its groups, and its cause by the closed set's module and name
+||| and its position there.
 admittedGuard : Guard Nat -> String
 admittedGuard g =
-  let checkOp = guardOpOf g.check
-  in "IdrAdmittedGuard<" ++ quoted (identText (dialectName (homeDialect checkOp.home))) ++ ", "
-       ++ quoted (mnemonicText checkOp.mnemonic) ++ ", ["
-       ++ joinWith ", " (map decimal (toList g.given)) ++ "], "
-       ++ quoted (moduleName causeEnum.source.setHome) ++ ", " ++ quoted (identText causeEnum.source.setName) ++ ", "
-       ++ decimal (position causeClosed g.cause) ++ ">"
+  "IdrAdmittedGuard<" ++ quoted (checkHead g.check) ++ ", ["
+    ++ joinWith ", " (map decimal (toList g.given)) ++ "], "
+    ++ quoted (moduleName causeEnum.source.setHome) ++ ", " ++ quoted (identText causeEnum.source.setName) ++ ", "
+    ++ decimal (position causeClosed g.cause) ++ ">"
 
 export
 admittedRow : Admitted -> String

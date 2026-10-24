@@ -89,8 +89,7 @@ reaches ix = reachesIn (MkAmong ix.families empty)
 -- Types
 ------------------------------------------------------------------------------
 
-||| A key of `idr.lit.match`, or an index term's literal, as the attribute
-||| that holds it (`LitKey`).
+||| A key of `idr.lit.match` as the attribute that holds it (`LitKey`).
 export
 keyAttr : LitKey -> MlirAttr
 keyAttr (IntKey t n) = IntegerAttr (twos (width t) n) (OfWidth (width t))
@@ -209,7 +208,6 @@ mutual
   -- A sum, its count and how many levels it holds, then each level after
   -- how often it occurs, in ascending order of level.
   nodeIn a (ISum ps k) = TermNodeSum k (length (toList ps)) :: (toList ps >>= \(l, m) => [TermNodeMultiple m, TermNodeLevel l])
-  nodeIn a (ILit k) = [TermNodeLiteral (keyAttr k)]
   nodeIn a (IType t) = [TermNodeLiteral (TypeAttr (typeIn a t))]
   nodeIn a (ICon f c args) = case lookup f a.members of
     Just m => TermNodeConstructor Nothing m c (length args) :: nodesIn a args
