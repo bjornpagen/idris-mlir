@@ -2723,6 +2723,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   the maker's scope where both do. A trust beyond D68 (the case-tree
   facts `ArityDiffers` and `Matches`, the normaliser's monotonicity)
   stops the lane for the owner.
+- **C284** (2026-10-23; L12y's question, under AGENTS.md's "the `idr`
+  dialect holds only what upstream's dialects do not mean" and C27's
+  split). Where upstream's `tensor.concat` and `tensor.pad` mean exactly
+  `++`, `pad` and `grow`, an array of words is that op, admitted; an
+  array of counted elements keeps the tabulation, as transpose's words
+  are `linalg.transpose` and its counted elements a tabulation. The
+  specification's array meanings (L12y's `ArrayMeaning`, `Composed` over
+  the call's arguments, accepted as the one table the frontend reads)
+  name the upstream op for words.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:

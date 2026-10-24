@@ -879,3 +879,11 @@ askers in callersOf, Settle's removed proof). Waiting:
   write of the contents or a state above them: `include/idr/IR/Arrays.h:77-80`,
   `lib/IR/OpsArrays.cpp:131-139` (comment and error message, L12), and
   `Spec/Arrays/Memory.idr:164-171` (after L12y releases Spec/Arrays/).
+- From L12y (23909452) and C284: the frontend's `Generating` reads
+  `ArrayMeaning` (`Generating : ArrayMeaning -> Hook kd`), the translation
+  one walk over `Composed`, deleting `ArrayPrim`, `generatedOperands` and
+  `arrayTerm` and their readers in `Faster.idr`, `Recognized.idr` and
+  `Resolve.idr`, and the frontend's `TensorOp` blocks become the
+  specification's (L16, after L16ep; N10); `tensor.concat` and `tensor.pad`
+  admitted for word arrays, `++`, `pad` and `grow`'s word meanings naming
+  them (L12 in `Spec/Arrays/` and the admitted lists, with L16).
