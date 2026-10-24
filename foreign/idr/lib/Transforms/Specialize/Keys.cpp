@@ -54,7 +54,10 @@ struct Shaped {
 
 // `own`'s patterns with each hole filled by the shape of the argument at
 // its position: the i-th hole of a copy's key, met in pre-order, is its
-// parameter i. Built from each pattern's last node back, with no recursion.
+// parameter i. A constructor of `own`'s patterns is one the copy builds
+// from its parameters, its call passing the parts and holding no such
+// cell, so the copy keyed here builds it again with no second identity.
+// Built from each pattern's last node back, with no recursion.
 SmallVector<const Pattern *> fill(Arena &arena, const PatternKey &own, ArrayRef<Shaped> args,
                                   SmallVectorImpl<Value> &values) {
   // The nodes of every pattern in pre-order, each hole replaced by its

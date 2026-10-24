@@ -8,16 +8,26 @@
 // copy builds the value again from the key alone, so a constructor whose
 // fields name binders its application leaves open (a closure label's own
 // index parameters, bound afresh by each case that takes it apart) is a
-// runtime leaf. Each walk keeps its own stack: a shape is as deep as the
-// constructors a call's arguments nest.
+// runtime leaf. A constructor whose family gives its cell an identity (an
+// unforced memo cell, whose state a force changes while references to it
+// live; a family rebuilt in place) is keyed only where the call takes the
+// cell whole: the copy builds it again, and a cell the caller kept would
+// then be two, a force through one unseen through the other. Elsewhere it
+// is a leaf, the cell the copy is passed. Each walk keeps its own stack: a
+// shape is as deep as the constructors a call's arguments nest.
 
+#include "idr/IR/Effects/Vocabulary.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/IdrDialect.h"
+#include "idr/IR/Regions.h"
 #include "idr/Transforms/Specialize/Calls.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/STLExtras.h"
+
+#include <cstdint>
+#include <optional>
 
 using namespace mlir;
 
@@ -47,11 +57,68 @@ DataConOp constructorOf(Value value) {
   return con;
 }
 
-// The op that builds `value` as a part of a shape, as shapeOf reads it: the
-// constructor that built it, or a change of its grade on the way there (a
-// linear position it entered or left). A leaf has none, whatever made it:
-// the cast that gives a call's result to the uses its caller makes of it
-// is no part of a shape.
+// Whether what lies on the way from a call's argument down to a part of
+// its shape goes to the call alone: Moved where each value on it, the casts
+// among them, is the one use of the step that reads it and is made once for
+// each time the call runs, so nothing on the way outlives the call; Kept
+// where something on it is used besides, or reaches the call from outside a
+// region that runs again, so the caller keeps it.
+enum class Way : std::uint8_t { Moved, Kept };
+
+// Whether `value` goes to its one use alone, once for each time it is
+// made: no region between that use and the value's own runs again for one
+// run of the op that holds it.
+bool goesOnce(Value value) {
+  if (!value.hasOneUse())
+    return false;
+  Region *own = value.getParentRegion();
+  for (Region *at = value.use_begin()->getOwner()->getParentRegion(); at != own;
+       at = at->getParentOp()->getParentRegion())
+    if (regionRuns(at->getParentOp(), at->getRegionNumber()) == Runs::Repeatedly)
+      return false;
+  return true;
+}
+
+// One part of a shape as a walk meets it: a value, and the way down to it.
+struct Part {
+  Value value;
+  Way way;
+};
+
+// What builds a part of a shape: its constructor, and the way on down to
+// the constructor's fields.
+struct Constructed {
+  DataConOp con;
+  Way way;
+};
+
+// The constructor that builds `part` as a shape reads it (constructorOf),
+// and the way on down: still moved where the part's value and each cast on
+// its way from the constructor go once to their one use. None for a leaf.
+// Essential: a constructor whose family gives its cell an identity (the
+// specification's HasIdentity, read of its carrier) is a leaf where the way
+// is kept, since the copy would build its cell again beside the one the
+// caller keeps. The family's part of that fact is read and the grade's is
+// not: the walk reads a constructor through the casts that change its
+// grade, so the identity it keeps is the one no cast changes, and a value
+// used once goes whole to its one use by its grade.
+std::optional<Constructed> constructedOf(const Part &part) {
+  DataConOp con = constructorOf(part.value);
+  if (!con)
+    return std::nullopt;
+  Way way = part.way == Way::Moved && llvm::all_of(linearPositions(part.value), goesOnce)
+                ? Way::Moved
+                : Way::Kept;
+  if (way == Way::Kept && effects::holds<effects::Condition::HasIdentity>(con.getDataType()))
+    return std::nullopt;
+  return Constructed{con, way};
+}
+
+// The op that may build `value` as a part of a shape: the constructor that
+// built it, or a change of its grade on the way there (a linear position it
+// entered or left), whichever way led to it. A leaf has none, whatever made
+// it: the cast that gives a call's result to the uses its caller makes of
+// it is no part of a shape.
 Operation *shapeStep(Value value) {
   return constructorOf(value) ? value.getDefiningOp() : nullptr;
 }
@@ -79,22 +146,23 @@ using ShapeNode = std::variant<LeafNode, ConstNode, ConNode>;
 const Pattern *shapeOf(Arena &arena, Value value, SmallVectorImpl<Value> &leaves) {
   // The nodes in pre-order, the leaves in that order as they are met.
   SmallVector<ShapeNode> order;
-  SmallVector<Value> work{value};
+  SmallVector<Part> work{{value, Way::Moved}};
   while (!work.empty()) {
-    Value at = work.pop_back_val();
-    if (std::optional<Attribute> known = constantOf(at)) {
+    Part at = work.pop_back_val();
+    if (std::optional<Attribute> known = constantOf(at.value)) {
       order.push_back(ConstNode{*known});
       continue;
     }
-    DataConOp con = constructorOf(at);
-    if (!con) {
+    std::optional<Constructed> built = constructedOf(at);
+    if (!built) {
       order.push_back(LeafNode{});
-      leaves.push_back(at);
+      leaves.push_back(at.value);
       continue;
     }
+    DataConOp con = built->con;
     order.push_back(ConNode{con.getTag(), static_cast<unsigned>(con.getFields().size())});
     for (Value field : llvm::reverse(con.getFields()))
-      work.push_back(field);
+      work.push_back({field, built->way});
   }
   // Built from the last node back: a constructor's subtrees follow it in
   // pre-order, so they are built when it is reached.
@@ -129,18 +197,19 @@ bool isClosed(Value value) {
   return true;
 }
 
-// Each op that built the shape, through the ops that only change a grade,
-// has one use: the call that reads it.
+// Each op that built the shape as shapeOf reads it, through the ops that
+// only change a grade, has one use: the step that reads it, the call last.
 bool usedOnce(Value value) {
-  SmallVector<Value> work{value};
+  SmallVector<Part> work{{value, Way::Moved}};
   while (!work.empty()) {
-    Value at = work.pop_back_val();
-    Operation *def = shapeStep(at);
-    if (!def)
+    Part at = work.pop_back_val();
+    std::optional<Constructed> built = constructedOf(at);
+    if (!built)
       continue;
-    if (!at.hasOneUse())
+    if (!llvm::all_of(linearPositions(at.value), [](Value step) { return step.hasOneUse(); }))
       return false;
-    llvm::append_range(work, def->getOperands());
+    for (Value field : built->con.getFields())
+      work.push_back({field, built->way});
   }
   return true;
 }
@@ -190,7 +259,10 @@ using RebuildStep = std::variant<BuildAt, MakeCon>;
 // A hole is the next parameter; a constructor is built at the position's
 // grade, a quantity-one position's included, with no cast into it, over
 // its fields at their determined types; and a constant is the one the
-// dialect materializes at the position's type.
+// dialect materializes at the position's type. A key holds a constructor
+// whose family gives its cell an identity only where the call took the
+// cell whole (shapeOf) or where a copy builds it from its own parameters
+// (a copy's key composed again), so each such build is its cell's only one.
 Value rebuild(OpBuilder &b, Location loc, const Pattern &pattern, Type type,
               ArrayRef<Value> holes, unsigned &next) {
   Dialect *idr = b.getContext()->getLoadedDialect<IdrDialect>();

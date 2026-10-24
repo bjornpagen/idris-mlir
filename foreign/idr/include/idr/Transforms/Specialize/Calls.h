@@ -31,8 +31,10 @@ namespace detail {
 
 // The pattern of `value` and its runtime leaves in pre-order, or a hole
 // for a value no pattern knows more of. A constant is itself, a constructor
-// its tag over its fields; a value entered into a quantity-one position is
-// keyed as the value, whose position's type keeps its quantity.
+// its tag over its fields, but a hole where its family gives its cell an
+// identity and the call does not take the cell whole; a value entered into
+// a quantity-one position is keyed as the value, whose position's type
+// keeps its quantity.
 const Pattern *shapeOf(Arena &arena, mlir::Value value, llvm::SmallVectorImpl<mlir::Value> &leaves);
 // Whether `value` is closed (a constant, or a constructor of closed
 // values), and whether every op that built its shape has one use.
