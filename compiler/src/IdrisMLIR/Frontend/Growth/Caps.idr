@@ -68,6 +68,7 @@ mutual
   deepest j (Choice (Var i e) alts) = max (if i == j then S e else 0) <$> deepestIn j alts
   deepest j (Choice s alts) = max <$> deepest j s <*> deepestIn j alts
   deepest j (Var i _) = if i == j then Nothing else Just 0
+  deepest j (PartField _ i _) = if i == j then Nothing else Just 0
   deepest j (Head _ ts) = deepestIn j ts
   deepest j (Opaque _ ts) = deepestIn j ts
   deepest j (Applied i _ ts) = if i == j then Nothing else deepestIn j ts

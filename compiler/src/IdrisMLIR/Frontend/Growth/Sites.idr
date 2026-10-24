@@ -417,6 +417,7 @@ mutual
   render : {auto c : Ref Ctxt Defs} -> (names : List Name) -> (t : Template) -> All RecursionDef (recursions t) ->
            All HeadDef (namedHeads t) -> Front String
   render names (Var i _) _ _ = pure (parameterName names i)
+  render names (PartField k i _) _ _ = pure (parameterName names i ++ "." ++ show k)
   render names (Head (Just a) []) _ [h] = headText h
   render names (Head (Just a) cs) held (h :: heads) =
     (\x, as => "(" ++ unwords (x :: as) ++ ")") <$> headText h <*> renderAll names cs held heads
@@ -480,6 +481,7 @@ mutual
     let rs = eraseAll cs held heads in MkTemplateRead (Computing i d (templatesOf rs)) (allRead rs) (allHeads rs)
   eraseIn (Field k t) held heads = let x = eraseIn t held heads in MkTemplateRead (Field k x.template) x.recursionsRead x.headsRead
   eraseIn (Var i d) held heads = MkTemplateRead (Var i d) held heads
+  eraseIn (PartField k i d) held heads = MkTemplateRead (PartField k i d) held heads
   eraseIn (Leaf h) held heads = MkTemplateRead (Leaf h) held heads
   eraseIn (Token k) held heads = MkTemplateRead (Token k) held heads
   eraseIn (Formal j k) held heads = MkTemplateRead (Formal j k) held heads
@@ -540,6 +542,7 @@ mutual
   buildsIn at place fc (Computing _ _ cs) held heads = buildsAll at place fc cs held heads
   buildsIn at place fc (Field _ t) held heads = buildsIn at place fc t held heads
   buildsIn at place fc (Var _ _) _ _ = []
+  buildsIn at place fc (PartField _ _ _) _ _ = []
   buildsIn at place fc (Leaf _) _ _ = []
   buildsIn at place fc (Token _) _ _ = []
   buildsIn at place fc (Formal _ _) _ _ = []

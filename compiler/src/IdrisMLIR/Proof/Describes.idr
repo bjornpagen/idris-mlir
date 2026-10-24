@@ -164,6 +164,7 @@ mutual
   carriedAt rts at (Computing j _ ts) w = carriedAll rts (underComputation (AppliedFamily j) at) ts w
   carriedAt rts at (Choice s ts) w = carriedAll rts at ts (placedRest (recursions s) w)
   carriedAt rts at (Var _ _) w = noneCarried
+  carriedAt rts at (PartField _ _ _) w = noneCarried
   carriedAt rts at (Leaf _) w = noneCarried
   carriedAt rts at (Token _) w = noneCarried
   carriedAt rts at (Formal _ _) w = noneCarried
@@ -572,6 +573,7 @@ mutual
   selfBoundedIs (Token _) _ = UnmarkedToken
   selfBoundedIs (Formal _ _) _ = UnmarkedFormal
   selfBoundedIs (Var _ _) eq = absurd eq
+  selfBoundedIs (PartField _ _ _) eq = absurd eq
   selfBoundedIs (Applied _ _ _) eq = absurd eq
   selfBoundedIs (Computing _ _ _) eq = absurd eq
   selfBoundedIs (Field _ _) eq = absurd eq
@@ -587,6 +589,8 @@ mutual
   0 stuckOnly : (t : Template) -> Elem (i, w) (stuck t) -> w = Stuck
   stuckOnly (Var _ _) Here = Refl
   stuckOnly (Var _ _) (There e) = absurd e
+  stuckOnly (PartField _ _ _) Here = Refl
+  stuckOnly (PartField _ _ _) (There e) = absurd e
   stuckOnly (Field _ _) el = absurd el
   stuckOnly (Head _ ts) el = stuckOnlyIn ts el
   stuckOnly (Opaque _ ts) el = stuckOnlyIn ts el
@@ -778,6 +782,19 @@ firstAnswered UnderComputation ans = \i, w, el => ans i w (elemAppendLeft el)
 restAnswered {t} {e} AtDepth ans = \i, w, el => ans i w (elemAppendRight (occurrences e t) el)
 restAnswered {t} UnderComputation ans = \i, w, el => ans i w (elemAppendRight (stuck t) el)
 
+-- What a part's field answers for is what the part one match deeper does.
+0 partFieldAnswered : (r : Reading) -> Answered g s r e (PartField k j d) -> Answered g s r e (Var j (S d))
+partFieldAnswered AtDepth ans = ans
+partFieldAnswered UnderComputation ans = ans
+
+-- A marker, read at its depth or under a computation: covered by its
+-- arcs, or, where they are Stuck, by the feasible potential none
+-- satisfies.
+0 coverVar : {g : Graph} -> {m : Model g} -> {pot : Vect g.size Nat} -> Feasible g pot -> {s : Site g.size} ->
+             (r : Reading) -> (e : Nat) -> Answered g s r e (Var j d) -> CoveredAt m s e (Var j d)
+coverVar fe AtDepth e ans = CVar (\p, wa => drawnCarries fe (ans j (Finite e d) Here) wa)
+coverVar fe UnderComputation e ans = CVar (\p, wa => void (stuckRefuted fe (ans j Stuck Here) wa))
+
 mutual
   -- The graph covers a part of a site's template read at a depth, by
   -- induction on the part: each marker by its arcs or, where they are
@@ -787,10 +804,9 @@ mutual
               (r : Reading) -> (at : Depth s.template) -> Dominates at.arcWeight (Finite (S at.depth) 0) ->
               (t : Template) -> (w : InWhole (recursions t) s.template) -> Answered g s r at.depth t ->
               Part (carriedAt s.roots at t w) whole -> CoveredAt m s at.depth t
-  coverAt fe dr AtDepth at aw (Var j d) w ans part =
-    CVar (\p, wa => drawnCarries fe (ans j (Finite at.depth d) Here) wa)
-  coverAt fe dr UnderComputation at aw (Var j d) w ans part =
-    CVar (\p, wa => void (stuckRefuted fe (ans j Stuck Here) wa))
+  coverAt fe dr r at aw (Var j d) w ans part = coverVar fe r at.depth ans
+  -- A part's field is covered as the part one match deeper is.
+  coverAt fe dr r at aw (PartField k j d) w ans part = CPartField (coverVar fe r at.depth (partFieldAnswered r ans))
   coverAt fe dr r at aw (Head a ts) w ans part =
     CHead (coverAll fe dr r (underHead at) (headOver aw) ts w (headAnswered r ans) part)
   coverAt fe dr r at aw (Opaque a ts) w ans part =

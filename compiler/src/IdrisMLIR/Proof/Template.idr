@@ -93,6 +93,13 @@ data Template
   | ||| Field k (a method or a superclass) of a dictionary not yet a
     ||| constructor.
     Field Nat Template
+  | ||| Field k of a record a data constructor builds, which the writer's
+    ||| parameter i is d deep (`Var i d`): where the projection reduces,
+    ||| the constructor's argument k, a part of that parameter one match
+    ||| deeper, what `Var i (S d)` stands for. A dictionary held there is
+    ||| one of what field k of the record can be, as `Field k (Var i d)`
+    ||| roots it, so a field taken of it again is read off those.
+    PartField Nat Nat Nat
   | ||| A member of the choice of that head, which the running program
     ||| chooses: whatever a place that makes a member of it wrote at the
     ||| choice's positions (`Model.choicePositions`).
@@ -105,8 +112,9 @@ mutual
   tallest [] = 0
   tallest (t :: ts) = maximum (height t) (tallest ts)
 
-  ||| A template's height: a marker, a field and a member of a choice are 0
-  ||| (what they stand for is weighed by their arcs), a leaf its own, a
+  ||| A template's height: a marker, a field, a part's field and a member
+  ||| of a choice are 0 (what they stand for is weighed by their arcs), a
+  ||| leaf its own, a
   ||| token and an argument of a family's value 1 (the key's bound
   ||| variable), a head, a recursion and an applied family one above their
   ||| tallest child, a choice its tallest leaf.
@@ -114,6 +122,7 @@ mutual
   height : Template -> Nat
   height (Var _ _) = 0
   height (Field _ _) = 0
+  height (PartField _ _ _) = 0
   height (Member _) = 0
   height (Leaf h) = h
   height (Token _) = 1
@@ -147,6 +156,7 @@ mutual
   arity (Choice _ ts) = widest ts
   arity (Field _ s) = arity s
   arity (Var _ _) = 0
+  arity (PartField _ _ _) = 0
   arity (Leaf _) = 0
   arity (Token _) = 0
   arity (Member _) = 0
@@ -170,6 +180,7 @@ mutual
   heaviest (Choice _ ts) = heaviestOf ts
   heaviest (Field _ s) = heaviest s
   heaviest (Var _ _) = 0
+  heaviest (PartField _ _ _) = 0
   heaviest (Leaf _) = 0
   heaviest (Member _) = 0
   heaviest (Formal _ _) = 0
@@ -191,6 +202,7 @@ mutual
   recursions (Choice s ts) = recursions s ++ recursionsIn ts
   recursions (Field _ s) = recursions s
   recursions (Var _ _) = []
+  recursions (PartField _ _ _) = []
   recursions (Leaf _) = []
   recursions (Token _) = []
   recursions (Formal _ _) = []
@@ -257,6 +269,7 @@ mutual
   namedHeads (Field _ s) = namedHeads s
   namedHeads (Member k) = memberHead k
   namedHeads (Var _ _) = []
+  namedHeads (PartField _ _ _) = []
   namedHeads (Leaf _) = []
   namedHeads (Token _) = []
   namedHeads (Formal _ _) = []
@@ -359,10 +372,11 @@ placedRest xs w = MkInWhole (\el => w.toWhole (elemAfter xs el))
 
 mutual
   ||| Is what every instance writes at a template no higher than the
-  ||| template: it holds no marker, field or member of a choice, whose
-  ||| values are their arcs', and no family applied? A choice's value is one of its
-  ||| leaves, and an argument of a family's value is the writer's to no
-  ||| instance: what beta makes of it, the reading's `beta` says.
+  ||| template: it holds no marker, field, part's field or member of a
+  ||| choice, whose values are their arcs', and no family applied? A
+  ||| choice's value is one of its leaves, and an argument of a family's
+  ||| value is the writer's to no instance: what beta makes of it, the
+  ||| reading's `beta` says.
   public export
   selfBounded : Template -> Bool
   selfBounded (Head _ ts) = allSelfBounded ts
@@ -371,6 +385,7 @@ mutual
   selfBounded (Leaf _) = True
   selfBounded (Token _) = True
   selfBounded (Var _ _) = False
+  selfBounded (PartField _ _ _) = False
   selfBounded (Applied _ _ _) = False
   selfBounded (Computing _ _ _) = False
   selfBounded (Field _ _) = False
@@ -404,7 +419,8 @@ appliedWeight e d ts = appliedAt (allSelfBounded ts) e d ts
 
 mutual
   ||| Each occurrence of a writer's parameter in a template read e heads
-  ||| deep, with what it carries: `Var i d`, e - d; an applied family's own
+  ||| deep, with what it carries: `Var i d`, e - d, and a part's field of
+  ||| it, the part one deeper, e - (d + 1); an applied family's own
   ||| marker, its closed arguments' height above that; every marker under a
   ||| recursion or an applied family's argument, and a computing family's
   ||| own, Stuck. A field writes what its position holds, which an arc from
@@ -414,6 +430,7 @@ mutual
   public export
   occurrences : (e : Nat) -> Template -> List (Nat, Weight)
   occurrences e (Var j d) = [(j, Finite e d)]
+  occurrences e (PartField _ j d) = [(j, Finite e (S d))]
   occurrences e (Head _ ts) = occurrencesIn (S e) ts
   occurrences e (Opaque _ ts) = stuckIn ts
   occurrences e (Applied j d ts) = (j, appliedWeight e d ts) :: stuckIn ts
@@ -435,6 +452,7 @@ mutual
   public export
   stuck : Template -> List (Nat, Weight)
   stuck (Var j _) = [(j, Stuck)]
+  stuck (PartField _ j _) = [(j, Stuck)]
   stuck (Field _ _) = []
   stuck (Head _ ts) = stuckIn ts
   stuck (Opaque _ ts) = stuckIn ts
@@ -558,6 +576,7 @@ mutual
   export
   passagesOf : (e : Nat) -> (t : Template) -> InWhole (recursions t) whole -> Passages whole (occurrences e t)
   passagesOf e (Var j d) w = PassedOn j (ByHeads e d) NonePassed
+  passagesOf e (PartField _ j d) w = PassedOn j (ByHeads e (S d)) NonePassed
   passagesOf e (Head _ ts) w = passagesIn (S e) ts w
   passagesOf e (Opaque r ts) w = passedThroughAll (StuckRecursion (placedHere w)) ts
   passagesOf e (Applied j d ts) w = PassedOn j (appliedPassage j e d ts) (passedThroughAll (AppliedFamily j) ts)
@@ -580,6 +599,7 @@ mutual
   export
   passedThrough : Computation whole -> (t : Template) -> Passages whole (stuck t)
   passedThrough c (Var j _) = PassedOn j (ByComputation c) NonePassed
+  passedThrough c (PartField _ j _) = PassedOn j (ByComputation c) NonePassed
   passedThrough c (Field _ _) = NonePassed
   passedThrough c (Head _ ts) = passedThroughAll c ts
   passedThrough c (Opaque _ ts) = passedThroughAll c ts

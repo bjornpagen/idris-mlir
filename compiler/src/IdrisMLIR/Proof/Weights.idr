@@ -56,6 +56,7 @@ mutual
   public export
   data Light : (w, r : Nat) -> Template -> Type where
     LightVar : Light w r (Var i d)
+    LightPartField : Light w r (PartField k i d)
     LightHead : LTE (length ts) (steps r w) -> AllLight w (pred r) ts -> Light w r (Head a ts)
     LightOpaque : LTE (length ts) (steps r w) -> AllLight w (pred r) ts -> Light w r (Opaque a ts)
     LightApplied : LTE (S (length ts)) (steps r w) -> AllLight w (pred r) ts -> Light w r (Applied i d ts)
@@ -283,6 +284,7 @@ mutual
   export
   0 lightMore : LTE r r' -> Light w r t -> Light w r' t
   lightMore le LightVar = LightVar
+  lightMore le LightPartField = LightPartField
   lightMore le (LightHead n ts) = LightHead (transitive n (stepsMono le)) (allLightMore (predMono le) ts)
   lightMore le (LightOpaque n ts) = LightOpaque (transitive n (stepsMono le)) (allLightMore (predMono le) ts)
   lightMore le (LightApplied n ts) = LightApplied (transitive n (stepsMono le)) (allLightMore (predMono le) ts)
@@ -304,6 +306,7 @@ mutual
   export
   0 lightWide : Light w r t -> LTE (arity t) (steps r w)
   lightWide LightVar = LTEZero
+  lightWide LightPartField = LTEZero
   lightWide (LightHead n ts) = maxLub n (transitive (allWide ts) (stepsMono (predBelow _)))
   lightWide (LightOpaque n ts) = maxLub n (transitive (allWide ts) (stepsMono (predBelow _)))
   lightWide (LightApplied n ts) = maxLub n (transitive (allWide ts) (stepsMono (predBelow _)))
@@ -324,6 +327,7 @@ mutual
   export
   0 lightHeavy : Light w r t -> LTE (heaviest t) (steps r w)
   lightHeavy LightVar = LTEZero
+  lightHeavy LightPartField = LTEZero
   lightHeavy (LightHead _ ts) = transitive (allHeavy ts) (stepsMono (predBelow _))
   lightHeavy (LightOpaque _ ts) = transitive (allHeavy ts) (stepsMono (predBelow _))
   lightHeavy (LightApplied _ ts) = transitive (allHeavy ts) (stepsMono (predBelow _))
@@ -344,6 +348,7 @@ mutual
 lightMeasure (LightHead n _) = n
 lightMeasure (LightToken k) = k
 lightMeasure LightVar = LTEZero
+lightMeasure LightPartField = LTEZero
 lightMeasure (LightOpaque _ _) = LTEZero
 lightMeasure (LightApplied _ _) = LTEZero
 lightMeasure (LightComputing _ _) = LTEZero
@@ -423,6 +428,7 @@ mutual
   -- token, as a capped position's are, is light under any budget.
   0 narrowLight : LTE 1 w -> (t : Template) -> LTE (arity t) 1 -> LTE (heaviest t) 0 -> Light w r t
   narrowLight one (Var _ _) _ _ = LightVar
+  narrowLight one (PartField _ _ _) _ _ = LightPartField
   narrowLight one (Head a ts) wide heavy =
     LightHead (transitive (maxLeft wide) (transitive one (stepsAbove _ _))) (narrowAll one ts (maxRight wide) heavy)
   narrowLight one (Opaque a ts) wide heavy =
@@ -517,6 +523,7 @@ mutual
   0 unmarkedLight : Based m w -> Unmarked t -> Writes m s t u -> LTE (arity t) w -> LTE (heaviest t) w ->
                     Light w (height t) u
   unmarkedLight ms um (AtVar _ _ _ _) _ _ = absurd um
+  unmarkedLight ms um (AtPartField _) _ _ = absurd um
   -- A tower of a known height reduces to its step's sum, from which no
   -- unifier reads the height back: each tower below is named whole.
   unmarkedLight {w} ms um (AtHead {ts} xs) wide heavy =
@@ -615,6 +622,7 @@ mutual
     MkCarries arc wt =>
       lightMore (minusShift (boundCarry (boundBelow g pot p) (arcCarry wt (arcHolds fe arc))))
                 (rereadLight ms.one (subLight (lightBounded ms ds fe iv) sub) again)
+  lightAt ms ds fe (AtPartField x) cov wide heavy hp = lightAt ms ds fe x (coveredPartField cov) wide heavy hp
   lightAt {g} {pot} {s} {e} ms ds fe (AtHead {ts} xs) cov wide heavy hp =
     LightHead (rewrite allWriteLength xs in transitive (maxLeft wide) (stepsAbove _ _))
               (rewrite sym (minusSucc (g.constant + index s.target pot) e) in

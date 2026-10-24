@@ -2010,6 +2010,7 @@ mutual
   -- anything that lands is read.
   namedIn : Template -> List Nat
   namedIn (Var i _) = [i]
+  namedIn (PartField _ i _) = [i]
   namedIn (Applied i _ ts) = i :: namedAll ts
   namedIn (Computing i _ ts) = i :: namedAll ts
   namedIn (Head _ ts) = namedAll ts
@@ -2030,6 +2031,8 @@ mutual
   0 occursNamed : (e : Nat) -> (t : Template) -> Elem (i, w) (occurrences e t) -> Elem i (namedIn t)
   occursNamed e (Var j d) Here = Here
   occursNamed e (Var j d) (There el) = absurd el
+  occursNamed e (PartField _ j d) Here = Here
+  occursNamed e (PartField _ j d) (There el) = absurd el
   occursNamed e (Head _ ts) el = occursNamedAll (S e) ts el
   occursNamed e (Opaque _ ts) el = stuckNamedAll ts el
   occursNamed e (Applied j d ts) Here = Here
@@ -2052,6 +2055,8 @@ mutual
   0 stuckNamed : (t : Template) -> Elem (i, w) (stuck t) -> Elem i (namedIn t)
   stuckNamed (Var j d) Here = Here
   stuckNamed (Var j d) (There el) = absurd el
+  stuckNamed (PartField _ j d) Here = Here
+  stuckNamed (PartField _ j d) (There el) = absurd el
   stuckNamed (Head _ ts) el = stuckNamedAll ts el
   stuckNamed (Opaque _ ts) el = stuckNamedAll ts el
   stuckNamed (Applied j d ts) Here = Here
@@ -2167,6 +2172,7 @@ mutual
     Right later => behind (namedIn s) (allLandedNamed c ts later)
   landedNamed c (Field k r) el = landedNamed c r el
   landedNamed c (Var j d) el = el
+  landedNamed c (PartField _ j d) el = el
   landedNamed c (Leaf h) el = el
   landedNamed c (Token k) el = el
   landedNamed c (Member k) el = el
@@ -2195,6 +2201,7 @@ mutual
     Right later => behind (namedIn s) (allFamiliesNamed c ts later)
   landedFamiliesNamed c (Field k r) el = landedFamiliesNamed c r el
   landedFamiliesNamed c (Var _ _) el = absurd el
+  landedFamiliesNamed c (PartField _ _ _) el = absurd el
   landedFamiliesNamed c (Leaf _) el = absurd el
   landedFamiliesNamed c (Token _) el = absurd el
   landedFamiliesNamed c (Member _) el = absurd el
@@ -2231,6 +2238,7 @@ mutual
   closedSelfBounded c (Token k) _ = (UnmarkedToken, Refl)
   closedSelfBounded c (Formal j k) _ = (UnmarkedFormal, Refl)
   closedSelfBounded c (Var _ _) sb = absurd sb
+  closedSelfBounded c (PartField _ _ _) sb = absurd sb
   closedSelfBounded c (Applied _ _ _) sb = absurd sb
   closedSelfBounded c (Computing _ _ _) sb = absurd sb
   closedSelfBounded c (Field _ _) sb = absurd sb

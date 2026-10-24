@@ -9,6 +9,7 @@
 ||| template is a tree of heads (constructors, implementations, binders)
 ||| whose leaves are the markers (`Var`), the closed parts (`Leaf`,
 ||| `Token`), a field of a dictionary that is no constructor yet (`Field`),
+||| a field of a pair the writer's marker is, a part of it (`PartField`),
 ||| a member of a choice the running program makes (`Member`, which a
 ||| reader of a site puts in where its root says so: `asGiven`), and what a
 ||| type computes from a marker: a definition's case
@@ -469,6 +470,43 @@ projectedRecord n args = do
     case getFnArgs (Force projected.value) of
       (Ref _ (DataCon _ _) _, _) => Nothing
       _ => Just (pr.field, projected, extras)
+
+||| What a projection takes apart, by its address against the addresses the
+||| boundary read the projections of the pair `%pair` names at
+||| (`State.PairRead`), compared by identity: that pair, which Idris's
+||| search builds with its constructor wherever it gives a tuple of
+||| constraints; or any other record, whose field an instance reads off the
+||| implementation the record is. A program that declares no `%pair` takes
+||| no pair apart.
+data Taken = APair | ARecord
+
+takenAt : Address -> Maybe Pairing -> Taken
+takenAt a Nothing = ARecord
+takenAt a (Just pg) = case decideAddress a pg.firstAddress of
+  Proof.Growth.Yes _ => APair
+  Proof.Growth.No _ => case decideAddress a pg.secondAddress of
+    Proof.Growth.Yes _ => APair
+    Proof.Growth.No _ => ARecord
+
+||| A projection's field as a site reads it (`Readings.FieldRead`), with what
+||| the reading holds of each recursion it holds and each head it names.
+record FieldReading (w : Whose) (k : Nat) (rt : Template) where
+  constructor MkFieldReading
+  template : Template
+  0 read : FieldRead k rt template
+  recursionsRead : HeldDefs RecursionDef w (recursions template)
+  headsRead : HeldDefs HeadDef w (namedHeads template)
+
+||| A projection's field, by what it takes apart and what its record reads
+||| as: of a pair the writer's marker is, the constructor's argument, the
+||| part one match deeper, which holds and names nothing; of anything else,
+||| the record's field, which holds and names what the record does. A pair
+||| no marker is (a pair inside a pair, a part of a runtime value) names no
+||| part of the writer's parameters, so its field is read as a record's.
+fieldReading : (w : Whose) -> Taken -> (k : Nat) -> (rt : Template) -> HeldDefs RecursionDef w (recursions rt) ->
+               HeldDefs HeadDef w (namedHeads rt) -> FieldReading w k rt
+fieldReading w APair k (Var i d) _ _ = MkFieldReading (PartField k i d) OfPair (heldNone w) (heldNone w)
+fieldReading w _ k rt held heads = MkFieldReading (Template.Field k rt) OfRecord held heads
 
 ||| How many arguments a value of a type takes: its Pi binders, read off
 ||| its normal form when the type as written is no Pi down to a universe or
@@ -1086,10 +1124,13 @@ mutual
   ||| record that is no constructor is, at an instance, one of two things:
   ||| the application as written, which a dictionary's key keeps (`classify`
   ||| takes a dictionary as written), and a normal form keeps while the
-  ||| record stays no constructor; or the record's field (`Field`), once the
-  ||| record is one. So it is the choice of both, behind the record it
-  ||| matches. In a skeleton, a projection of a value is a match on it like
-  ||| any other; in an instance's term it is as written, as its key is.
+  ||| record stays no constructor; or the record's field once the record is
+  ||| one (`fieldReading`): an implementation's field (`Field`), or, of the
+  ||| pair `%pair` names that the writer's marker is, the constructor's
+  ||| argument, a part of the parameter (`PartField`). So it is the choice of
+  ||| both, behind the record it matches. In a skeleton, a projection of a
+  ||| value is a match on it like any other; in an instance's term it is as
+  ||| written, as its key is.
   ofDefinition : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
                  (stand : Values Substitute vs) -> (fc : FC) -> (n : Name) -> (a : Address) ->
                  (0 _ : AddressedAs m n (Just a)) -> (args : List (Arg m stand)) ->
@@ -1103,16 +1144,18 @@ mutual
     rs <- readings args
     es <- readings extras
     atHead <- headMet (MkMode (OfSite stands) EveryNode cl ctx) n at
-    pure (MkTemplateReading (Choice matched.template [Head (Just a) rs.templates, partOf EveryNode (Template.Field k matched.template) es.templates])
-                            (SProjected at matched.described rs.described es.described)
+    taken <- takenAt a . (.pair) <$> reading
+    field <- pure (fieldReading (OfSite stands) taken k matched.template matched.recursionsRead matched.headsRead)
+    pure (MkTemplateReading (Choice matched.template [Head (Just a) rs.templates, partOf EveryNode field.template es.templates])
+                            (SProjected at matched.described rs.described es.described field.read)
                             (heldJoined matched.recursionsRead
                                         (heldJoined rs.recursionsRead
-                                                    (heldLast (partRecursions {t = Template.Field k matched.template} EveryNode es.templates
-                                                                              matched.recursionsRead es.recursionsRead))))
+                                                    (heldLast (partRecursions {t = field.template} EveryNode es.templates
+                                                                              field.recursionsRead es.recursionsRead))))
                             (heldJoined matched.headsRead
                                         (heldJoined (heldJoined atHead rs.headsRead)
-                                                    (heldLast (partHeads {t = Template.Field k matched.template} EveryNode es.templates
-                                                                         matched.headsRead es.headsRead)))))
+                                                    (heldLast (partHeads {t = field.template} EveryNode es.templates
+                                                                         field.headsRead es.headsRead)))))
   ofDefinition m w acc stand fc n a at args = call m w acc stand fc n a at args
 
   call : {auto c : Ref Ctxt Defs} -> {vs : Scope} -> (m : Mode) -> (w : Walked) -> (0 acc : SizeAccessible w) ->
@@ -1698,6 +1741,7 @@ mutual
   beta (Computing _ _ _) = Computes
   beta (Field _ t) = beta t
   beta (Var _ _) = Inert
+  beta (PartField _ _ _) = Inert
   beta (Leaf _) = Inert
   beta (Token _) = Inert
   beta (Member _) = Inert
@@ -1862,6 +1906,7 @@ mutual
   readLanded c (Choice t ts) = choiceLanded (readLanded c t) (readAllLanded c ts)
   readLanded c (Field k t) = fieldLanded k (readLanded c t)
   readLanded c t@(Var _ _) = MkLandedReading t []
+  readLanded c t@(PartField _ _ _) = MkLandedReading t []
   readLanded c t@(Leaf _) = MkLandedReading t []
   readLanded c t@(Token _) = MkLandedReading t []
   readLanded c t@(Member _) = MkLandedReading t []
@@ -1908,6 +1953,7 @@ mutual
   landedRecursions c (Choice t ts) = rewrite landedRecursions c t in rewrite allLandedRecursions c ts in Refl
   landedRecursions c (Field k t) = landedRecursions c t
   landedRecursions c (Var _ _) = Refl
+  landedRecursions c (PartField _ _ _) = Refl
   landedRecursions c (Leaf _) = Refl
   landedRecursions c (Token _) = Refl
   landedRecursions c (Member _) = Refl
@@ -2821,7 +2867,7 @@ mutual
   -- A site's markers and unfoldings: no instance's term holds them.
   spineWithin w (SMarker _ _) impossible
   spineWithin w (SBeside _ _ _) impossible
-  spineWithin w (SProjected _ _ _ _) impossible
+  spineWithin w (SProjected _ _ _ _ _) impossible
   spineWithin w (SRecurs _ _) impossible
   spineWithin w (SWalked _ _ _) impossible
   spineWithin w (SEta _ _) impossible

@@ -13,6 +13,9 @@
 |||   writer's parameter i received, read where the marker stands
 |||   (`Reread`: its lambdas' arguments numbered by the binders there, a
 |||   run read node by node or as its leaf);
+||| - a field of a record a data constructor builds, which the writer's
+|||   parameter i is d deep (`PartField`), writes what `Var i (S d)` does:
+|||   the constructor's argument, a part of that value one match deeper;
 ||| - a head and a recursion stuck on closed arguments write themselves,
 |||   their children written in turn; a leaf, a token and an argument of a
 |||   family's value write themselves;
@@ -68,7 +71,8 @@
 |||
 ||| The graph covers a site (`CoveredAt`) as `Describes` draws it: an arc from
 ||| each marker's position weighing at least how much deeper the marker
-||| sits in what is written than in its value; for an applied family, an
+||| sits in what is written than in its value, a part's field as the part
+||| one match deeper; for an applied family, an
 ||| arc as heavy as its arguments are high; for a field, an arc from that
 ||| field's position of every implementation its record can be, as heavy
 ||| as the field sits deep; for a member of a choice, an arc from each
@@ -163,6 +167,15 @@ Uninhabited (Unmarked (Applied i d ts)) where
 
 export
 Uninhabited (Unmarked (Field k r)) where
+  uninhabited (UnmarkedHead _) impossible
+  uninhabited (UnmarkedOpaque _) impossible
+  uninhabited UnmarkedLeaf impossible
+  uninhabited UnmarkedToken impossible
+  uninhabited UnmarkedFormal impossible
+  uninhabited (UnmarkedChoice _) impossible
+
+export
+Uninhabited (Unmarked (PartField k i d)) where
   uninhabited (UnmarkedHead _) impossible
   uninhabited (UnmarkedOpaque _) impossible
   uninhabited UnmarkedLeaf impossible
@@ -426,6 +439,10 @@ namespace Writing
       ||| where the marker stands.
       AtVar : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} -> {0 p : Fin g.size} ->
               Elem (i, p) s.writers -> InV m p v -> Sub d v u -> Reread u w -> Writes m s (Var i d) w
+      ||| A field of a record a data constructor builds, which the writer's
+      ||| parameter is: what the part of it one match deeper writes, the
+      ||| constructor's argument.
+      AtPartField : Writes m s (Var i (S d)) w -> Writes m s (PartField k i d) w
       AtHead : AllWrite m s ts ws -> Writes m s (Head a ts) (Head a ws)
       ||| A recursion stuck on what its arguments hold: the call as written,
       ||| which is all an instance leaves there; one that reduces at an
@@ -517,6 +534,7 @@ namespace Covering
     data CoveredAt : {g : Graph} -> (m : Model g) -> Site g.size -> Nat -> Template -> Type where
       CVar : {0 g : Graph} -> {0 m : Model g} -> {0 s : Site g.size} ->
              ((p : Fin g.size) -> Elem (i, p) s.writers -> Carries g p d e s.target) -> CoveredAt m s e (Var i d)
+      CPartField : CoveredAt m s e (Var i (S d)) -> CoveredAt m s e (PartField k i d)
       CHead : AllCovered m s (S e) ts -> CoveredAt m s e (Head a ts)
       COpaque : AllCovered m s (S e) ts -> CoveredAt m s e (Opaque a ts)
       CLeaf : CoveredAt m s e (Leaf h)
@@ -829,6 +847,7 @@ mutual
   export
   0 unmarkedWrites : Unmarked t -> Writes m s t w -> LTE (height w) (height t)
   unmarkedWrites u (AtVar _ _ _ _) = absurd u
+  unmarkedWrites u (AtPartField _) = absurd u
   unmarkedWrites u (AtHead xs) = LTESucc (unmarkedAll (unmarkedHead u) xs)
   unmarkedWrites u (AtOpaque xs) = LTESucc (unmarkedAll (unmarkedOpaque u) xs)
   unmarkedWrites u AtLeaf = reflexive
@@ -946,6 +965,10 @@ export
 coveredVar (CVar c) = c
 
 export
+0 coveredPartField : CoveredAt m s e (PartField k i d) -> CoveredAt m s e (Var i (S d))
+coveredPartField (CPartField c) = c
+
+export
 0 coveredHead : CoveredAt m s e (Head a ts) -> AllCovered m s (S e) ts
 coveredHead (CHead cs) = cs
 
@@ -1014,6 +1037,8 @@ mutual
                 LTE (height w + e) (g.constant + index s.target pot)
   writtenAt ds fe (AtVar {p} wa iv sub again) cov hp = case coveredVar cov p wa of
     MkCarries arc wt => rewrite rereadHeight again in carry (partBelow (bounded ds fe iv) sub) wt (arcHolds fe arc)
+  -- A part's field writes what the part one match deeper does, as high.
+  writtenAt ds fe (AtPartField x) cov hp = writtenAt ds fe x (coveredPartField cov) hp
   writtenAt {e} ds fe (AtHead {ts} {ws} xs) cov hp =
     lteL (sym (plusSuccRightSucc (tallest ws) e)) $
       allWrittenAt ds fe xs (coveredHead cov) (lteL (plusSuccRightSucc (tallest ts) e) hp)

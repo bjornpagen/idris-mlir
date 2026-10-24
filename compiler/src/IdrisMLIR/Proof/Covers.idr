@@ -864,6 +864,7 @@ mutual
   0 closedWrites : {g : Graph} -> {m : Model g} -> {s : Bound.Site g.size} -> {c : Nat -> Landing} -> LandingsWrite m s c ->
                    Reaches s.template (withClosedFamilies c t) -> Writes m s t w -> Writes m s (withClosedFamilies c t) w
   closedWrites ls r (AtVar wrote inV sub again) = AtVar wrote inV sub again
+  closedWrites ls r (AtPartField wr) = AtPartField wr
   closedWrites ls r (AtHead aw) = AtHead (allClosedWrites ls (\el => reachedBelow r (ReachesChild el ReachesItself)) aw)
   closedWrites ls r (AtOpaque aw) = AtOpaque (allClosedWrites ls (\el => reachedBelow r (ReachesRecursion el ReachesItself)) aw)
   closedWrites ls r AtLeaf = AtLeaf

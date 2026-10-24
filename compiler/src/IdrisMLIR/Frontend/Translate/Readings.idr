@@ -1136,6 +1136,7 @@ markedHolds (Applied _ _ xs) (u :: us) none = rewrite none in Refl
 markedHolds (Computing _ _ xs) (u :: us) none = rewrite none in Refl
 markedHolds (Choice s xs) (u :: us) none = rewrite none in Refl
 markedHolds (Field _ s) (u :: us) none = rewrite none in Refl
+markedHolds (PartField _ _ _) (u :: us) none = Refl
 markedHolds (Leaf _) (u :: us) none = Refl
 markedHolds (Token _) (u :: us) none = Refl
 markedHolds (Formal _ _) (u :: us) none = Refl
@@ -1258,6 +1259,7 @@ markedHeadsHold (Applied _ _ xs) (u :: us) none = rewrite none in Refl
 markedHeadsHold (Computing _ _ xs) (u :: us) none = rewrite none in Refl
 markedHeadsHold (Choice s xs) (u :: us) none = rewrite none in Refl
 markedHeadsHold (Field _ s) (u :: us) none = rewrite none in Refl
+markedHeadsHold (PartField _ _ _) (u :: us) none = Refl
 markedHeadsHold (Leaf _) (u :: us) none = Refl
 markedHeadsHold (Token _) (u :: us) none = Refl
 markedHeadsHold (Formal _ _) (u :: us) none = Refl
@@ -1331,6 +1333,21 @@ substituteHeads : {0 w : Whose} -> (k : Keeping) -> (0 s : Substitute) -> (ts : 
                   HeldDefs q w (namedHeads (partOf k (substituteTemplate s) ts))
 substituteHeads k s ts held = leafPartHeads k (substituteTemplate s) (substituteHeadless s) ts held
 
+||| What a projection's field reads as in a site's type, by the record it
+||| takes apart (`SProjected`): that record's field, which an instance reads
+||| off what the record can be, an implementation's field what its body
+||| writes there (`Field`); or, where the record is the pair `%pair` names,
+||| which Idris's search builds with its constructor wherever it gives a
+||| tuple of constraints, and is the writer's marker `Var i d`, the
+||| constructor's argument, the part of that parameter one match deeper
+||| (`PartField`). These are the problem's two cases: a field an
+||| implementation's body writes, and the argument a constructor was
+||| applied to.
+public export
+data FieldRead : Nat -> Template -> Template -> Type where
+  OfRecord : FieldRead k rt (Template.Field k rt)
+  OfPair : FieldRead k (Var i d) (PartField k i d)
+
 mutual
   ||| What a reading says of a term over a scope, each variable by its
   ||| substitute: the template describes the term as its key writes it, one
@@ -1339,7 +1356,8 @@ mutual
   ||| leaves applied is the call as written beside what the instances that
   ||| reduce it make of it (`SBeside`, which carries how: `Reducing`), a
   ||| projection of what no constructor builds yet is the projection beside
-  ||| the record's field (`SProjected`), a recursion met again is stuck
+  ||| the record's field as it reads (`SProjected`, `FieldRead`), a
+  ||| recursion met again is stuck
   ||| (`SRecurs`), and a marker is the part of the writer's parameter it
   ||| stands for (`SMarker`). An instance's term, which never unfolds, is
   ||| what this relation states whole.
@@ -1435,14 +1453,16 @@ mutual
                         (Choice (Leaf 1) [Head (Just a) [ra, rb, rv], rv])
     ||| A projection, in a site's type, of a record no constructor builds
     ||| yet: as written, which a dictionary's key keeps while the record
-    ||| stays no constructor, or the record's field once it is one, applied
-    ||| to the arguments past the projection's own; behind the record.
+    ||| stays no constructor, or the record's field once it is one, as it
+    ||| reads (`FieldRead`), applied to the arguments past the projection's
+    ||| own; behind the record.
     SProjected : (0 _ : AddressedAs (MkMode (OfSite stands) EveryNode cl ctx) n (Just a)) ->
                  ReadAs (MkMode (OfSite stands) EveryNode cl ctx) env r rt ->
                  AllReadAs (MkMode (OfSite stands) EveryNode cl ctx) env as ts ->
                  AllReadAs (MkMode (OfSite stands) EveryNode cl ctx) env xs es ->
+                 (0 _ : FieldRead k rt f) ->
                  SpineAs (MkMode (OfSite stands) EveryNode cl ctx) env (Ref fc Func n) as
-                         (Choice rt [Head (Just a) ts, partOf EveryNode (Template.Field k rt) es])
+                         (Choice rt [Head (Just a) ts, partOf EveryNode f es])
     ||| A recursion met again on its own unfolding, in a site's term.
     SRecurs : (0 _ : AddressedAs (MkMode (OfSite stands) kp cl ctx) n (Just a)) ->
               AllReadAs (MkMode (OfSite stands) kp cl ctx) env as ts ->

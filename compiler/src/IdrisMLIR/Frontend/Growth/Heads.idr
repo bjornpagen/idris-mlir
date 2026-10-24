@@ -545,13 +545,17 @@ mutual
   -- field that is one of the implementation's own variables brings in what
   -- its writers gave it. So a projection of the writer's dictionary goes
   -- through the writer's head, never through every implementation that
-  -- reaches the projection's target. A dictionary with no head has no
-  -- fields of its own: the implementations its leaves give, which reach
-  -- beside it, hold them. Any other part has no root read off it
-  -- (`Unread`).
+  -- reaches the projection's target. A field of a pair the writer's
+  -- parameter is, a part of it, holds what that field of the parameter
+  -- can be, as the field read over the parameter does. A dictionary with
+  -- no head has no fields of its own: the implementations its leaves
+  -- give, which reach beside it, hold them. Any other part has no root
+  -- read off it (`Unread`).
   byTemplate : SlotHeads b -> Own b -> Unread -> Template -> Headings b
   byTemplate v own u (Var i Z) = ReachedBy (own.ofMarker ByImplementation i)
   byTemplate v own u (Field k s) = fieldsReached v k (byTemplate v own OfChosen s)
+  byTemplate v own u (PartField k i Z) = fieldsReached v k (ReachedBy (own.ofMarker ByImplementation i))
+  byTemplate v own u (PartField _ _ (S _)) = NoHeading
   byTemplate v own u (Member k) = ReachedBy (membersAt v k)
   byTemplate v own u (Choice _ leaves) = byLeaves v own u leaves
   byTemplate v own u (Applied i Z _) = own.ofApplied i
@@ -891,6 +895,7 @@ mutual
   overPart part (Template.Opaque a ts) = Template.Opaque a (overParts part ts)
   overPart part (Template.Choice m ls) = Template.Choice (overPart part m) (overParts part ls)
   overPart part (Template.Field k r) = Template.Field k (overPart part r)
+  overPart part (Template.PartField k c _) = Template.Field k (Template.Field c part)
   overPart part (Template.Leaf h) = Template.Leaf h
   overPart part (Template.Token k) = Template.Token k
   overPart part (Template.Formal j a) = Template.Formal j a
@@ -912,6 +917,7 @@ mutual
   overPartKeeps part none (Template.Opaque a ts) = rewrite overPartsKeep part none ts in Refl
   overPartKeeps part none (Template.Choice m ls) = rewrite overPartKeeps part none m in rewrite overPartsKeep part none ls in Refl
   overPartKeeps part none (Template.Field k r) = overPartKeeps part none r
+  overPartKeeps part none (Template.PartField k c _) = none
   overPartKeeps part none (Template.Leaf h) = Refl
   overPartKeeps part none (Template.Token k) = Refl
   overPartKeeps part none (Template.Formal j a) = Refl
@@ -1303,6 +1309,7 @@ mutual
                   byTemplate fl.solution (ownAt fl families w ps c) OfChosen (withClosedFamilies c t) =
                   byTemplate fl.solution (ownAt fl families w ps c) OfChosen t
   readReaches fl families w ps c (Var i d) = Refl
+  readReaches fl families w ps c (PartField k i d) = Refl
   readReaches fl families w ps c (Leaf h) = Refl
   readReaches fl families w ps c (Token k) = Refl
   readReaches fl families w ps c (Formal j k) = Refl
