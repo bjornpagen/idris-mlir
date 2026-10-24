@@ -864,3 +864,13 @@ askers in callersOf, Settle's removed proof). Waiting:
   op's fact, so no second output can be miscompiled (L13); the
   `EliminatesOperand` comments in `Traits.h` and `Spec/Core/Interfaces.idr`
   name raising alone as its reader (L03).
+- L13y's follow-up stopped (by reading): `io.put_str` states its stream
+  only by its identity (one operand, no attribute; `Abi<IoPutStrOp>`, the
+  `ListElement` and `ShownOutput` tables keyed by the builder), so the
+  lowering cannot read where a found output writes. Settled (coordinator):
+  until a second string output exists, the specification's generator
+  checks when the compiler is built that exactly one op eliminates a
+  string (its first operand `strRead` with `EliminatesOperand`) and that
+  the two tables name it, so a second one fails the build instead of
+  being lowered as `io.put_str`; a second output, when one is proposed,
+  states its stream as its own fact then (L03).
