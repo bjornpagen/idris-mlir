@@ -153,6 +153,14 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
       for (BlockArgument arg : region.front().getArguments())
         if (claimsDeep(arg))
           judged.push_back(arg);
+  // A part built in, once references are counted, is the one reference it
+  // is, whatever its grade's uses (the class's two stages).
+  auto atStage = [&](Term<Value> term) {
+    if (counting == StageCounting::Counted &&
+        (term.via == Via::Built || term.via == Via::Filled))
+      term.uses = Uses::Once;
+    return term;
+  };
   for (Value value : judged) {
     llvm::SmallVector<Term<Value>, 4> terms;
     Made made = Made::Elsewhere;
@@ -160,7 +168,7 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
         edges,
         [&](Value target, const Term<Value> &term) {
           if (target == value)
-            terms.push_back(term);
+            terms.push_back(atStage(term));
         },
         [&](Value target) {
           if (target == value)

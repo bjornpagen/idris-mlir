@@ -12,6 +12,8 @@ module IdrisMLIR.Spec.Grades.Grade
 
 import public IdrisMLIR.Spec.Grades.Hold
 
+import Data.List.Quantifiers
+
 %default total
 
 --------------------------------------------------------------------------------
@@ -93,6 +95,13 @@ claimsReflexive : (u : Unique) -> Claims u u
 claimsReflexive None = ClaimsNothing
 claimsReflexive Self = ClaimsSelf
 claimsReflexive Deep = ClaimsDeep
+
+||| Everything reached unshared claims every claim.
+export
+deepClaimsEvery : (u : Unique) -> Claims Deep u
+deepClaimsEvery None = ClaimsNothing
+deepClaimsEvery Self = DeepClaimsSelf
+deepClaimsEvery Deep = ClaimsDeep
 
 export
 claimsTransitive : Claims a b -> Claims b c -> Claims a c
@@ -304,13 +313,29 @@ lesserGreatest DeepClaimsSelf ClaimsSelf = ClaimsSelf
 lesserGreatest DeepClaimsSelf DeepClaimsSelf = DeepClaimsSelf
 lesserGreatest ClaimsDeep ClaimsDeep = ClaimsDeep
 
+||| What a part gives a value built of it, used `uses` times and claiming
+||| `held`: at one use its one reference moves into the value, with all it
+||| claims; at many uses its cells are reached by its other uses as well, so
+||| it gives no claim, whatever it holds (`(xs, xs)` is built of one list
+||| both fields reach).
+public export
+givenClaim : Uses -> Unique -> Unique
+givenClaim Once u = u
+givenClaim Many _ = None
+
+||| A part gives no more than it claims.
+export
+givenNoMore : (uses : Uses) -> (held : Unique) -> Claims held (givenClaim uses held)
+givenNoMore Once u = claimsReflexive u
+givenNoMore Many _ = ClaimsNothing
+
 ||| The most a fresh value may claim, built of a part its claim on its own
-||| cells reaches as `reach`, the part claiming `given`: the greatest claim
-||| whose read of the part at one use, the read that gives most, gives no
-||| more than the part holds (`freshestReads`, `freshestGreatest`). A part
-||| outside the value's own cells bounds only a deep claim, so a value built
-||| of a shared one still claims its own cells; a part its own cells reach
-||| bounds it to what the part claims.
+||| cells reaches as `reach`, the part giving it `given` (`givenClaim`): the
+||| greatest claim whose read of the part at one use, the read that gives
+||| most, gives no more than the part gives (`freshestReads`,
+||| `freshestGreatest`). A part outside the value's own cells bounds only a
+||| deep claim, so a value built of a shared one still claims its own cells;
+||| a part its own cells reach bounds it to what the part gives.
 public export
 freshest : FieldReach -> Unique -> Unique
 freshest _ Deep = Deep
@@ -320,7 +345,7 @@ freshest InPlaceFamily u = u
 freshest HeldBuffer u = u
 
 ||| A fresh value at that claim reads out of the part no more than the part
-||| holds. Split on every argument, so each case reduces whatever order the
+||| gives. Split on every argument, so each case reduces whatever order the
 ||| definitions split in.
 export
 freshestReads : (reach : FieldReach) -> (given : Unique) ->
@@ -338,7 +363,7 @@ freshestReads Other None = ClaimsNothing
 freshestReads Other Self = ClaimsNothing
 freshestReads Other Deep = ClaimsDeep
 
-||| And no greater claim does: any claim whose read the part holds is one
+||| And no greater claim does: any claim whose read the part gives is one
 ||| the fresh value's claim covers.
 export
 freshestGreatest : (reach : FieldReach) -> (given, u : Unique) ->
@@ -369,16 +394,114 @@ freshestGreatest Other None Deep ClaimsNothing impossible
 freshestGreatest Other Self Deep ClaimsNothing impossible
 freshestGreatest Other Deep Deep _ = ClaimsDeep
 
-||| What a fresh value may claim, built of its parts, each reached by its
-||| claim on its own cells as its declaration says and claiming what it
-||| holds (everything, where it holds no reference, so it bounds nothing):
-||| the least any of them bounds it to (`freshest`). A constructor's claim
-||| on the cell it makes, which the dialect folds over the table of
-||| `freshest` and the frontend writes on the value it builds.
+||| A read out of a value that claims less gives less. Split on every
+||| argument, so each case reduces whatever order `readUnique` splits in.
+export
+readLowers : (reach : FieldReach) -> (uses : Uses) -> Claims a b ->
+             Claims (readUnique reach uses a) (readUnique reach uses b)
+readLowers OwnFamily Many ClaimsNothing = ClaimsNothing
+readLowers InPlaceFamily Many ClaimsNothing = ClaimsNothing
+readLowers HeldBuffer Many ClaimsNothing = ClaimsNothing
+readLowers Other Many ClaimsNothing = ClaimsNothing
+readLowers OwnFamily Once ClaimsNothing = ClaimsNothing
+readLowers InPlaceFamily Once ClaimsNothing = ClaimsNothing
+readLowers HeldBuffer Once ClaimsNothing = ClaimsNothing
+readLowers Other Once ClaimsNothing = ClaimsNothing
+readLowers reach uses ClaimsSelf = claimsReflexive (readUnique reach uses Self)
+readLowers reach uses ClaimsDeep = claimsReflexive (readUnique reach uses Deep)
+readLowers OwnFamily Many DeepClaimsSelf = ClaimsNothing
+readLowers InPlaceFamily Many DeepClaimsSelf = ClaimsNothing
+readLowers HeldBuffer Many DeepClaimsSelf = ClaimsNothing
+readLowers Other Many DeepClaimsSelf = ClaimsNothing
+readLowers OwnFamily Once DeepClaimsSelf = DeepClaimsSelf
+readLowers InPlaceFamily Once DeepClaimsSelf = DeepClaimsSelf
+readLowers HeldBuffer Once DeepClaimsSelf = DeepClaimsSelf
+readLowers Other Once DeepClaimsSelf = ClaimsNothing
+
+||| A part of a fresh value as the value's claim meets it: words alone,
+||| which hold no reference, so nothing they reach is shared and they bound
+||| nothing; or a value that holds references, reached by the value's claim
+||| on its own cells as `reach`, used `uses` times and claiming `held`, which
+||| gives the value what `givenClaim` says. So a part used many times can
+||| give no claim, and words, whatever their uses, take none away.
 public export
-freshClaim : List (FieldReach, Unique) -> Unique
+data Constituent = WordsAlone | Referencing FieldReach Uses Unique
+
+||| The most a fresh value may claim, built of one constituent: everything,
+||| of words; of a value that holds references, what the claim it gives
+||| bounds the value to (`freshest`).
+public export
+boundBy : Constituent -> Unique
+boundBy WordsAlone = Deep
+boundBy (Referencing reach uses held) = freshest reach (givenClaim uses held)
+
+||| `ReadsNoMore c u`: a fresh value claiming `u` reads out of the
+||| constituent `c`, at one use, the read that gives most, no more than `c`
+||| gives it; words give everything.
+public export
+data ReadsNoMore : Constituent -> Unique -> Type where
+  WordsGiveAll : ReadsNoMore WordsAlone u
+  ReadsGiven : Claims (givenClaim uses held) (readUnique reach Once u) ->
+               ReadsNoMore (Referencing reach uses held) u
+
+||| What one constituent bounds a fresh value to reads out of it no more
+||| than it gives, whatever its uses.
+export
+boundByReads : (c : Constituent) -> ReadsNoMore c (boundBy c)
+boundByReads WordsAlone = WordsGiveAll
+boundByReads (Referencing reach uses held) =
+  ReadsGiven (freshestReads reach (givenClaim uses held))
+
+||| And it is the greatest claim that does.
+export
+boundByGreatest : (c : Constituent) -> (u : Unique) -> ReadsNoMore c u -> Claims (boundBy c) u
+boundByGreatest WordsAlone u _ = deepClaimsEvery u
+boundByGreatest (Referencing reach uses held) u (ReadsGiven r) =
+  freshestGreatest reach (givenClaim uses held) u r
+
+||| A fresh value that claims less reads less out of a constituent.
+export
+readsNoMoreLowered : Claims a b -> (c : Constituent) -> ReadsNoMore c a -> ReadsNoMore c b
+readsNoMoreLowered _ WordsAlone WordsGiveAll = WordsGiveAll
+readsNoMoreLowered ab (Referencing reach _ _) (ReadsGiven r) =
+  ReadsGiven (claimsTransitive r (readLowers reach Once ab))
+
+||| And out of each of several.
+readsNoMoreLoweredAll : Claims a b -> (cs : List Constituent) ->
+                        All (\c => ReadsNoMore c a) cs -> All (\c => ReadsNoMore c b) cs
+readsNoMoreLoweredAll _ [] [] = []
+readsNoMoreLoweredAll ab (c :: cs) (r :: rs) =
+  readsNoMoreLowered ab c r :: readsNoMoreLoweredAll ab cs rs
+
+||| What a fresh value may claim, built of its constituents, each reached by
+||| its claim on its own cells as its declaration says, used as often as it
+||| is and claiming what it holds: the least any of them bounds it to
+||| (`boundBy`), so a part used many times gives it nothing. A constructor's
+||| claim on the cell it makes, which the dialect folds over the tables of
+||| `givenClaim` and `freshest` and the frontend writes on the value it
+||| builds.
+public export
+freshClaim : List Constituent -> Unique
 freshClaim [] = Deep
-freshClaim ((reach, given) :: parts) = lesser (freshest reach given) (freshClaim parts)
+freshClaim (c :: cs) = lesser (boundBy c) (freshClaim cs)
+
+||| A fresh value at that claim reads out of each of its constituents no
+||| more than the constituent gives it at its uses.
+export
+freshClaimReads : (cs : List Constituent) -> All (\c => ReadsNoMore c (freshClaim cs)) cs
+freshClaimReads [] = []
+freshClaimReads (c :: cs) =
+  readsNoMoreLowered (lesserClaimedByLeft (boundBy c) (freshClaim cs)) c (boundByReads c)
+  :: readsNoMoreLoweredAll (lesserClaimedByRight (boundBy c) (freshClaim cs)) cs (freshClaimReads cs)
+
+||| And no greater claim does: a claim that reads out of every constituent
+||| no more than it gives is one the fresh value's claim covers.
+export
+freshClaimGreatest : (cs : List Constituent) -> (u : Unique) ->
+                     All (\c => ReadsNoMore c u) cs -> Claims (freshClaim cs) u
+freshClaimGreatest [] u [] = deepClaimsEvery u
+freshClaimGreatest (c :: cs) u (r :: rs) =
+  lesserGreatest (boundByGreatest c u r) (freshClaimGreatest cs u rs)
 
 ||| What exclusivity writes once it proves a value's sharing: the claim set
 ||| to `v` where something frees the value; static data has no sharing

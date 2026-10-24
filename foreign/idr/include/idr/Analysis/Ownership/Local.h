@@ -7,7 +7,8 @@
 // flows only through linear positions. Each op states its part in the edges
 // it declares (FlowEdges.h), so the rule names no op: a fresh value claims
 // the most whose read of each part moved into it gives no more than the
-// part claims; a value moved on claims what was moved; a part read or taken
+// part gives, which is nothing where the part is used many times; a value
+// moved on claims what was moved; a part read or taken
 // out claims what the grade's read of it gives (Hold::read), except a
 // capture moved out of a memo label's field, which holds what the label's
 // field held; a copy, a constant and a value no edge explains claim
@@ -28,6 +29,9 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Match.h"
 
+// Whether the program's references are counted (StageCounting).
+#include "idr/IR/Generated/StageFacts.h.inc"
+
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Value.h"
@@ -38,6 +42,7 @@
 #include <concepts>
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace idr::ownership {
 
@@ -48,14 +53,25 @@ constexpr bool covers(Unique held, Unique asked) {
 constexpr Unique lesser(Unique a, Unique b) { return covers(a, b) ? b : a; }
 constexpr Unique greater(Unique a, Unique b) { return covers(a, b) ? a : b; }
 
-// The most a fresh value may claim, built of a part reached as `reach` that
-// claims `given`: the greatest claim whose read of the part at one use, the
-// read that gives most, gives no more than the part holds. A part outside
-// the value's own cells bounds only a deep claim. Read from the
-// specification's table of it (freshestClaims), by whose rule the frontend
-// writes a constructor's claim too.
-constexpr Unique freshest(FieldReach reach, Unique given) {
-  return freshestClaims[static_cast<unsigned>(reach)][static_cast<unsigned>(given)];
+// What a part gives a value built of it, used `uses` times and claiming
+// `held`: at one use its one reference moves into the value with all it
+// claims; at many uses its cells are reached by its other uses as well, so
+// it gives no claim. Read from the specification's table of it
+// (givenClaims).
+constexpr Unique givenClaim(Uses uses, Unique held) {
+  return givenClaims[static_cast<unsigned>(uses)][static_cast<unsigned>(held)];
+}
+
+// The most a fresh value may claim, built of a part reached as `reach`,
+// used `uses` times and claiming `held`: the greatest claim whose read of
+// the part at one use, the read that gives most, gives no more than the
+// part gives (givenClaim). A part outside the value's own cells bounds only
+// a deep claim. Read from the specification's tables of both
+// (freshestClaims), by whose rule, its freshClaim, the frontend writes a
+// constructor's claim too.
+constexpr Unique freshest(FieldReach reach, Uses uses, Unique held) {
+  return freshestClaims[static_cast<unsigned>(reach)]
+                       [static_cast<unsigned>(givenClaim(uses, held))];
 }
 
 // How a value is given what its source holds, as an edge into it says.
@@ -68,7 +84,7 @@ enum class Via : std::uint8_t {
   // there.
   ReadOut,
   // Moved into a part of the value the op builds: the value may claim
-  // what that part bounds.
+  // what that part bounds at its uses, nothing where it is used many times.
   Built,
   // A part of the value the op builds filled by what the op does not take
   // over: a value read, shared; or a hole another op writes, holding what
@@ -87,8 +103,9 @@ enum class Via : std::uint8_t {
 // Slot), how the value is given it, how far a claim reaches into the part
 // it is read out of or built into, at how many uses a part is read out
 // (the read value's own: a read at a linear position gives what the claim
-// reaches, any other nothing), and, for a slot or a part a hole fills, what
-// the slot's type claims.
+// reaches, any other nothing) or the part built in is used (the value moved
+// in, or what a hole's type states: one used many times gives nothing),
+// and, for a slot or a part a hole fills, what the slot's type claims.
 template <class Source>
 struct Term {
   Source from;
@@ -174,7 +191,9 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
                 match(
                     flow.from.at,
                     [&](const FlowSource::Taken &taken) {
-                      term(built, Term<mlir::Value>{taken.use->get(), Via::Built, reach});
+                      mlir::Value moved = taken.use->get();
+                      term(built, Term<mlir::Value>{moved, Via::Built, reach,
+                                                    usesOf(moved.getType())});
                     },
                     [&](const NotTaken auto &) {
                       term(built, Term<mlir::Value>{mlir::Value(), Via::Filled, reach});
@@ -184,28 +203,33 @@ void forEachTerm(const FlowEdges &edges, OnTerm &&term, OnFresh &&fresh) {
         },
         // A part of a value the op builds that it joins to another place,
         // a hole another op writes: what fills it is what the hole's
-        // destination's type bounds, and anything where the place is no hole.
+        // destination's type bounds, at the uses it states, and anything
+        // where the place is no hole.
         [&](const FlowEdges::Unify &unify) {
-          auto holds = [](const FlowPlace &place) {
+          auto fills = [](const FlowPlace &place) -> std::pair<Uses, Unique> {
             return match(
                 place.at,
                 [](const FlowPlace::Part &part) {
                   return match(
                       part.anchor.place,
-                      [](const FlowAnchor::Hole &hole) { return claimOf(hole.dest.getValue()); },
+                      [](const FlowAnchor::Hole &hole) {
+                        mlir::Type slot = hole.dest.getValue();
+                        return std::pair(usesOf(slot), claimOf(slot));
+                      },
                       [](const OneOf<FlowAnchor::Field, FlowAnchor::Elements, FlowAnchor::Forced,
                                      FlowAnchor::MemoState, FlowAnchor::Capture> auto &) {
-                        return Unique::None;
+                        return std::pair(Uses::Once, Unique::None);
                       });
                 },
-                [](const WholePlace auto &) { return Unique::None; });
+                [](const WholePlace auto &) { return std::pair(Uses::Once, Unique::None); });
           };
           auto filled = [&](const FlowPlace &place, const FlowPlace &other) {
             match(
                 place.at,
                 [&](const FlowPlace::Part &part) {
+                  auto [uses, held] = fills(other);
                   term(part.of, Term<mlir::Value>{mlir::Value(), Via::Filled, reachAt(part.anchor),
-                                                  Uses::Once, holds(other)});
+                                                  uses, held});
                 },
                 [](const WholePlace auto &) {});
           };
@@ -238,10 +262,10 @@ std::optional<Unique> claimFrom(Origin origin, llvm::ArrayRef<Term<Source>> term
       claim = lesser(claim, readClaim(term.reach, term.uses, claimOf(term.from)));
       break;
     case Via::Built:
-      claim = lesser(claim, freshest(term.reach, claimOf(term.from)));
+      claim = lesser(claim, freshest(term.reach, term.uses, claimOf(term.from)));
       break;
     case Via::Filled:
-      claim = lesser(claim, freshest(term.reach, term.held));
+      claim = lesser(claim, freshest(term.reach, term.uses, term.held));
       break;
     case Via::Slot:
       claim = lesser(claim, term.held);
@@ -293,11 +317,23 @@ inline bool flowsLinearly(mlir::Value value) {
 // the op admits it at a claim beyond what it infers; a value taken out of a
 // memo label's field is the marking's. A failure is the error of the pass
 // that broke it.
+//
+// Essential, two stages: before references are counted, a value's grade
+// says how many references counting will make of it, so a part used many
+// times gives what is built of it nothing; once they are counted, each is
+// explicit (a value taken over before its last use is taken as a dup, which
+// claims nothing, and its owner is shared where it is made), so a part built
+// in is the one reference it is and gives all its type claims, as
+// exclusivity writes them, proved on the references placement made.
 class LocalCheck {
 public:
+  explicit LocalCheck(StageCounting counting) : counting(counting) {}
   mlir::LogicalResult enter(mlir::Operation *, mlir::Region &) { return mlir::success(); }
   mlir::LogicalResult check(mlir::Operation *op);
   void leave() {}
+
+private:
+  StageCounting counting;
 };
 
 static_assert(families::FunctionRule<LocalCheck>);

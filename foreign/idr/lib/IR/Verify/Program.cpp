@@ -201,7 +201,7 @@ LogicalResult idr::verify::function(FuncOp fn) {
   StageRules rules(closuresAt[stage], countingAt[stage]);
   families::ScopeWalk scopes(fn);
   rows::Check row(fn);
-  ownership::LocalCheck local;
+  ownership::LocalCheck local(countingAt[stage]);
   LifetimeRules lifetimes(fn);
   if (failed(families::walkFunction(fn, rules, scopes, row, local, lifetimes)) ||
       failed(linearity(fn)))

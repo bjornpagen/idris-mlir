@@ -1,4 +1,4 @@
-specification b857291690ed5619
+specification 92eaaaf3f8c997da
 generator 82c87b816ca15208
 d5071c39ba53a7b2 foreign/idr/include/idr/IR/Generated/IdrBase.td
 028c97d3b7769078 foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
@@ -52,7 +52,7 @@ c007172702ee9849 foreign/idr/include/idr/IR/Generated/StageFacts.h.inc
 455fa944c48c51d7 foreign/idr/include/idr/IR/Generated/Verdict.h.inc
 fccbad4a5693fea5 foreign/idr/include/idr/IR/Generated/EffectTree.h.inc
 38b8278a11b17e45 foreign/idr/include/idr/IR/Generated/Families.h.inc
-d6f2f4b67368a2c7 foreign/idr/include/idr/IR/Generated/Grades.h.inc
+2994b2549e610328 foreign/idr/include/idr/IR/Generated/Grades.h.inc
 978454316de3be9c foreign/idr/include/idr/IR/Generated/Lifetimes.h.inc
 38a72f6dcdfb55a4 foreign/idr/include/idr/IR/Generated/Endings.h.inc
 2c8f77d7d22e5ebc foreign/idr/include/idr/IR/Generated/Clocks.h.inc

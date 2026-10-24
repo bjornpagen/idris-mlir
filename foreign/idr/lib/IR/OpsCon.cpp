@@ -45,16 +45,19 @@ Structure DataConOp::getStructure() { return structural::Built{getTag(), getFiel
 
 // The cell is new, so nothing but its fields shares what the value
 // reaches: the most a fresh value built of those fields may claim, each
-// field bounding it as the local rule says (freshest, the grade's table of
-// it), a field that holds no reference bounding nothing: the
-// specification's freshClaim, by which the frontend writes the claim too.
+// field bounding it as the local rule says (freshest, the grade's tables of
+// it), at the uses its grade gives it, so one used many times gives nothing,
+// its other uses reaching its cells too; a field that holds no reference
+// bounds nothing. The specification's freshClaim, by which the frontend
+// writes the claim too. It reads types alone, so after counting it still
+// reads a part's grade as counting found it: the claim it gives is then no
+// more than the verifier's rule proves, and never more than the value holds.
 Unique DataConOp::freshClaim(DataType carrier, TypeRange fields) {
   Unique claim = Unique::Deep;
-  for (auto [declared, field] : llvm::zip_equal(carrier.ctor(*carrier.singleTag()).fields, fields)) {
-    std::optional<Hold> hold = holdOf(field);
-    claim = ownership::lesser(
-        claim, ownership::freshest(fieldReach(declared), hold ? hold->claim() : Unique::Deep));
-  }
+  for (auto [declared, field] : llvm::zip_equal(carrier.ctor(*carrier.singleTag()).fields, fields))
+    if (std::optional<Hold> hold = holdOf(field))
+      claim = ownership::lesser(
+          claim, ownership::freshest(fieldReach(declared), usesOf(field), hold->claim()));
   return claim;
 }
 
