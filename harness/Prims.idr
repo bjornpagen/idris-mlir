@@ -26,6 +26,7 @@ import Data.Vect
 import Decidable.Equality
 
 import IdrisMLIR.Spec.Core.Admitted
+import IdrisMLIR.Spec.Core.Enums
 import IdrisMLIR.Spec.Core.Op
 import IdrisMLIR.Spec.Ops.Bigs
 import IdrisMLIR.Spec.Ops.Checks
@@ -33,6 +34,7 @@ import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Scalars
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Strings
+import IdrisMLIR.Spec.Ops.Values
 import IdrisMLIR.Spec.Runtime.Endings
 
 import Facts
@@ -540,12 +542,29 @@ doubles w = MkBuiltin (MkSpelling w [TDouble]) [TDouble, TDouble] TDouble [AnyOf
 doubleFn : String -> DialectOp -> Builtin
 doubleFn w = MkBuiltin (MkSpelling w []) [TDouble] TDouble [AnyOf] Unmodelled
 
+||| Idris's word for a comparison, as its builtins' names carry it
+||| (`prim__lt_Int`): base's spelling, which the specification keeps out.
+comparisonWord : Comparison -> String
+comparisonWord Values.Eq = "eq"
+comparisonWord Lt = "lt"
+comparisonWord Lte = "lte"
+comparisonWord Gt = "gt"
+comparisonWord Gte = "gte"
+
+||| What a comparison decides of two integers.
+decides : Comparison -> Integer -> Integer -> Bool
+decides Values.Eq = (==)
+decides Lt = (<)
+decides Lte = (<=)
+decides Gt = (>)
+decides Gte = (>=)
+
 ||| A comparison of two values of a type, its truth an Int: 1 or 0.
-compareOn : String -> (Integer -> Integer -> Bool) -> (t : Ty) -> DialectOp -> Builtin
-compareOn w f t = MkBuiltin (MkSpelling w [t]) [t, t] Prims.tInt [AnyOf, AnyOf] (truth t)
+compareOn : Comparison -> (t : Ty) -> DialectOp -> Builtin
+compareOn c t = MkBuiltin (MkSpelling (comparisonWord c) [t]) [t, t] Prims.tInt [AnyOf, AnyOf] (truth t)
   where
     truth : (u : Ty) -> Model [u, u] Prims.tInt
-    truth (TIntegral _) = Binary (\a, b => if f a b then 1 else 0)
+    truth (TIntegral _) = Binary (\a, b => if decides c a b then 1 else 0)
     truth _ = Unmodelled
 
 ||| A type's negation, `prim__negate_<t>`.
@@ -634,9 +653,9 @@ signedTys = readAs Signed
 unsignedTys : List FixedTy
 unsignedTys = readAs Unsigned
 
-||| Idris's comparisons, each by its word and what it decides.
-comparisons : List (String, Integer -> Integer -> Bool)
-comparisons = [("lt", (<)), ("lte", (<=)), ("eq", (==)), ("gte", (>=)), ("gt", (>))]
+||| Idris's comparisons: every one the specification's.
+comparisons : List Comparison
+comparisons = forget comparisonClosed.every
 
 ||| A Char's width, which a cast to or from a fixed width meets as a word's.
 charBits : Nat
@@ -701,7 +720,7 @@ families =
        , family (OurOp (SomeOp shrs)) [ ints "shr" (shiftIn i Rightward) i | i <- signedInts ]
        , family (OurOp (SomeOp shru)) [ ints "shr" (shiftIn i Rightward) i | i <- unsignedInts ]
        , family (AdmittedOp cmpI)
-           [ compareOn w f t | (w, f) <- comparisons, t <- map TIntegral fixedInts ++ [TChar] ]
+           [ compareOn c t | c <- comparisons, t <- map TIntegral fixedInts ++ [TChar] ]
        , family (OurOp (SomeOp bigAdd)) [ints "add" (+) Big]
        , family (OurOp (SomeOp bigSub)) [ints "sub" (-) Big]
        , family (OurOp (SomeOp bigMul)) [ints "mul" (*) Big]
@@ -713,13 +732,13 @@ families =
        , family (OurOp (SomeOp bigXor)) [ints "xor" (bigBitwise xor) Big]
        , family (OurOp (SomeOp bigShl)) [bigShift "shl" Leftward]
        , family (OurOp (SomeOp bigShr)) [bigShift "shr" Rightward]
-       , family (OurOp (SomeOp bigCmp)) [ compareOn w f Prims.tInteger | (w, f) <- comparisons ]
+       , family (OurOp (SomeOp bigCmp)) [ compareOn c Prims.tInteger | c <- comparisons ]
        , family (AdmittedOp addF) [doubles "add"]
        , family (AdmittedOp subF) [doubles "sub"]
        , family (AdmittedOp mulF) [doubles "mul"]
        , family (AdmittedOp divF) [doubles "div"]
        , family (AdmittedOp negF) [negateOn TDouble]
-       , family (AdmittedOp cmpF) [ compareOn w f TDouble | (w, f) <- comparisons ]
+       , family (AdmittedOp cmpF) [ compareOn c TDouble | c <- comparisons ]
        , family (AdmittedOp expF) [doubleFn "doubleExp"]
        , family (AdmittedOp logF) [doubleFn "doubleLog"]
        , family (AdmittedOp powF) [whole "doublePow" [TDouble, TDouble] TDouble]
@@ -732,7 +751,7 @@ families =
        , family (AdmittedOp sqrtF) [doubleFn "doubleSqrt"]
        , family (AdmittedOp floorF) [doubleFn "doubleFloor"]
        , family (AdmittedOp ceilF) [doubleFn "doubleCeiling"]
-       , family (OurOp (SomeOp Strings.strCmp)) [ compareOn w f TString | (w, f) <- comparisons ]
+       , family (OurOp (SomeOp Strings.strCmp)) [ compareOn c TString | c <- comparisons ]
        , family (OurOp (SomeOp Strings.strLength)) [whole "strLength" [TString] Prims.tInt]
        , family (OurOp (SomeOp Strings.strHead)) [whole "strHead" [TString] TChar]
        , family (OurOp (SomeOp Strings.strTail)) [whole "strTail" [TString] TString]
