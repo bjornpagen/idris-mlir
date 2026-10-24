@@ -38,11 +38,14 @@ using namespace idr::control;
 namespace {
 
 // The region a known scrutinee takes: the one constructor its type leaves
-// possible; or, where how it was built still says its constructor at the
-// match (builtStateHolds: a memo cell a force rewrote says none, a
-// constant one never), that of the constant it is or of the idr.data.con
-// that built it. Else none is known. The e-graph's rule asks the same
-// check of what it knows (takenByFacts).
+// possible, which is the constructor of every value an idr.data.con builds
+// and of each cast of one, since a cast changes only the grade; or, where
+// how it was built still says its constructor at the match
+// (builtStateHolds: a constant memo cell never does), that of the constant
+// it is, given, or read through each cast into or out of a linear
+// position (throughLinear), as every reader of what a value is reads it.
+// Else none is known. The e-graph's rule asks the same check of what it
+// knows (takenByFacts).
 Region *takenRegionOf(DataMatchOp op, Attribute value) {
   Value scrutinee = op.getScrutinee();
   const auto &possible = dataTypeOf(scrutinee.getType()).possibleTags();
@@ -50,10 +53,11 @@ Region *takenRegionOf(DataMatchOp op, Attribute value) {
     return takenRegion(op, static_cast<int32_t>(possible.front()));
   if (!builtStateHolds(scrutinee, op.getOperation()))
     return nullptr;
-  if (auto con = dyn_cast_or_null<ConAttr>(value))
+  Attribute known = value;
+  if (!known)
+    (void)matchPattern(throughLinear(scrutinee), m_Constant(&known));
+  if (auto con = dyn_cast_or_null<ConAttr>(known))
     return takenRegion(op, static_cast<int32_t>(con.getTag()));
-  if (auto built = scrutinee.getDefiningOp<DataConOp>())
-    return takenRegion(op, static_cast<int32_t>(built.getTag()));
   return nullptr;
 }
 

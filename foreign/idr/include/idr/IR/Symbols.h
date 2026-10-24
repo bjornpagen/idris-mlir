@@ -28,8 +28,10 @@ DataType dataTypeOf(mlir::Type type);
 // its constructor where `reader` reads it. Always, but for a memo cell,
 // whose state every force writes: never for a constant, one static cell
 // every run of the program shares and forces, and for a cell an
-// idr.data.con built only while nothing but `reader` runs its force
-// (idr.memo.run).
+// idr.data.con built only where no op that may run between the con and
+// `reader` may write a memo cell's state, as the effect system says of
+// each (a force, a call whose row carries memo_state); what `reader`'s own
+// regions do runs after it reads.
 bool builtStateHolds(mlir::Value value, mlir::Operation *reader);
 
 // A constructor written by its label, `@Name`, in the family of `type` (a

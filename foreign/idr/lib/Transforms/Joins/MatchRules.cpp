@@ -49,9 +49,9 @@ Region *takenByTag(DataMatchOp op, Tag tag) {
 // of it (the idr.data.con that made its chosen form, or the constructor
 // constant it is, held by an op or built by the graph) where how it was
 // built still says its constructor at the match (builtStateHolds, which
-// the match's own choice of region asks too: a memo cell a force rewrote
-// says none), or from its type's one constructor; none where it is not
-// known.
+// the match's own choice of region asks too: a memo cell that an op run
+// since it was built may have forced says none, however the force reached
+// it), or from its type's one constructor; none where it is not known.
 Region *takenByFacts(DataMatchOp op, const OperandFacts &facts) {
   Value scrutinee = op.getScrutinee();
   if (DataConOp con = constructorOf(scrutinee, facts);

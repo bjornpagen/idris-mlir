@@ -6,37 +6,94 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Symbols.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Families/Families.h"
+#include "idr/IR/Regions.h"
 
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Twine.h"
 
+#include <algorithm>
 #include <concepts>
+#include <iterator>
 
 using namespace mlir;
 using namespace idr;
 
 DataType idr::dataTypeOf(Type type) { return dyn_cast<DataType>(unrestricted(type)); }
 
+namespace {
+
+// Whether what `set` holds may write a memo cell's state: a force's write,
+// a call whose row carries memo_state, anything an op that declares
+// nothing may do. Which cell a write names is not read: a call's row names
+// none, and a force reaches the cell under whatever value holds it (a
+// widening, a match's refined binding, a field of what holds it).
+bool mayForce(const effects::EffectSet &set) {
+  return set.mayAct(effects::Kind::Write, effects::ResourceId::MemoState);
+}
+
+// Whether an op from `first` up to `last` in one block, with everything in
+// it, may write a memo cell's state.
+bool anyForces(Block::iterator first, Block::iterator last) {
+  return std::any_of(first, last, [](Operation &op) { return mayForce(effects::whole(&op)); });
+}
+
+// Whether something of `holder`, beside what precedes an op in its block,
+// may write a memo cell's state before that op runs in `region`: every op
+// of `holder` where the region may run again, the op's own earlier runs
+// among them (any region no interface bounds); every op of its other
+// regions where one of them may enter it (a join point's region, entered
+// by a jump from its body); nothing where only `holder` enters it.
+bool forcedAround(Operation *holder, Region &region) {
+  if (regionRuns(holder, region.getRegionNumber()) == Runs::Repeatedly)
+    return mayForce(effects::whole(holder));
+  SmallVector<RegionBranchPoint> entries;
+  cast<RegionBranchOpInterface>(holder).getPredecessors(RegionSuccessor(&region), entries);
+  if (llvm::all_of(entries, [](RegionBranchPoint entry) { return entry.isParent(); }))
+    return false;
+  return llvm::any_of(holder->getRegions(), [&](Region &other) {
+    return &other != &region &&
+           llvm::any_of(other, [](Block &block) { return anyForces(block.begin(), block.end()); });
+  });
+}
+
+} // namespace
+
 // A cast into or out of a linear position is the cell it was given, built
 // as that was: the value is read through each such cast (throughLinear),
-// as every reader of what a value is reads it. A force of the cell at any
-// grade is a force of it: the cell's uses are read at every grade
-// (walkUsesThroughGrades), as fieldReadOnce counts a field's reads, the
-// first force outside `reader` ending the walk.
+// as every reader of what a value is reads it. Whether the cell may have
+// been forced since it was built is its memo state, and every op that may
+// change that state declares a write of it, a call through its row; so the
+// question is asked, through the effect system's one query, of each op
+// that may run between the idr.data.con and `reader`: those after the con
+// in its block up to the one that holds `reader`, and, in each region on
+// the way down to `reader`, what the region's op does itself (a force's
+// exchange writes before its region runs), what comes before the way down
+// in its block, and what else of the op may run first. What `reader`'s own
+// regions do runs after it reads. A reader the con does not come before in
+// the con's block is not one the con's cell reaches as built.
 bool idr::builtStateHolds(Value value, Operation *reader) {
   DataType data = dataTypeOf(value.getType());
   if (!data || !data.memo())
     return true;
-  Value cell = throughLinear(value);
-  if (!cell.getDefiningOp<DataConOp>())
+  auto con = throughLinear(value).getDefiningOp<DataConOp>();
+  if (!con)
     return false;
-  WalkResult walked = walkUsesThroughGrades(cell, [&](OpOperand &use) {
-    Operation *user = use.getOwner();
-    if (isa<MemoRunOp>(user) && !reader->isAncestor(user))
-      return WalkResult::interrupt();
-    return WalkResult::advance();
-  });
-  return !walked.wasInterrupted();
+  Operation *outermost = con->getBlock()->findAncestorOpInBlock(*reader);
+  if (!outermost || !con->isBeforeInBlock(outermost))
+    return false;
+  for (Operation *at = reader; at != outermost; at = at->getParentOp()) {
+    Region *region = at->getParentRegion();
+    Operation *holder = region->getParentOp();
+    // Essential: a region of several blocks, which only the lowering makes,
+    // runs its blocks in an order no op states, so nothing is known.
+    if (!region->hasOneBlock() || mayForce(effects::own(holder)) ||
+        anyForces(region->front().begin(), at->getIterator()) || forcedAround(holder, *region))
+      return false;
+  }
+  return !anyForces(std::next(con->getIterator()), outermost->getIterator());
 }
 
 ParseResult idr::parseCtorRef(AsmParser &parser, Type type, IntegerAttr &tag) {
