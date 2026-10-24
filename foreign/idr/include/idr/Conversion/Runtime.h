@@ -106,21 +106,24 @@ public:
                           const idr::runtime::Function &function,
                           llvm::ArrayRef<mlir::ValueRange> operands) const;
 
-  // A crash of `cause` at `site`: idris_rt_crash_at, cold, which does not
-  // return. The cause passes as its position in the closed set, the
-  // function and the file as the program's one static text of each, the
-  // line and column as immediates: nothing of a crash is text made at its
-  // site.
-  void crash(mlir::OpBuilder &b, mlir::Location loc, CrashCause cause, SiteAttr site) const;
+  // A crash of `cause` at `site`, given `reads`, the operands its line
+  // reads (operandsRead): none, idris_rt_crash_at; or the operand a guard
+  // found false, an integer the runtime prints, idris_rt_crash_operand_at.
+  // Cold, and it does not return. The cause passes as its position in the
+  // closed set, the function and the file as the program's one static text
+  // of each, the line and column as immediates: nothing of a crash is text
+  // made at its site.
+  void crash(mlir::OpBuilder &b, mlir::Location loc, CrashCause cause, mlir::ValueRange reads,
+             SiteAttr site) const;
 
   // A crash of the program's own string `message` at `site`, which a trusted
   // library gave idris_crash: idris_rt_crash_message_at.
   void crashWith(mlir::OpBuilder &b, mlir::Location loc, mlir::Value message,
                  SiteAttr site) const;
 
-  // A crash of `cause` at `site` where `condition` holds at run time.
+  // The same crash where `condition` holds at run time.
   void crashIf(mlir::OpBuilder &b, mlir::Location loc, mlir::Value condition, CrashCause cause,
-               SiteAttr site) const;
+               mlir::ValueRange reads, SiteAttr site) const;
 
   // The machine out of memory where `condition` holds: a size found too
   // large before any allocation, which names no site.

@@ -111,7 +111,6 @@ add_mlir_dialect_library(IdrIR
 	OpsMatch.cpp
 	OpsMatchSyntax.cpp
 	OpsPlatform.cpp
-	OpsScalars.cpp
 	OpsStrings.cpp
 	OpsTabulate.cpp
 	Ranges.cpp

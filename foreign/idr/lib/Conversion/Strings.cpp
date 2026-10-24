@@ -19,7 +19,7 @@
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Counting/Traits.h"
-#include "idr/IR/Effects/Declared.h"
+#include "idr/IR/Effects/Whole.h"
 #include "idr/IR/Families/Declaration.h"
 #include "idr/IR/Grades.h"
 #include "idr/IR/Layout.h"
@@ -250,12 +250,7 @@ template <typename ShowOp>
 struct LowerShownOutput : IdrPattern<ShowOp> {
   LowerShownOutput(const TypeConverter &converter, MLIRContext *ctx, const Layouts &layouts,
                    Runtime &runtime)
-      : IdrPattern<ShowOp>(converter, ctx, layouts, runtime, ownLowering),
-        facts(callFacts(ctx, effects::bound<IoPutStrOp>().row())) {}
-
-  // What the writer does, which is what the output it stands for does:
-  // made once, with the pattern.
-  CallFacts facts;
+      : IdrPattern<ShowOp>(converter, ctx, layouts, runtime, ownLowering) {}
 
   LogicalResult matchAndRewrite(ShowOp op, typename IdrPattern<ShowOp>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
@@ -263,8 +258,10 @@ struct LowerShownOutput : IdrPattern<ShowOp> {
     if (!output)
       return rewriter.notifyMatchFailure(op, "its string is not made only to be written");
     rewriter.setInsertionPoint(output);
+    // What the writer does is what the output it stands for does: that op's
+    // row, which writtenOnly found by its trait and so by no name.
     tellCall(this->runtime.call(rewriter, op, ShownOutput<ShowOp>::writer, adaptor.getOperands()),
-             facts);
+             callFacts(rewriter.getContext(), effects::rowOf(output)));
     eraseReaders(rewriter, op.getResult());
     rewriter.eraseOp(op);
     return success();

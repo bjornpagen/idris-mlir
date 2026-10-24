@@ -67,9 +67,9 @@ leavesNaturals = MkTraitDef "LeavesNaturals" (says "its result is its first oper
 
 ||| `BigWordOpInterface`: a conversion between a big and its word, either
 ||| way, and the value it converts (`getValue`, the operand's own accessor).
-||| Which side its word is on is the interface it takes besides: a big made
-||| of an integer has its word as its operand (`BigOfIntegerOpInterface`),
-||| an integer read out of a big as its result (`WordOfBigOpInterface`). A
+||| A big made of an integer, its word its operand, takes
+||| `BigOfIntegerOpInterface` besides, which says how the word is read; an
+||| integer read out of a big, its word its result, takes this alone. A
 ||| pass that takes bigs back to their words finds every conversion by
 ||| asking this, and lists none.
 public export
@@ -101,22 +101,6 @@ bigOfIntegerInterface = MkInterfaceDef
           "how the integer is read: its top bit its sign, or the natural its bits are" ]
   , verifier = Unverified
   , doc = says "a big made of an integer, and how the integer is read"
-  }
-
-||| `WordOfBigOpInterface`: an integer read out of a big or a natural, the
-||| word side of the conversion its result (`getResult`, the result's own
-||| accessor), the big its operand (`BigWordOpInterface`'s `getValue`).
-public export
-wordOfBigInterface : InterfaceDef
-wordOfBigInterface = MkInterfaceDef
-  { name = "WordOfBigOpInterface"
-  , subject = OverOps
-  , bases = [bigWordInterface]
-  , methods =
-      [ MkMethod PerObject "::mlir::Value" "getResult" [] EveryImplementer
-          "the integer read out of the big, wrapped to its width: the conversion's word" ]
-  , verifier = Unverified
-  , doc = says "an integer read out of a big, its word the result"
   }
 
 ||| The constant of a big made of an integer: how it reads the integer.
@@ -524,7 +508,7 @@ bigToInt = MkOp
   , attrs = []
   , regions = []
   , traits = []
-  , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements wordOfBigInterface []]
+  , interfaces = [Declares InferIntRange ["inferResultRanges"], Implements bigWordInterface []]
   , effects = computes
   , speculation = AlwaysSpeculatable
   , stages = Always

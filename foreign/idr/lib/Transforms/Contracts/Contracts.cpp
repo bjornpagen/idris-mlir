@@ -396,7 +396,8 @@ void breakCrashSitesNotAdded(ProgramOp program, AnalysisManager analyses) {
       continue;
     fn.walk([&](ReturnOp ret) {
       OpBuilder builder(ret);
-      CrashCauseOp::create(builder, ret.getLoc(), CrashCause::NoClauseMatched, siteOf(fn.getLoc()));
+      CrashCauseOp::create(builder, ret.getLoc(), ValueRange{}, CrashCause::NoClauseMatched,
+                           siteOf(fn.getLoc()));
       ret.erase();
     });
   }

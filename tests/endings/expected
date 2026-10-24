@@ -4,7 +4,7 @@ exit-42: status 42
   stdout | before the exit
 exit-256: status 1
   stdout | before the exit
-  stderr | prog: fatal: Main.idr:9:3: exit status outside 0 to 255
+  stderr | prog: fatal: Main.idr:9:3: exit status 256 cannot be reported
 crash: status 1
   stdout | before the crash
   stderr | prog: fatal: Main.idr:5:1: no clause matched in Main.first

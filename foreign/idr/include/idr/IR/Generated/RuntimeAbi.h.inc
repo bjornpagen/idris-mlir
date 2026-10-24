@@ -32,31 +32,10 @@ template <class OpT>
 struct AbiByCase;
 
 template <>
-struct Abi<::idr::IntHeadSOp> {
-  static constexpr std::array<OperandKind, 1> operands{{OperandKind::Signed}};
-  static constexpr Function entry{"idris_rt_int_head_s", operands, ResultKind::Int32};
-  static constexpr auto *function = &idris_rt_int_head_s;
-};
-
-template <>
-struct Abi<::idr::IntHeadUOp> {
-  static constexpr std::array<OperandKind, 1> operands{{OperandKind::Unsigned}};
-  static constexpr Function entry{"idris_rt_int_head_u", operands, ResultKind::Int32};
-  static constexpr auto *function = &idris_rt_int_head_u;
-};
-
-template <>
 struct Abi<::idr::F64ToIntOp> {
   static constexpr std::array<OperandKind, 1> operands{{OperandKind::Double}};
   static constexpr Function entry{"idris_rt_to_int", operands, ResultKind::Wrapped};
   static constexpr auto *function = &idris_rt_to_int;
-};
-
-template <>
-struct Abi<::idr::F64HeadOp> {
-  static constexpr std::array<OperandKind, 1> operands{{OperandKind::Double}};
-  static constexpr Function entry{"idris_rt_double_head", operands, ResultKind::Int32};
-  static constexpr auto *function = &idris_rt_double_head;
 };
 
 template <>
@@ -772,6 +751,8 @@ inline constexpr std::array<OperandKind, 3> strPutStrOperands{{OperandKind::Poin
 inline constexpr Function strPutStr{"idris_rt_str_put_str", strPutStrOperands, ResultKind::Int64};
 inline constexpr std::array<OperandKind, 5> crashAtOperands{{OperandKind::Int32, OperandKind::Pointer, OperandKind::Pointer, OperandKind::Int32, OperandKind::Int32}};
 inline constexpr Function crashAt{"idris_rt_crash_at", crashAtOperands, ResultKind::NoReturn};
+inline constexpr std::array<OperandKind, 6> crashOperandAtOperands{{OperandKind::Int32, OperandKind::Int64, OperandKind::Pointer, OperandKind::Pointer, OperandKind::Int32, OperandKind::Int32}};
+inline constexpr Function crashOperandAt{"idris_rt_crash_operand_at", crashOperandAtOperands, ResultKind::NoReturn};
 inline constexpr std::array<OperandKind, 5> crashMessageAtOperands{{OperandKind::Str, OperandKind::Pointer, OperandKind::Pointer, OperandKind::Int32, OperandKind::Int32}};
 inline constexpr Function crashMessageAt{"idris_rt_crash_message_at", crashMessageAtOperands, ResultKind::NoReturn};
 inline constexpr std::array<OperandKind, 0> outOfMemoryOperands{};
@@ -812,11 +793,8 @@ inline constexpr std::array<const Function *, 4> increments{{&helper::incCell, &
 inline constexpr std::array<const Function *, 4> decrements{{&helper::decCell, &helper::decMaybeCell, &helper::decBig, &helper::decAny}};
 
 // Every function of the runtime lowered code calls, each once.
-inline constexpr std::array<const Function *, 144> functions{{
-    &Abi<::idr::IntHeadSOp>::entry,
-    &Abi<::idr::IntHeadUOp>::entry,
+inline constexpr std::array<const Function *, 142> functions{{
     &Abi<::idr::F64ToIntOp>::entry,
-    &Abi<::idr::F64HeadOp>::entry,
     &Abi<::idr::BigAddOp>::entry,
     &Abi<::idr::BigMulOp>::entry,
     &Abi<::idr::BigSubOp>::entry,
@@ -941,6 +919,7 @@ inline constexpr std::array<const Function *, 144> functions{{
     &helper::strPutChar,
     &helper::strPutStr,
     &helper::crashAt,
+    &helper::crashOperandAt,
     &helper::crashMessageAt,
     &helper::outOfMemory,
     &helper::arenaOpen,

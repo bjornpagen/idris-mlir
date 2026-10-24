@@ -80,12 +80,15 @@ std::optional<Edit> GuardDecided::decide(GuardOpInterface guard, const OperandFa
 }
 
 // Only a refuted guard is rewritten, on the input as round 1 decided it:
-// a crash of its cause at its site in its place, the end of its block.
+// a crash of its cause at its site in its place, the end of its block,
+// given the operand the guard found false where its cause's line reads it.
 void GuardDecided::rewrite(GuardOpInterface guard, const Rewrite &, RewriterBase &rewriter) {
   Operation *op = guard.getOperation();
   rewriter.setInsertionPoint(op);
-  CrashCauseOp crash =
-      CrashCauseOp::create(rewriter, op->getLoc(), guard.getCause(), guard.getSite());
+  Value guarded = guard.getGuarded();
+  CrashCauseOp crash = CrashCauseOp::create(
+      rewriter, op->getLoc(), ValueRange(guarded).take_front(operandsRead(guard.getCause())),
+      guard.getCause(), guard.getSite());
   eraseAfter(rewriter, crash);
 }
 

@@ -324,30 +324,12 @@ intToCharUOp : Value -> Op
 intToCharUOp value' =
   MkOp (MkOpName Dialect.Idr "int.to_char_u") ([value']) ([]) ([]) [] ([IntegerType 32])
 
-||| `idr.int.head_s`: the first character of an integer's decimal text
-export
-intHeadSOp : Value -> Op
-intHeadSOp value' =
-  MkOp (MkOpName Dialect.Idr "int.head_s") ([value']) ([]) ([]) [] ([IntegerType 32])
-
-||| `idr.int.head_u`: the first character of an integer's decimal text
-export
-intHeadUOp : Value -> Op
-intHeadUOp value' =
-  MkOp (MkOpName Dialect.Idr "int.head_u") ([value']) ([]) ([]) [] ([IntegerType 32])
-
 ||| `idr.f64.to_int`: a finite Double as an integer, truncated and wrapped
 export
 f64ToIntOp : Value -> MlirType -> Guarded
 f64ToIntOp value' result' =
   Checking (MkOpName Dialect.Idr "check.finite") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 6) value' [] (\value' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "f64.to_int") ([value']) ([]) ([]) [] ([result'])))
-
-||| `idr.f64.head`: the first character of a Double's text
-export
-f64HeadOp : Value -> Op
-f64HeadOp value' =
-  MkOp (MkOpName Dialect.Idr "f64.head") ([value']) ([]) ([]) [] ([IntegerType 32])
 
 ||| `idr.big.add`: the sum of two bigs or two naturals
 export
@@ -619,11 +601,11 @@ strToDoubleOp : Value -> Op
 strToDoubleOp str' =
   MkOp (MkOpName Dialect.Idr "str.to_double") ([str']) ([]) ([]) [] ([F64Type])
 
-||| `idr.crash.cause`: ends the program with a crash of a cause at a site
+||| `idr.crash.cause`: ends the program with a crash of a cause at a site, given the operands its line reads
 export
-crashCauseOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> Op
-crashCauseOp cause' site' =
-  MkOp (MkOpName Dialect.Idr "crash.cause") ([]) ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([])
+crashCauseOp : IdrisMLIR.Spec.Runtime.Endings.Cause -> MlirAttr -> List Value -> Op
+crashCauseOp cause' site' reads' =
+  MkOp (MkOpName Dialect.Idr "crash.cause") (reads') ([("cause", enumAttr IdrisMLIR.Spec.Runtime.Endings.causeClosed cause')] ++ [("site", site')]) ([]) [] ([])
 
 ||| `idr.crash.message`: ends the program with a string's text at a site
 export
@@ -727,12 +709,6 @@ ioExitOp : Value -> Guarded
 ioExitOp status' =
   Checking (MkOpName Dialect.Idr "check.byte") (caseAt IdrisMLIR.Spec.Runtime.Endings.causeClosed 10) status' [] (\status' =>
     Unguarded (MkOp (MkOpName Dialect.Idr "io.exit") ([status']) ([]) ([]) [] ([])))
-
-||| `idr.io.unsafe_run`: runs a trusted library's IO action for a pure value where the value is demanded
-export
-ioUnsafeRunOp : Region -> List MlirType -> Op
-ioUnsafeRunOp body' results' =
-  MkOp (MkOpName Dialect.Idr "io.unsafe_run") ([]) ([]) ([body']) [] (results')
 
 ||| `idr.buffer.load`: a machine word read from a buffer at a byte offset
 export

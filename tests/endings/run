@@ -11,7 +11,12 @@
 #     returned                 0, nothing on stderr
 #     exit 42                  42, nothing on stderr
 #     exit 256                 1: no parent can read it, so it is a crash
-#                              of its cause at the exit's site
+#                              of its cause at the exit's site, its
+#                              message naming the status; a constant,
+#                              so its guard is refuted as the program is
+#                              compiled and the crash itself takes the
+#                              status (a status read as the program runs
+#                              is tests/exit-with's below-zero case)
 #     a partial function       1, the cause at its site
 #     out of memory            111, named, with no site
 #     a reader gone            the process dies by SIGPIPE (128 + 13 to

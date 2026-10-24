@@ -112,24 +112,6 @@ maxsiOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
 maxsiOp lhs rhs result =
   MkOp (MkOpName Dialect.Arith "maxsi") [lhs, rhs] [] [] [] [result]
 
-||| `arith.maxui`: unsigned integer maximum operation
-export
-maxuiOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
-maxuiOp lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "maxui") [lhs, rhs] [] [] [] [result]
-
-||| `arith.minsi`: signed integer minimum operation
-export
-minsiOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
-minsiOp lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "minsi") [lhs, rhs] [] [] [] [result]
-
-||| `arith.minui`: unsigned integer minimum operation
-export
-minuiOp : (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op
-minuiOp lhs rhs result =
-  MkOp (MkOpName Dialect.Arith "minui") [lhs, rhs] [] [] [] [result]
-
 ||| `arith.mulf`: floating point multiplication operation
 export
 mulfOp : {default Nothing fastmath : Maybe MlirAttr} -> {default Nothing roundingmode : Maybe RoundingMode} -> (lhs : Value) -> (rhs : Value) -> (result : MlirType) -> Op

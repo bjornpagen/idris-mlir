@@ -57,6 +57,16 @@ struct Failed {
   Site site;
 };
 
+// The same ending, of a cause whose line reads the operand its guard found
+// false (one operand in the table's causeOperands), with that operand: an
+// exit's status no parent could read.
+struct FailedOn {
+  static constexpr idr::endings::FixedEnding kind = idr::endings::FixedEnding::Failed;
+  idr::endings::CrashCause cause;
+  int64_t operand;
+  Site site;
+};
+
 // A crash of the text a trusted library gave idris_crash, at its site.
 struct Said {
   static constexpr idr::endings::FixedEnding kind = idr::endings::FixedEnding::Said;

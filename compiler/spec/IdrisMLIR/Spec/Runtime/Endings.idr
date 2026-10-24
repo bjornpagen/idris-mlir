@@ -8,7 +8,8 @@
 ||| and guard; the harness reads a case's expected ending as an `Ending`,
 ||| never as text parsed back. A parent sees an exit status of eight bits
 ||| or a signal, so an `exit` of any other status is a crash of its cause at
-||| the exit's site, and an `Exited` holds a status by its type.
+||| the exit's site, its line naming the status, and an `Exited` holds a
+||| status by its type.
 module IdrisMLIR.Spec.Runtime.Endings
 
 import IdrisMLIR.Spec.Core.Cpp
@@ -44,16 +45,43 @@ data Cause
   | SuspensionForcedItself
   | ExitStatusOutOfRange
 
-||| Whether a cause's message names the function its site lies in: a
-||| missing clause is the function's, which the phrase then names; every
-||| other cause is said by its site alone.
+||| What a cause's line reads after its phrase: nothing, so the cause is
+||| said by its site alone; the function its site lies in, whose missing
+||| clause it is; or the operand its guard found false, and then the rest
+||| of the line, as an exit's status no parent could read is named. A crash
+||| of the cause takes the operands its line reads and no others: the
+||| crash op and the runtime's entry alike.
+public export
+data Reads = ReadsNothing | ReadsFunction | ReadsOperand String
+
+public export
+reads : Cause -> Reads
+reads NoClauseMatched = ReadsFunction
+reads ExitStatusOutOfRange = ReadsOperand "cannot be reported"
+reads _ = ReadsNothing
+
+||| Whether a cause's message names the function its site lies in after its
+||| phrase, as the runtime reads it: a missing clause is the function's.
 public export
 data Naming = SiteAlone | WithFunction
 
 public export
-naming : Cause -> Naming
-naming NoClauseMatched = WithFunction
+naming : Reads -> Naming
+naming ReadsFunction = WithFunction
 naming _ = SiteAlone
+
+||| How many operands a crash of a cause takes: those its line reads.
+public export
+operandsRead : Reads -> Nat
+operandsRead (ReadsOperand _) = 1
+operandsRead _ = 0
+
+||| What a line says after the operand it reads; nothing for a line that
+||| reads none, which ends at its phrase or its function.
+public export
+afterOperand : Reads -> String
+afterOperand (ReadsOperand rest) = rest
+afterOperand _ = ""
 
 public export
 causeClosed : Closed Cause
@@ -88,7 +116,7 @@ causeClosed = MkClosed
       NotAString => MkCase (ident "NotAString") (word "not_a_string" ::: []) (line "a pointer read as a string holds none")
       NoClauseMatched => MkCase (ident "NoClauseMatched") (word "no_clause_matched" ::: []) (line "no clause matched in")
       SuspensionForcedItself => MkCase (ident "SuspensionForcedItself") (word "suspension_forced_itself" ::: []) (line "a suspension forced itself")
-      ExitStatusOutOfRange => MkCase (ident "ExitStatusOutOfRange") (word "exit_status_out_of_range" ::: []) (line "exit status outside 0 to 255")
+      ExitStatusOutOfRange => MkCase (ident "ExitStatusOutOfRange") (word "exit_status_out_of_range" ::: []) (line "exit status")
   , doc = brief (line "what a crash site of a program found false")
   }
 
@@ -107,15 +135,22 @@ namingClosed = MkClosed
   , doc = brief (line "whether a cause's message names its site's function")
   }
 
-||| The causes as the runtime reads them: each one's phrase, the text after
-||| its site, and whether the function's name follows it.
+||| The causes as the compiler and the runtime read them: each one's phrase,
+||| the text after its site; whether the function's name follows it; how
+||| many operands a crash of it takes, which the crash op's verifier, the
+||| rule that refutes a guard and the guard's lowering read; and the rest of
+||| a line that reads its operand.
 public export
 causeTable : Table
 causeTable = table causeClosed
   [ MkColumn (ident "causePhrase") TextColumn
       (\c => TextCell (lineText (causeClosed.describe c).doc)) (line "what the message says after the site")
   , MkColumn (ident "causeNaming") (EnumColumn (enumDef namingClosed))
-      (\c => CaseCell (caseRef namingClosed (naming c))) (line "whether the site's function follows the phrase")
+      (\c => CaseCell (caseRef namingClosed (naming (reads c)))) (line "whether the site's function follows the phrase")
+  , MkColumn (ident "causeOperands") Unsigned8
+      (\c => IntCell (natToInteger (operandsRead (reads c)))) (line "how many operands a crash of the cause takes: those its line reads")
+  , MkColumn (ident "causeAfterOperand") TextColumn
+      (\c => TextCell (afterOperand (reads c))) (line "what the message says after the operand it reads; nothing where it reads none")
   ]
 
 ------------------------------------------------------------------------------

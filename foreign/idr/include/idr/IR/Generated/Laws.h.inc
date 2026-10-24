@@ -48,7 +48,7 @@ struct WidthUnit {
 };
 
 // Every such operation, ours first, then the admitted upstream ones.
-using Units = std::tuple<Unit<::idr::BigAddOp, 0>, Unit<::idr::BigMulOp, 1>, Unit<::idr::BigAndOp, -1>, Unit<::idr::BigOrOp, 0>, Unit<::idr::BigXorOp, 0>, StringUnit<::idr::StrAppendOp, "">, Unit<::idr::admitted::Arith_AddIOp, 0>, Unit<::idr::admitted::Arith_MulIOp, 1>, Unit<::idr::admitted::Arith_AndIOp, -1>, Unit<::idr::admitted::Arith_OrIOp, 0>, Unit<::idr::admitted::Arith_XOrIOp, 0>, WidthUnit<::idr::admitted::Arith_MaxSIOp, WidthBound::SignedLeast>, WidthUnit<::idr::admitted::Arith_MinSIOp, WidthBound::SignedGreatest>, Unit<::idr::admitted::Arith_MaxUIOp, 0>, Unit<::idr::admitted::Arith_MinUIOp, -1>>;
+using Units = std::tuple<Unit<::idr::BigAddOp, 0>, Unit<::idr::BigMulOp, 1>, Unit<::idr::BigAndOp, -1>, Unit<::idr::BigOrOp, 0>, Unit<::idr::BigXorOp, 0>, StringUnit<::idr::StrAppendOp, "">, Unit<::idr::admitted::Arith_AddIOp, 0>, Unit<::idr::admitted::Arith_MulIOp, 1>, Unit<::idr::admitted::Arith_AndIOp, -1>, Unit<::idr::admitted::Arith_OrIOp, 0>, Unit<::idr::admitted::Arith_XOrIOp, 0>, WidthUnit<::idr::admitted::Arith_MaxSIOp, WidthBound::SignedLeast>, WidthUnit<::idr::admitted::Arith_MinSIOp, WidthBound::SignedGreatest>, Unit<::idr::admitted::Arith_MinUIOp, -1>>;
 
 } // namespace idr::laws
 

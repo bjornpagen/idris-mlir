@@ -112,14 +112,6 @@ static size_t formatDouble(double x, char *out) {
 
 } // namespace rt::doubles
 
-// The first character of a double's text: '-', a digit, or the 'i' of inf
-// or the 'n' of nan.
-extern "C" int32_t idris_rt_double_head(double x) {
-  char text[rt::doubles::doubleTextMax];
-  rt::doubles::formatDouble(x, text);
-  return text[0];
-}
-
 // A double's text, a new string.
 extern "C" const idris_rt_str *idris_rt_str_show_f64(double value) {
   char text[rt::doubles::doubleTextMax];

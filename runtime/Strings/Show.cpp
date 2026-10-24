@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The decimal text of an integer: as a string, written to standard output
-// with no string, and its first character.
+// The decimal text of an integer: as a string, and written to standard
+// output with no string.
 #include "Io/Io.h"
 #include "Strings/Strings.h"
 #include "idris_rt.h"
@@ -43,15 +43,3 @@ extern "C" const idris_rt_str *idris_rt_str_show_u(uint64_t value) {
 extern "C" void idris_rt_io_put_s(int64_t value) { withText(value, rt::io::putOutput); }
 
 extern "C" void idris_rt_io_put_u(uint64_t value) { withText(value, rt::io::putOutput); }
-
-// The first character of the decimal text of a signed or an unsigned
-// integer.
-extern "C" int32_t idris_rt_int_head_s(int64_t value) {
-  char text[rt::strings::intTextMax];
-  return *rt::strings::formatSigned(value, text + sizeof text);
-}
-
-extern "C" int32_t idris_rt_int_head_u(uint64_t value) {
-  char text[rt::strings::intTextMax];
-  return *rt::strings::formatUnsigned(value, text + sizeof text);
-}

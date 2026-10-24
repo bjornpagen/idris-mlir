@@ -628,7 +628,7 @@ def Idr_LitMatchOp : Idr_Op<"lit.match", [
 def Idr_YieldOp : Idr_Op<"yield", [
     Terminator,
     ReturnLike,
-    ParentOneOf<["::idr::DataMatchOp", "::idr::LitMatchOp", "::idr::JoinOp", "::idr::LoopOp", "::idr::LifetimeOp", "::idr::LifetimeHomeOp", "::idr::LifetimeBlockOp", "::idr::LifetimeStackOp", "::idr::LifetimeChainOp", "::idr::LifetimeUnpackOp", "::idr::LendOp", "::idr::IndexAssumeOp", "::idr::CountMatchUniqueOp", "::idr::IoUnsafeRunOp", "::idr::DestAnswerOp"]>,
+    ParentOneOf<["::idr::DataMatchOp", "::idr::LitMatchOp", "::idr::JoinOp", "::idr::LoopOp", "::idr::LifetimeOp", "::idr::LifetimeHomeOp", "::idr::LifetimeBlockOp", "::idr::LifetimeStackOp", "::idr::LifetimeChainOp", "::idr::LifetimeUnpackOp", "::idr::LendOp", "::idr::IndexAssumeOp", "::idr::CountMatchUniqueOp", "::idr::DestAnswerOp"]>,
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
@@ -1202,32 +1202,6 @@ def Idr_IntToCharUOp : Idr_Op<"int.to_char_u", [
   let assemblyFormat = [{ $value attr-dict `:` functional-type(operands, results) }];
 }
 
-def Idr_IntHeadSOp : Idr_Op<"int.head_s", [
-    NoMemoryEffect,
-    Idr_DeclaredEffectsOpInterface,
-    AlwaysSpeculatable,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
-    Idr_RuntimeFolds
-  ]> {
-  let summary = "the first character of an integer's decimal text";
-  let arguments = (ins AnyTypeOf<[I8, I16, I32, I64], "an integer of 8, 16, 32 or 64 bits">:$value);
-  let results = (outs I32:$result);
-  let assemblyFormat = [{ $value attr-dict `:` functional-type(operands, results) }];
-}
-
-def Idr_IntHeadUOp : Idr_Op<"int.head_u", [
-    NoMemoryEffect,
-    Idr_DeclaredEffectsOpInterface,
-    AlwaysSpeculatable,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
-    Idr_RuntimeFolds
-  ]> {
-  let summary = "the first character of an integer's decimal text";
-  let arguments = (ins AnyTypeOf<[I8, I16, I32, I64], "an integer of 8, 16, 32 or 64 bits">:$value);
-  let results = (outs I32:$result);
-  let assemblyFormat = [{ $value attr-dict `:` functional-type(operands, results) }];
-}
-
 def Idr_F64ToIntOp : Idr_Op<"f64.to_int", [
     NoMemoryEffect,
     Idr_DeclaredEffectsOpInterface,
@@ -1238,19 +1212,6 @@ def Idr_F64ToIntOp : Idr_Op<"f64.to_int", [
   let summary = "a finite Double as an integer, truncated and wrapped";
   let arguments = (ins F64:$value);
   let results = (outs AnyTypeOf<[I8, I16, I32, I64], "an integer of 8, 16, 32 or 64 bits">:$result);
-  let assemblyFormat = [{ $value attr-dict `:` functional-type(operands, results) }];
-}
-
-def Idr_F64HeadOp : Idr_Op<"f64.head", [
-    NoMemoryEffect,
-    Idr_DeclaredEffectsOpInterface,
-    AlwaysSpeculatable,
-    DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
-    Idr_RuntimeFolds
-  ]> {
-  let summary = "the first character of a Double's text";
-  let arguments = (ins F64:$value);
-  let results = (outs I32:$result);
   let assemblyFormat = [{ $value attr-dict `:` functional-type(operands, results) }];
 }
 
@@ -1513,7 +1474,7 @@ def Idr_BigToIntOp : Idr_Op<"big.to_int", [
     Idr_DeclaredEffectsOpInterface,
     AlwaysSpeculatable,
     DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>,
-    Idr_WordOfBigOpInterface,
+    Idr_BigWordOpInterface,
     Idr_RuntimeFolds
   ]> {
   let summary = "a big or a natural as an integer, wrapped to its width";
@@ -1847,10 +1808,11 @@ def Idr_CrashCauseOp : Idr_Op<"crash.cause", [
     Idr_DeclaredEffectsOpInterface,
     Idr_CrashSiteOpInterface
   ]> {
-  let summary = "ends the program with a crash of a cause at a site";
-  let arguments = (ins EnumProp<Idr_CrashCause>:$cause, Idr_SiteAttr:$site);
+  let summary = "ends the program with a crash of a cause at a site, given the operands its line reads";
+  let arguments = (ins Variadic<I64>:$reads, EnumProp<Idr_CrashCause>:$cause, Idr_SiteAttr:$site);
   let results = (outs);
-  let assemblyFormat = [{ $cause `at` $site attr-dict }];
+  let assemblyFormat = [{ $cause (`(` $reads^ `:` type($reads) `)`)? `at` $site attr-dict }];
+  let hasVerifier = 1;
 }
 
 def Idr_CrashMessageOp : Idr_Op<"crash.message", [
@@ -2073,23 +2035,6 @@ def Idr_IoExitOp : Idr_Op<"io.exit", [
   let arguments = (ins I64:$status);
   let results = (outs);
   let assemblyFormat = [{ $status attr-dict `:` functional-type(operands, results) }];
-}
-
-def Idr_IoUnsafeRunOp : Idr_Op<"io.unsafe_run", [
-    SingleBlock,
-    PropagateControlFlowBreak,
-    HasNestedTerminator<["::idr::YieldOp"]>,
-    NoMemoryEffect,
-    RecursiveMemoryEffects,
-    Idr_DeclaredEffectsOpInterface,
-    RecursivelySpeculatable,
-    DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getSuccessorRegions"]>
-  ]> {
-  let summary = "runs a trusted library's IO action for a pure value where the value is demanded";
-  let arguments = (ins);
-  let results = (outs Variadic<AnyType>:$results);
-  let regions = (region SizedRegion<1>:$body);
-  let assemblyFormat = [{ regions attr-dict `:` type(results) }];
 }
 
 def Idr_BufferLoadOp : Idr_Op<"buffer.load", [

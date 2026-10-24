@@ -133,21 +133,14 @@ roundTrips =
       "a word made a small and back is itself" ]
 
 ||| The first character of a string its builder knows: the character a
-||| cons or a one-character string is built with, the first of a number's
-||| text by the runtime's head of that number. The builder's string is never
-||| empty, so the head's guard has gone.
+||| cons or a one-character string is built with. The builder's string is
+||| never empty, so the head's guard has gone.
 heads : List AnyRewrite
 heads =
   [ simplify [UsedMany, UsedMany] (RootedAt strHead 0 [Node strCons 0 [Var 0, Var 1]]) (Var 0)
       "the head of a cons is its character"
   , simplify [UsedMany] (RootedAt strHead 0 [Node strFromChar 0 [Var 0]]) (Var 0)
-      "the head of a one-character string is its character"
-  , simplify [UsedMany] (RootedAt strHead 0 [Node strShowSint 0 [Var 0]]) (Node intHeadS 0 [Var 0])
-      "the head of a signed integer's text is the runtime's head of it"
-  , simplify [UsedMany] (RootedAt strHead 0 [Node strShowUint 0 [Var 0]]) (Node intHeadU 0 [Var 0])
-      "the head of an unsigned integer's text is the runtime's head of it"
-  , simplify [UsedMany] (RootedAt strHead 0 [Node strShowDouble 0 [Var 0]]) (Node f64Head 0 [Var 0])
-      "the head of a Double's text is the runtime's head of it" ]
+      "the head of a one-character string is its character" ]
 
 ||| Every rule of the area over pure values.
 public export

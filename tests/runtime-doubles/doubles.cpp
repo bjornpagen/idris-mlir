@@ -280,7 +280,6 @@ constexpr prop::Mutant dropsDigit{"writes the shortest text's last digit dropped
 constexpr prop::Mutant seventeenDigits{"writes 17 significant digits, as %.17g does"};
 constexpr prop::Mutant otherNeighbour{"writes the other text of as many digits that reads back, where there is one"};
 constexpr prop::Mutant scientificAt1e9{"turns to the scientific form at 1e9, not 1e10"};
-constexpr prop::Mutant positiveZero{"has double_head read a negative zero as 0.0"};
 constexpr prop::Mutant truncatesAt19{"reads a decimal text's digits past the 19th significant one as zeros"};
 constexpr prop::Mutant literalModulo{"reads an integer literal modulo 2^64"};
 constexpr prop::Mutant lowercaseWords{"reads inf, infinity and nan in lower case only, else 0.0"};
@@ -541,24 +540,6 @@ bool inLayout(double x) {
                   static_cast<int>(shown.length() < 64 ? shown.length() : 64), shown.bytes(), static_cast<int>(n),
                   again);
   return holds;
-}
-
-// 5. double_head is the first byte of show_f64's text, the byte a pattern
-// on the text's head reads without the text being made.
-bool headsItsText(const double *xs, size_t count) {
-  for (size_t i = 0; i < count; ++i) {
-    Shown shown(xs[i]);
-    int32_t head = idris_rt_double_head(xs[i]);
-    // The mutant's double_head, which reads a negative zero as 0.0.
-    if (bitsOf(xs[i]) == signBit && prop::planted(positiveZero))
-      head = '0';
-    if (head != shown.bytes()[0]) {
-      prop::explain("%s: show_f64 wrote \"%.*s\"; double_head gave %d", Named(xs[i]).text,
-                    static_cast<int>(shown.length()), shown.bytes(), head);
-      return false;
-    }
-  }
-  return true;
 }
 
 // A text read by str_to_double, from a counted string of its bytes.
@@ -1014,7 +995,7 @@ constexpr uint64_t edgeSignificands[] = {0,
                                          (uint64_t{1} << 52) - 2,
                                          (uint64_t{1} << 52) - 1};
 constexpr size_t edgeCount = sizeof edgeSignificands / sizeof edgeSignificands[0];
-// Properties 1 to 5 and 10 of each double of an exponent field.
+// Properties 1 to 4 and 10 of each double of an exponent field.
 bool everyShowProperty(uint64_t field) {
   double xs[2 * edgeCount];
   size_t n = 0;
@@ -1024,7 +1005,7 @@ bool everyShowProperty(uint64_t field) {
   for (double x : xs)
     if (!(readsBack(x) && noShorter(x) && nearestOfShortest(x) && inLayout(x) && roundTrips(x)))
       return false;
-  return headsItsText(xs, n);
+  return true;
 }
 
 // 13. show_f64 returns one new string (count 1, one more live cell; a text
@@ -1070,11 +1051,6 @@ static int properties(int argc, char **argv) {
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, nearestOfShortest); });
   run.property("show_f64: the runtime's layout", scientificAt1e9,
                [](FuzzedDataProvider &p, prop::Tally &tally) { return eachDouble(p, tally, inLayout); });
-  run.property("double_head: show_f64's first byte", positiveZero, [](FuzzedDataProvider &p, prop::Tally &tally) {
-    double xs[prop::caseBytes];
-    size_t n = drawDoubles(p, tally, xs);
-    return headsItsText(xs, n);
-  });
 
   run.property("str_to_double: strtod's double for every decimal text", truncatesAt19,
                [](FuzzedDataProvider &p, prop::Tally &tally) {

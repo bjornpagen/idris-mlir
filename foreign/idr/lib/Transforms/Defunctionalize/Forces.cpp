@@ -94,7 +94,8 @@ FailureOr<FuncOp> Decision::defineForce(const Family &family) {
     // The crash ends the program: it is the case's terminator, the last op
     // of its block.
     if (tag == memo->running()) {
-      CrashCauseOp::create(b, loc, CrashCause::SuspensionForcedItself, siteOf(program.getLoc()));
+      CrashCauseOp::create(b, loc, ValueRange{}, CrashCause::SuspensionForcedItself,
+                           siteOf(program.getLoc()));
       continue;
     }
     if (tag == memo->forced()) {

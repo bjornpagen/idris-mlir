@@ -112,17 +112,21 @@ Value fails(CheckByteOp, Converted<CheckByteOp> in, OpBuilder &b, Location loc, 
 }
 
 // The crash is the guard's cause at the guard's site, both its own
-// properties, never read from its location.
+// properties, never read from its location, given the operand the guard
+// guards where the cause's line reads it, as a refuted guard's crash is
+// (an exit's status no parent could read).
 template <typename OpT>
 struct LowerCheck : IdrPattern<OpT> {
   using IdrPattern<OpT>::IdrPattern;
   LogicalResult matchAndRewrite(OpT op, typename IdrPattern<OpT>::OneToNOpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    this->runtime.crashIf(rewriter, loc, fails(op, adaptor, rewriter, loc, this->runtime),
-                          op.getCause(), op.getSite());
     // The operand the guard guards, its first, is its result.
-    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(adaptor.getOperands().front())});
+    ValueRange guarded = adaptor.getOperands().front();
+    this->runtime.crashIf(rewriter, loc, fails(op, adaptor, rewriter, loc, this->runtime),
+                          op.getCause(), guarded.take_front(operandsRead(op.getCause())),
+                          op.getSite());
+    rewriter.replaceOpWithMultiple(op, {SmallVector<Value>(guarded)});
     return success();
   }
 };

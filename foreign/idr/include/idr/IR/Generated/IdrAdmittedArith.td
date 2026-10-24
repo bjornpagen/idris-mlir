@@ -21,9 +21,8 @@ def IdrAdmitted_Arith_RemUIOp : IdrAdmitted<Arith_RemUIOp, "Arith_RemUIOp", "Hig
 def IdrAdmitted_Arith_ShRUIOp : IdrAdmitted<Arith_ShRUIOp, "Arith_ShRUIOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_CmpIOp : IdrAdmitted<Arith_CmpIOp, "Arith_CmpIOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_MaxSIOp : IdrAdmitted<Arith_MaxSIOp, "Arith_MaxSIOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Arith_MinSIOp : IdrAdmitted<Arith_MinSIOp, "Arith_MinSIOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Arith_MaxUIOp : IdrAdmitted<Arith_MaxUIOp, "Arith_MaxUIOp", "Higher", "Lowered", 1, []>;
-def IdrAdmitted_Arith_MinUIOp : IdrAdmitted<Arith_MinUIOp, "Arith_MinUIOp", "Higher", "Lowered", 1, []>;
+def IdrAdmitted_Arith_MinSIOp : IdrAdmitted<Arith_MinSIOp, "Arith_MinSIOp", "Higher", "Lowered", 0, []>;
+def IdrAdmitted_Arith_MinUIOp : IdrAdmitted<Arith_MinUIOp, "Arith_MinUIOp", "Higher", "Lowered", 0, []>;
 def IdrAdmitted_Arith_SelectOp : IdrAdmitted<SelectOp, "Arith_SelectOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_TruncIOp : IdrAdmitted<Arith_TruncIOp, "Arith_TruncIOp", "Higher", "Lowered", 1, []>;
 def IdrAdmitted_Arith_ExtUIOp : IdrAdmitted<Arith_ExtUIOp, "Arith_ExtUIOp", "Higher", "Lowered", 1, []>;

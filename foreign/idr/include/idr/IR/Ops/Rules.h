@@ -50,7 +50,8 @@ namespace idr::egraph {
 // gives its operand: a proof is the absence of the guard. One whose
 // condition fails is a crash of its cause at its site, with no test at run
 // time: a statically certain crash, where evaluation reaches it, and
-// nothing after it in its block runs.
+// nothing after it in its block runs. The crash takes the operand the guard
+// found false where its cause's line reads it.
 struct GuardDecided {
   using Root = GuardOpInterface;
   static std::optional<Edit> decide(Root guard, const OperandFacts &facts);

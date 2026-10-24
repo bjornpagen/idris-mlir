@@ -508,31 +508,7 @@ struct Declared<::idr::IntToCharUOp> {
 };
 
 template <>
-struct Declared<::idr::IntHeadSOp> {
-  static constexpr Form form = Form::Declares;
-  static constexpr std::array<Static, 0> effects{{}};
-  using Rules = std::tuple<>;
-  static constexpr Bodies bodies = Bodies::Own;
-};
-
-template <>
-struct Declared<::idr::IntHeadUOp> {
-  static constexpr Form form = Form::Declares;
-  static constexpr std::array<Static, 0> effects{{}};
-  using Rules = std::tuple<>;
-  static constexpr Bodies bodies = Bodies::Own;
-};
-
-template <>
 struct Declared<::idr::F64ToIntOp> {
-  static constexpr Form form = Form::Declares;
-  static constexpr std::array<Static, 0> effects{{}};
-  using Rules = std::tuple<>;
-  static constexpr Bodies bodies = Bodies::Own;
-};
-
-template <>
-struct Declared<::idr::F64HeadOp> {
   static constexpr Form form = Form::Declares;
   static constexpr std::array<Static, 0> effects{{}};
   using Rules = std::tuple<>;
@@ -1033,14 +1009,6 @@ struct Declared<::idr::IoExitOp> {
   static constexpr std::array<Static, 3> effects{{{::idr::effects::Kind::Read, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::IO, ::idr::effects::Subject::op()}, {::idr::effects::Kind::Write, ::idr::effects::ResourceId::Exit, ::idr::effects::Subject::op()}}};
   using Rules = std::tuple<>;
   static constexpr Bodies bodies = Bodies::Own;
-};
-
-template <>
-struct Declared<::idr::IoUnsafeRunOp> {
-  static constexpr Form form = Form::Declares;
-  static constexpr std::array<Static, 0> effects{{}};
-  using Rules = std::tuple<>;
-  static constexpr Bodies bodies = Bodies::WithRegions;
 };
 
 template <>

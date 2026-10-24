@@ -46,7 +46,7 @@ enum class CrashCause : std::uint8_t {
   NoClauseMatched,
   // a suspension forced itself
   SuspensionForcedItself,
-  // exit status outside 0 to 255
+  // exit status
   ExitStatusOutOfRange,
 };
 
@@ -226,7 +226,7 @@ inline constexpr ::idr::EnumArray<::idr::endings::CrashCause, std::string_view> 
     "a pointer read as a string holds none",
     "no clause matched in",
     "a suspension forced itself",
-    "exit status outside 0 to 255",
+    "exit status",
 }};
 
 // whether the site's function follows the phrase
@@ -242,6 +242,36 @@ inline constexpr ::idr::EnumArray<::idr::endings::CrashCause, ::idr::endings::Ca
     ::idr::endings::CauseNaming::WithFunction,
     ::idr::endings::CauseNaming::SiteAlone,
     ::idr::endings::CauseNaming::SiteAlone,
+}};
+
+// how many operands a crash of the cause takes: those its line reads
+inline constexpr ::idr::EnumArray<::idr::endings::CrashCause, std::uint8_t> causeOperands{{
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+}};
+
+// what the message says after the operand it reads; nothing where it reads none
+inline constexpr ::idr::EnumArray<::idr::endings::CrashCause, std::string_view> causeAfterOperand{{
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "cannot be reported",
 }};
 
 // what the message says after `internal error: `

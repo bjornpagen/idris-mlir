@@ -3,11 +3,9 @@
 ||| What the Prelude's IO does, and its buffers. No world reaches the IR:
 ||| IO is ordered by declared effects alone, each op reading and writing
 ||| the outside, one ordered state, so two IO ops never cross and an unused
-||| one stays. A trusted library's IO run for a pure value is a region op,
-||| `io.unsafe_run`, whose effects are its region's, so they happen where
-||| the value is demanded. Output of a number composes its show and one
-||| output of a string, the runtime's put and show sharing one formatter
-||| each, and writing a built string writes its pieces (a rule).
+||| one stays. Output of a number composes its show and one output of a
+||| string, the runtime's put and show sharing one formatter each, and
+||| writing a built string writes its pieces (a rule).
 |||
 ||| A buffer op acts on its buffer's own memory, which it names, and does
 ||| no IO: a buffer is the program's memory, written while shared.
@@ -140,7 +138,7 @@ nProcessorsOp = ioOp "io.n_processors" [] [result "count" i64] (outside Untouche
   (says "how many processors are online")
 
 ------------------------------------------------------------------------------
--- The end of a run, and IO run for a value
+-- The end of a run
 ------------------------------------------------------------------------------
 
 ||| Writes pending output and ends the process with a status, normally: an
@@ -161,41 +159,6 @@ exitOp =
 export
 0 exitStops : Stops (effects IO.exitOp)
 exitStops = StopsByExit
-
-||| A trusted library's IO action run for a pure value (`unsafePerformIO`):
-||| its region, one block ending in `idr.yield`, runs where the op stands,
-||| and its effects are its region's, so the function that demands the
-||| value carries them in its row and orders them with every other effect.
-||| No world is forged: the effects order it. Nothing runs at its end but
-||| the handing on of its results, so a break crosses it: a jump from its
-||| region to a join point around it, and frames splitting a call on its
-||| function's own cycle inside it, whose continuation is the code after
-||| it. Lowered to a region run once, which keeps such a jump.
-public export
-unsafeRun : Op 0 1 0 1
-unsafeRun = MkOp
-  { home = InIdr
-  , mnemonic = "io.unsafe_run"
-  , ins = []
-  , outs = [results "results" (UpstreamType AnyTypeC)]
-  , attrs = []
-  , regions = [sized "body" 1]
-  , traits = [SingleBlock, PropagateControlFlowBreak, HasNestedTerminator ("yield" ::: [])]
-  , interfaces = [Declares RegionBranch ["getSuccessorRegions"]]
-  , effects = Executes [] [] Recursive Untouched
-  , speculation = RecursivelySpeculatable
-  , stages = Always
-  , meaning = NoFold
-  , verify = DeclarationOnly
-  , format = Declared [Regions, AttrDict, Lit ":", TypeOf OfResults]
-  , builders = []
-  , defaultBuilders = WithDefaults
-  , members = []
-  , guards = []
-  , specializations = []
-  , laws = []
-  , doc = says "runs a trusted library's IO action for a pure value where the value is demanded"
-  }
 
 ------------------------------------------------------------------------------
 -- Buffers
@@ -285,6 +248,6 @@ public export
 ioOps : List AnyOp
 ioOps =
   [ SomeOp putStrOp, SomeOp putCharOp, SomeOp getByteOp, SomeOp getLineOp, SomeOp writeBytesOp
-  , SomeOp readBytesOp, SomeOp eofOp, SomeOp nProcessorsOp, SomeOp exitOp, SomeOp unsafeRun
+  , SomeOp readBytesOp, SomeOp eofOp, SomeOp nProcessorsOp, SomeOp exitOp
   , SomeOp bufferLoad, SomeOp bufferStore, SomeOp bufferCopy, SomeOp bufferSetString
   , SomeOp bufferGetString ]

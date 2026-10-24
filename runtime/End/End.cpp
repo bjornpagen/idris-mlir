@@ -63,6 +63,13 @@ public:
     ++numbers;
     add(at, static_cast<size_t>(end - at));
   }
+  // A signed number: its minus sign, a piece of its own, then its
+  // magnitude's digits.
+  void signedNumber(int64_t value) noexcept {
+    if (value < 0)
+      add("-");
+    unsignedNumber(value < 0 ? 0 - static_cast<uint64_t>(value) : static_cast<uint64_t>(value));
+  }
 
   // `file:line:col: `, the site's place.
   void place(const Site &site) noexcept {
@@ -111,6 +118,17 @@ void say(Message &m, const Failed &ending) noexcept {
     m.add(" ");
     m.add(ending.site.function);
   }
+}
+
+// The cause's phrase, the operand its guard found false and the rest of
+// its line from the table, after its site's place.
+void say(Message &m, const FailedOn &ending) noexcept {
+  m.place(ending.site);
+  m.add(idr::endings::causePhrase[ending.cause]);
+  m.add(" ");
+  m.signedNumber(ending.operand);
+  m.add(" ");
+  m.add(idr::endings::causeAfterOperand[ending.cause]);
 }
 
 void say(Message &m, const Said &ending) noexcept {
@@ -244,6 +262,7 @@ template <class E>
 template void end(const Returned &) noexcept;
 template void end(const Exited &) noexcept;
 template void end(const Failed &) noexcept;
+template void end(const FailedOn &) noexcept;
 template void end(const Said &) noexcept;
 template void end(const OutOfMemory &) noexcept;
 template void end(const MissingFeatures &) noexcept;
@@ -278,6 +297,16 @@ extern "C" void idris_rt_crash_at(int32_t cause, const idris_rt_text *function,
                                siteOf(function, file, line, column)});
 }
 
+// A crash of a cause whose line reads the operand its guard found false,
+// with the operand, at its site: the lowering passes an operand for such a
+// cause alone, as the ending table says.
+extern "C" void idris_rt_crash_operand_at(int32_t cause, int64_t operand,
+                                          const idris_rt_text *function,
+                                          const idris_rt_text *file, int32_t line, int32_t column) {
+  rt::end::end(rt::end::FailedOn{static_cast<idr::endings::CrashCause>(cause), operand,
+                                 siteOf(function, file, line, column)});
+}
+
 // A crash of the text a trusted library gave idris_crash, at its site.
 extern "C" void idris_rt_crash_message_at(const idris_rt_str *message,
                                           const idris_rt_text *function,
@@ -286,9 +315,10 @@ extern "C" void idris_rt_crash_message_at(const idris_rt_str *message,
 }
 
 // Base's exit, with a status a parent reads: a byte, since the exit's guard
-// ends any other status as a crash at its site first (idris_rt_crash_at)
-// and the lowering passes the rest as one. What the program wrote is
-// written and its files closed, and the process ends with it.
+// ends any other status as a crash at its site first, naming the status
+// (idris_rt_crash_operand_at), and the lowering passes the rest as one.
+// What the program wrote is written and its files closed, and the process
+// ends with it.
 extern "C" void idris_rt_exit(uint8_t status) { rt::end::end(rt::end::Exited{status}); }
 
 // Memory no allocation can meet, for a size the lowering found too large or

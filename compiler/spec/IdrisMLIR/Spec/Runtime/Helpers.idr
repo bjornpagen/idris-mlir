@@ -163,6 +163,9 @@ helpers =
   , MkRuntimeHelper (ident "crashAt") (symbol "crash_at")
       ((TakesInt32, ident "cause") :: site) HelperNeverReturns
       (line "ends the program as a crash of a cause of the closed set, at its site")
+  , MkRuntimeHelper (ident "crashOperandAt") (symbol "crash_operand_at")
+      ((TakesInt32, ident "cause") :: (TakesInt64, ident "operand") :: site) HelperNeverReturns
+      (line "ends the program as a crash of a cause whose line reads the operand its guard found false, at its site")
   , MkRuntimeHelper (ident "crashMessageAt") (symbol "crash_message_at")
       ((TakesStr, ident "message") :: site) HelperNeverReturns
       (line "ends the program as a crash of the text a trusted library gave idris_crash, at its site")

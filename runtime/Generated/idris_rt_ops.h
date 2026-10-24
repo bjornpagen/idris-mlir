@@ -10,14 +10,8 @@
 extern "C" {
 #endif
 
-// idr.int.head_s
-int32_t idris_rt_int_head_s(int64_t value);
-// idr.int.head_u
-int32_t idris_rt_int_head_u(uint64_t value);
 // idr.f64.to_int
 int64_t idris_rt_to_int(double value);
-// idr.f64.head
-int32_t idris_rt_double_head(double value);
 // idr.big.add
 idris_rt_big idris_rt_big_add(idris_rt_big lhs, idris_rt_big rhs);
 // idr.big.mul
@@ -267,6 +261,8 @@ int64_t idris_rt_str_put_char(idris_rt_str *s, int64_t offset, int32_t c);
 int64_t idris_rt_str_put_str(idris_rt_str *s, int64_t offset, const idris_rt_str *part);
 // ends the program as a crash of a cause of the closed set, at its site
 IDRIS_RT_NORETURN void idris_rt_crash_at(int32_t cause, const idris_rt_text *function, const idris_rt_text *file, int32_t line, int32_t column);
+// ends the program as a crash of a cause whose line reads the operand its guard found false, at its site
+IDRIS_RT_NORETURN void idris_rt_crash_operand_at(int32_t cause, int64_t operand, const idris_rt_text *function, const idris_rt_text *file, int32_t line, int32_t column);
 // ends the program as a crash of the text a trusted library gave idris_crash, at its site
 IDRIS_RT_NORETURN void idris_rt_crash_message_at(const idris_rt_str *message, const idris_rt_text *function, const idris_rt_text *file, int32_t line, int32_t column);
 // ends the program as out of memory, for a size no allocation can meet

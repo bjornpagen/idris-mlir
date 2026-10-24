@@ -12,8 +12,8 @@
 ||| Euclidean division, the shifts and the char conversions are inline
 ||| arithmetic: each op's meaning is one C++ template (`Inline`), its folder,
 ||| ranges and expansion, whose trait carries upstream's range interface, so
-||| the op lists no interface of its own; the heads of a number's text and a
-||| Double's truncation are the runtime's functions.
+||| the op lists no interface of its own; a Double's truncation is the
+||| runtime's function.
 module IdrisMLIR.Spec.Ops.Scalars
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -200,56 +200,6 @@ toCharU = toChar Unsigned
 -- The runtime's scalar functions
 ------------------------------------------------------------------------------
 
-public export
-headName : Signedness -> Mnemonic
-headName Signed = "int.head_s"
-headName Unsigned = "int.head_u"
-
-headCall : Signedness -> RuntimeCall 1 1
-headCall Signed = MkRuntimeCall "int_head_s" [TakesSigned] (Returns GivesInt32)
-headCall Unsigned = MkRuntimeCall "int_head_u" [TakesUnsigned] (Returns GivesInt32)
-
-||| The first character of the decimal text of an integer, read as the op's
-||| signedness says, by the runtime's function of that signedness: the head
-||| of a shown number, which a rule reads off the show.
-public export
-intHead : Signedness -> Op 1 1 0 0
-intHead sign = MkOp
-  { home = InIdr
-  , mnemonic = headName sign
-  , ins = [single "value" int]
-  , outs = made
-  , attrs = []
-  , regions = []
-  , traits = []
-  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
-  , effects = computes
-  , speculation = AlwaysSpeculatable
-  , stages = Always
-  , meaning = ComputedByRuntime (headCall sign)
-  , verify = DeclarationOnly
-  , format = plain 1
-  , builders = []
-  , defaultBuilders = WithDefaults
-  , members = []
-  , guards = []
-  , specializations = []
-  , laws = []
-  , doc = says "the first character of an integer's decimal text"
-  , typing = fixedTypes made
-  }
-  where
-    made : Vect 1 Result
-    made = [result "result" i32]
-
-public export
-intHeadS : Op 1 1 0 0
-intHeadS = intHead Signed
-
-public export
-intHeadU : Op 1 1 0 0
-intHeadU = intHead Unsigned
-
 ||| A finite Double as an integer, truncated toward zero and wrapped to the
 ||| result's width. The Double is finite: `idr.check.finite` guards it.
 public export
@@ -278,41 +228,8 @@ f64ToInt = MkOp
   , doc = says "a finite Double as an integer, truncated and wrapped"
   }
 
-||| The first character of a Double's text, as prim__cast_DoubleString
-||| writes it.
-public export
-f64Head : Op 1 1 0 0
-f64Head = MkOp
-  { home = InIdr
-  , mnemonic = "f64.head"
-  , ins = [single "value" f64]
-  , outs = made
-  , attrs = []
-  , regions = []
-  , traits = []
-  , interfaces = [Declares InferIntRange ["inferResultRanges"]]
-  , effects = computes
-  , speculation = AlwaysSpeculatable
-  , stages = Always
-  , meaning = ComputedByRuntime (MkRuntimeCall "double_head" [TakesDouble] (Returns GivesInt32))
-  , verify = DeclarationOnly
-  , format = plain 1
-  , builders = []
-  , defaultBuilders = WithDefaults
-  , members = []
-  , guards = []
-  , specializations = []
-  , laws = []
-  , doc = says "the first character of a Double's text"
-  , typing = fixedTypes made
-  }
-  where
-    made : Vect 1 Result
-    made = [result "result" i32]
-
 public export
 scalarOps : List AnyOp
 scalarOps =
   [ SomeOp divs, SomeOp mods, SomeOp shls, SomeOp shlu, SomeOp shrs, SomeOp shru
-  , SomeOp toCharS, SomeOp toCharU, SomeOp intHeadS, SomeOp intHeadU
-  , SomeOp f64ToInt, SomeOp f64Head ]
+  , SomeOp toCharS, SomeOp toCharU, SomeOp f64ToInt ]

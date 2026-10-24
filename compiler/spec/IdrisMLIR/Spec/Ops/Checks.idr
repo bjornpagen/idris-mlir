@@ -99,13 +99,17 @@ endsByCrash = Executes [OnState Write Crash] [] Covered Untouched
 ||| A crash of a cause of the closed set at its site: a terminator with no
 ||| successor, so nothing after it in its region runs. The runtime writes
 ||| the cause's phrase from its table, after the site, and the site's
-||| function where the cause names one.
+||| function where the cause names one. It takes exactly the operands its
+||| cause's line reads (the ending table's `Reads`), which its hand
+||| verifier reads from the generated table: the operand a guard found
+||| false, for a guard refuted before the program runs whose cause names it
+||| (an exit's status no parent could read), and none for any other cause.
 public export
-crashOp : Op 0 0 2 0
+crashOp : Op 1 0 2 0
 crashOp = MkOp
   { home = InIdr
   , mnemonic = "crash.cause"
-  , ins = []
+  , ins = [variadic "reads" i64]
   , outs = []
   , attrs = [causeSlot, siteSlot]
   , regions = []
@@ -115,15 +119,18 @@ crashOp = MkOp
   , speculation = NotSpeculatable
   , stages = Always
   , meaning = NoFold
-  , verify = DeclarationOnly
-  , format = Declared [ValueOf (AttrRef 0), Lit "at", ValueOf (AttrRef 1), AttrDict]
+  , verify = VerifiesOp
+  , format = Declared
+      [ ValueOf (AttrRef 0)
+      , OptionalGroup [Lit "("] (ValueOf (OperandRef 0)) [Lit ":", TypeOf (OfGroup (OperandRef 0)), Lit ")"]
+      , Lit "at", ValueOf (AttrRef 1), AttrDict ]
   , builders = []
   , defaultBuilders = WithDefaults
   , members = []
   , guards = []
   , specializations = []
   , laws = []
-  , doc = says "ends the program with a crash of a cause at a site"
+  , doc = says "ends the program with a crash of a cause at a site, given the operands its line reads"
   }
 
 ||| idr.crash.cause ends the run: its declaration writes the crash.

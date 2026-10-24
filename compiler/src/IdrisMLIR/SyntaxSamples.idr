@@ -380,7 +380,7 @@ thunk =
 crashing : Statement
 crashing =
   stmt (Idr.funcOp (StringAttr "crashing") (TypeAttr (FunctionType (MkSignature [] [i64])))
-         (block [] [stmt (Idr.crashCauseOp NoClauseMatched (Idr (SiteAttr "Main.idr" 9 1 "Main.crashing")))]))
+         (block [] [stmt (Idr.crashCauseOp NoClauseMatched (Idr (SiteAttr "Main.idr" 9 1 "Main.crashing")) [])]))
 
 ||| The program's root.
 root : Statement

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The site of a crash a pass builds, read from a location.
+// The site of a crash a pass builds, read from a location, and the
+// operands a crash takes, read from the ending table.
 
 #include "idr/IR/Ops/Sites.h"
 #include "idr/IR/IdrDialect.h"
@@ -8,7 +9,20 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
 
+// The ending table: how many operands each cause's line reads.
+#include "idr/IR/Generated/Endings.h.inc"
+
 using namespace mlir;
+
+// The dialect's causes and the ending table's are printed from one closed
+// set, so a cause's position is its row in the table, as it is the
+// runtime's: checked when the compiler is built.
+static_assert(idr::EnumTraits<idr::CrashCause>::names ==
+              idr::EnumTraits<idr::endings::CrashCause>::names);
+
+unsigned idr::operandsRead(CrashCause cause) {
+  return idr::endings::causeOperands[static_cast<idr::endings::CrashCause>(cause)];
+}
 
 // Emit writes a definition's location as its Idris name at its span, within
 // the fusion a library's code or a deduplication wraps it in, so the first

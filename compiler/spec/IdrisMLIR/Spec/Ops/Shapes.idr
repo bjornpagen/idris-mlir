@@ -178,19 +178,19 @@ byteBuffer = SatisfiesType byteBufferP
 -- The upstream ops this area admits
 ------------------------------------------------------------------------------
 
-||| An op of arith the frontend writes, legal at every stage: the words and
-||| Doubles of a program from its first form to its lowering. Upstream's
-||| record holds its meaning and its effects, which the specification never
-||| restates: none has a memory effect, so only its uses order it. Its laws
-||| are the ones upstream has no trait for, which the e-graph and the
-||| accumulator read. It takes no guard: an op whose operands a condition
-||| restricts states its guard where it is admitted. Its range is the
-||| function upstream computes its interval with, by which a node a rule
-||| built gets one with no op standing for it; none where upstream has no
-||| one function for it. Its fold is upstream's, exact on every machine: an
-||| integer's is arithmetic on its bits, a Double's IEEE's own rounding,
-||| which upstream computes without the C library. Its record's name carries
-||| its dialect, so it is its own alias.
+||| An op of arith the frontend writes, unless a pass alone does (its
+||| writer), legal at every stage: the words and Doubles of a program from
+||| its first form to its lowering. Upstream's record holds its meaning and
+||| its effects, which the specification never restates: none has a memory
+||| effect, so only its uses order it. Its laws are the ones upstream has no
+||| trait for, which the e-graph and the accumulator read. It takes no
+||| guard: an op whose operands a condition restricts states its guard where
+||| it is admitted. Its range is the function upstream computes its interval
+||| with, by which a node a rule built gets one with no op standing for it;
+||| none where upstream has no one function for it. Its fold is upstream's,
+||| exact on every machine: an integer's is arithmetic on its bits, a
+||| Double's IEEE's own rounding, which upstream computes without the C
+||| library. Its record's name carries its dialect, so it is its own alias.
 public export
 arithOp : Ident -> List UpLaw -> Maybe RangeFunction -> Admitted
 arithOp r ls rf = MkAdmitted
@@ -271,9 +271,11 @@ cmpI = arithOp "Arith_CmpIOp" [] Nothing
 
 -- The least and the greatest of two words, signed or unsigned as the op
 -- reads them: each associative, with the far end of its order as its
--- identity, so a reduction over them starts there. The unsigned ends are
--- one value at every width, 0 and every bit set; the signed ends are the
--- width's own. Commutativity is upstream's trait.
+-- identity, so a reduction over them starts there. The signed ends are the
+-- width's own; the unsigned least's is one value at every width, every bit
+-- set. Commutativity is upstream's trait. The frontend writes the signed
+-- greatest; the least are written by passes alone, the signed one by
+-- upstream's lowering of affine.min, the unsigned one by idr-narrow.
 
 public export
 maxSI : Admitted
@@ -281,15 +283,12 @@ maxSI = arithOp "Arith_MaxSIOp" [UpAssociative, UpIdentity UpSignedLeast] (range
 
 public export
 minSI : Admitted
-minSI = arithOp "Arith_MinSIOp" [UpAssociative, UpIdentity UpSignedGreatest] (rangedBy "inferMinS")
-
-public export
-maxUI : Admitted
-maxUI = arithOp "Arith_MaxUIOp" [UpAssociative, UpIdentity 0] (rangedBy "inferMaxU")
+minSI = { writer := PassesOnly }
+  (arithOp "Arith_MinSIOp" [UpAssociative, UpIdentity UpSignedGreatest] (rangedBy "inferMinS"))
 
 public export
 minUI : Admitted
-minUI = arithOp "Arith_MinUIOp" [UpAssociative, UpIdentity (-1)] (rangedBy "inferMinU")
+minUI = { writer := PassesOnly } (arithOp "Arith_MinUIOp" [UpAssociative, UpIdentity (-1)] (rangedBy "inferMinU"))
 
 ||| A choice's interval is its condition's side, or both sides joined,
 ||| which arith computes itself and no range function of upstream's does.
@@ -471,8 +470,7 @@ public export
 opAdmitted : List Admitted
 opAdmitted =
   [ arithConstant, addI, subI, mulI, andI, orI, xorI, divUI, remUI, shrUI, cmpI, maxSI, minSI
-  , maxUI, minUI
-  , arithSelect, truncI
+  , minUI, arithSelect, truncI
   , extUI, extSI, indexCast, indexCastUI, uiToFP, siToFP, addF, subF, mulF, divF, negF, cmpF
   , expF, logF, sinF, cosF, tanF, asinF, acosF, atanF, sqrtF, floorF, ceilF, powF
   , ubUnreachable ]

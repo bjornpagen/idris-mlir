@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// The patterns of the crashes (of a cause, of the program's own text), of a
-// trusted library's IO run for a pure value, of every op whose meaning is
-// one runtime function per case of its kind (a clock's reading, a file
-// time's field), and of every op of inline arithmetic, whose arith is its
-// meaning over an IR builder (Numeric/Trait.h): one pattern for each kind
-// of meaning, so no clock, division, shift or char conversion is spelt
-// here.
+// The patterns of the crashes (of a cause, of the program's own text), of
+// every op whose meaning is one runtime function per case of its kind (a
+// clock's reading, a file time's field), and of every op of inline
+// arithmetic, whose arith is its meaning over an IR builder
+// (Numeric/Trait.h): one pattern for each kind of meaning, so no clock,
+// division, shift or char conversion is spelt here.
 
 #include "idr/IR/Effects/Declared.h"
 #include "idr/IR/IdrDialect.h"
@@ -17,7 +16,6 @@
 #include "idr/Conversion/Runtime.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -27,14 +25,14 @@ namespace idr::conversion {
 
 namespace {
 
-// A crash of a cause of the closed set at its site: the runtime's crash,
-// which does not return, then the end of the region, which nothing after it
-// reaches.
+// A crash of a cause of the closed set at its site, given the operands its
+// line reads: the runtime's crash, which does not return, then the end of
+// the region, which nothing after it reaches.
 struct LowerCrash : IdrPattern<CrashCauseOp> {
   using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(CrashCauseOp op, OpAdaptor,
+  LogicalResult matchAndRewrite(CrashCauseOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const override {
-    runtime.crash(rewriter, op.getLoc(), op.getCause(), op.getSite());
+    runtime.crash(rewriter, op.getLoc(), op.getCause(), adaptor.getReads(), op.getSite());
     rewriter.replaceOpWithNewOp<ub::UnreachableOp>(op);
     return success();
   }
@@ -47,30 +45,6 @@ struct LowerCrashMessage : IdrPattern<CrashMessageOp> {
                                 ConversionPatternRewriter &rewriter) const override {
     runtime.crashWith(rewriter, op.getLoc(), adaptor.getMessage(), op.getSite());
     rewriter.replaceOpWithNewOp<ub::UnreachableOp>(op);
-    return success();
-  }
-};
-
-// The IO a trusted library runs for a pure value runs where the value is
-// demanded: its region run once in place, as upstream's region op of that
-// shape, whose results are the values its yield gives. Its effects were
-// ordered by its row up to here; what is left is the code. A region that
-// never ends, or that breaks out to a join point around the op, keeps its
-// own end, which the one conversion of scf to blocks leaves as it is.
-struct LowerUnsafeRun : IdrPattern<IoUnsafeRunOp> {
-  using IdrPattern::IdrPattern;
-  LogicalResult matchAndRewrite(IoUnsafeRunOp op, OneToNOpAdaptor,
-                                ConversionPatternRewriter &rewriter) const override {
-    FailureOr<SmallVector<SmallVector<Type>>> converted =
-        convertedResults(op, *getTypeConverter());
-    if (failed(converted))
-      return rewriter.notifyMatchFailure(op, "a result's type does not convert");
-    SmallVector<Type> flat;
-    for (ArrayRef<Type> components : *converted)
-      llvm::append_range(flat, components);
-    auto run = scf::ExecuteRegionOp::create(rewriter, op.getLoc(), flat);
-    moveRegion(rewriter, *getTypeConverter(), op.getBody(), {}, run.getRegion());
-    rewriter.replaceOpWithMultiple(op, groupResults(run.getResults(), *converted));
     return success();
   }
 };
@@ -135,8 +109,7 @@ void addByMeaning(RewritePatternSet &patterns, const TypeConverter &converter,
 
 void populateScalarPatterns(RewritePatternSet &patterns, const TypeConverter &converter,
                             const Layouts &layouts, Runtime &runtime) {
-  patterns.add<LowerCrash, LowerCrashMessage, LowerUnsafeRun>(converter, patterns.getContext(),
-                                                              layouts, runtime);
+  patterns.add<LowerCrash, LowerCrashMessage>(converter, patterns.getContext(), layouts, runtime);
   addByMeaning<
 #define GET_OP_LIST
 #include "idr/IR/IdrOps.cpp.inc"

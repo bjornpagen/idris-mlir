@@ -10,7 +10,8 @@
 // lowering's test is the same meaning over arith (Conversion/Checks.cpp):
 // one condition, written once, over what the guard tests (a string's
 // length, a Double's bits). What a handle holds is the run's own state,
-// which only the run knows.
+// which only the run knows. And the crash of a cause: the operands it
+// takes are those its cause's line reads.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Fold.h"
@@ -223,4 +224,18 @@ void CheckRangeOp::inferResultRanges(ArrayRef<ConstantIntRanges> ranges,
   }
   int64_t least = std::max<int64_t>(count.getSExtValue(), 0);
   setResultRange(getChecked(), within(ranges[0], 0, size.getSExtValue() - least));
+}
+
+//===----------------------------------------------------------------------===//
+// The crash of a cause
+//===----------------------------------------------------------------------===//
+
+// A crash takes exactly the operands its cause's line reads, as the ending
+// table says: the operand a guard found false where the line names it.
+LogicalResult CrashCauseOp::verify() {
+  unsigned read = operandsRead(getCause());
+  if (getReads().size() != read)
+    return emitOpError("takes the ") << read << " operands its cause's line reads, not "
+                                    << getReads().size();
+  return success();
 }

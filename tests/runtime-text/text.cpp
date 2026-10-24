@@ -101,8 +101,8 @@ uint64_t drawWord(FuzzedDataProvider &p, unsigned family) {
   return word;
 }
 
-// 1. show_s, show_u, int_head_s and int_head_u: snprintf's decimal text of
-// the word, signed and unsigned, and its first character.
+// 1. show_s and show_u: snprintf's decimal text of the word, signed and
+// unsigned.
 bool shown(uint64_t word) {
   auto x = static_cast<int64_t>(word);
   char signedText[wordText], unsignedText[wordText];
@@ -113,12 +113,6 @@ bool shown(uint64_t word) {
                                                                         : idris_rt_str_show_u(word));
   bool ok = textIs("show_s", s.get(), signedText, ns);
   ok &= textIs("show_u", u.get(), unsignedText, nu);
-  int32_t headS = idris_rt_int_head_s(x), headU = idris_rt_int_head_u(word);
-  if (headS != signedText[0] || headU != unsignedText[0]) {
-    prop::explain("int_head_s gives %d and int_head_u %d, where the texts start with %d and %d", headS, headU,
-                  signedText[0], unsignedText[0]);
-    ok = false;
-  }
   return ok;
 }
 
@@ -432,7 +426,7 @@ const void *asPointer(idris_rt_big b) { return reinterpret_cast<const void *>(b)
 static int properties(int argc, char **argv) {
   prop::Run run(argc, argv);
 
-  run.property("show_s, show_u, int_head_s, int_head_u: snprintf's text", unsignedShownSigned,
+  run.property("show_s, show_u: snprintf's text", unsignedShownSigned,
                [](FuzzedDataProvider &p, prop::Tally &tally) {
     unsigned family = prop::pick(p, prop::swarm(p, wordFamilies));
     tally.classify(wordNames[family]);

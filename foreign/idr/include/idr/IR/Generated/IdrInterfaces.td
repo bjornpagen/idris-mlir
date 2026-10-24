@@ -246,14 +246,6 @@ def Idr_BigOfIntegerOpInterface : OpInterface<"BigOfIntegerOpInterface"> {
   ];
 }
 
-def Idr_WordOfBigOpInterface : OpInterface<"WordOfBigOpInterface"> {
-  let cppNamespace = "::idr";
-  let baseInterfaces = [Idr_BigWordOpInterface];
-  let methods = [
-    InterfaceMethod<"the integer read out of the big, wrapped to its width: the conversion's word", "::mlir::Value", "getResult", (ins)>
-  ];
-}
-
 def Idr_NumericTypeInterface : TypeInterface<"NumericTypeInterface"> {
   let cppNamespace = "::idr";
   let methods = [

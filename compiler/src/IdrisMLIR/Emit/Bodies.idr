@@ -887,10 +887,10 @@ alg ix (AssumeF l lhs rhs body) sc w = do
   let equation = Idr (EquationAttr (termNodes ix lhs) (termNodes ix rhs))
   match ix l w (\_, d, ts => Idr.indexAssumeOp equation [] d ts) [] (Just (MkArm [] res ops))
 -- A crash ends its region: its cause, its site and the definition it is
--- in are data the op holds; a trusted library's crash of a string reports
--- that string.
+-- in are data the op holds, and no cause the frontend writes reads an
+-- operand; a trusted library's crash of a string reports that string.
 alg ix (CrashF l cause) sc _ = do
-  statement l (Idr.crashCauseOp cause !(siteOf l))
+  statement l (Idr.crashCauseOp cause !(siteOf l) [])
   pure Nothing
 alg ix (CrashWithF l m) sc _ = do
   Just s <- (operand1 ix l (offTail sc) (Just (MkBinder Many StrT)) m).written

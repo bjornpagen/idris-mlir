@@ -166,12 +166,24 @@ SmallVector<Value, 4> Runtime::siteOperands(OpBuilder &b, Location loc, SiteAttr
           i32Constant(b, loc, static_cast<int64_t>(site.getColumn()))};
 }
 
+// The crash's entry by how many operands its line reads: none, or the
+// operand a guard found false, an integer the entry takes after the cause.
+static constexpr std::array<const idr::runtime::Function *, 2> crashByReads{
+    &idr::runtime::helper::crashAt, &idr::runtime::helper::crashOperandAt};
+static_assert(idr::runtime::helper::crashOperandAt.operands.size() ==
+                  idr::runtime::helper::crashAt.operands.size() + 1 &&
+              idr::runtime::helper::crashOperandAt.operands[1] == OperandKind::Int64);
+
 // The call is cold, and so what leads only to it: LLVM lays the crash
 // checks out of the way of the paths that run.
-void Runtime::crash(OpBuilder &b, Location loc, CrashCause cause, SiteAttr site) const {
+void Runtime::crash(OpBuilder &b, Location loc, CrashCause cause, ValueRange reads,
+                    SiteAttr site) const {
+  assert(reads.size() < crashByReads.size() &&
+         llvm::all_of(reads, [](Value read) { return read.getType().isInteger(64); }));
   SmallVector<Value> args{i32Constant(b, loc, static_cast<int64_t>(cause))};
+  llvm::append_range(args, reads);
   llvm::append_range(args, siteOperands(b, loc, site));
-  call(b, loc, idr::runtime::helper::crashAt, args).setCold(true);
+  call(b, loc, *crashByReads[reads.size()], args).setCold(true);
 }
 
 void Runtime::crashWith(OpBuilder &b, Location loc, Value message, SiteAttr site) const {
@@ -181,11 +193,11 @@ void Runtime::crashWith(OpBuilder &b, Location loc, Value message, SiteAttr site
 }
 
 void Runtime::crashIf(OpBuilder &b, Location loc, Value condition, CrashCause cause,
-                      SiteAttr site) const {
+                      ValueRange reads, SiteAttr site) const {
   auto check = scf::IfOp::create(b, loc, condition, /*withElseRegion=*/false);
   OpBuilder::InsertionGuard guard(b);
   b.setInsertionPointToStart(check.thenBlock());
-  crash(b, loc, cause, site);
+  crash(b, loc, cause, reads, site);
 }
 
 void Runtime::outOfMemoryIf(OpBuilder &b, Location loc, Value condition) const {
