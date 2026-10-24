@@ -118,14 +118,17 @@ data Target = ThroughValue | WholeState
 ||| What an effect on one of the tree's states summarizes as, whatever it
 ||| names. Consumption (a free of a count) and a fresh identity or frame
 ||| cell are the function's own business: a call declares its consumption
-||| on its own operands, and no caller sees the others. A kind a state does
-||| not take summarizes as nothing, since no op can declare it.
+||| on its own operands, and no caller sees the others. A cell filled is a
+||| write of the contents above it, which a call holding it orders with
+||| the filling too. A kind a state does not take summarizes as nothing,
+||| since no op can declare it.
 public export
 stateAtoms : Kind -> Resource -> List Atom
 stateAtoms Allocate Heap = [Alloc]
 stateAtoms Free Heap = [Free]
 stateAtoms Read Contents = [Read]
 stateAtoms Write Contents = [Write]
+stateAtoms Write Filling = [Write]
 stateAtoms Read Count = [Count]
 stateAtoms Write Count = [Count]
 stateAtoms Read MemoState = [MemoState]
@@ -149,12 +152,15 @@ valueMemory Write = Contents
 valueMemory Allocate = Heap
 valueMemory Free = Heap
 
-||| Every atom an effect of the kind on any state may summarize as: what an
-||| effect on the root naming no value is, since it may act on anything.
+||| Every atom an effect of the kind on any state may summarize as, each
+||| once: what an effect on the root naming no value is, since it may act
+||| on anything.
 public export
 everyAtomOf : Kind -> List Atom
-everyAtomOf k = concatMap taken (forget (every resourceClosed))
+everyAtomOf k = nubBy samePlace (concatMap taken (forget (every resourceClosed)))
   where
+    samePlace : Atom -> Atom -> Bool
+    samePlace a b = position atomClosed a == position atomClosed b
     taken : Resource -> List Atom
     taken r = case isElem k (admittedKinds r) of
       Yes _ => stateAtoms k r
@@ -183,14 +189,14 @@ data Local : Kind -> Resource -> Type where
   FrameCellMade : Local Allocate Frame
 
 ||| What an effect an op may declare becomes in the row: atoms, at least
-||| one, each on the effect's own state, so a call holding them conflicts
-||| with everything the op does; or nothing, for an effect the function
-||| keeps to itself.
+||| one, each on the effect's own state or one above it, so a call holding
+||| them conflicts with everything the op does; or nothing, for an effect
+||| the function keeps to itself.
 public export
 data Kept : Kind -> Resource -> List Atom -> Type where
   Projected : {0 atoms : List Atom}
             -> (0 nonEmpty : NonEmpty atoms)
-            -> (0 onIt : All (\a => atomState a = r) atoms)
+            -> (0 onIt : All (\a => AtOrAbove (atomState a) r) atoms)
             -> Kept k r atoms
   KeptLocal : (0 local : Local k r) -> Kept k r []
 
@@ -205,16 +211,17 @@ KeptFor r k = (n : Target) -> Kept k r (project k r n)
 0 keptOn : (r : Resource) -> All (KeptFor r) (admittedKinds r)
 keptOn Root = []
 keptOn Frame = [\_ => KeptLocal FrameCellMade]
-keptOn Heap = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl]]
-keptOn Contents = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl]]
-keptOn Count = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl], \_ => KeptLocal CountTakenOver]
-keptOn MemoState = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl]]
+keptOn Heap = [\_ => Projected IsNonEmpty [Itself], \_ => Projected IsNonEmpty [Itself]]
+keptOn Contents = [\_ => Projected IsNonEmpty [Itself], \_ => Projected IsNonEmpty [Itself]]
+keptOn Filling = [\_ => Projected IsNonEmpty [Up Itself]]
+keptOn Count = [\_ => Projected IsNonEmpty [Itself], \_ => Projected IsNonEmpty [Itself], \_ => KeptLocal CountTakenOver]
+keptOn MemoState = [\_ => Projected IsNonEmpty [Itself], \_ => Projected IsNonEmpty [Itself]]
 keptOn Identity = [\_ => KeptLocal IdentityMade]
-keptOn IO = [\_ => Projected IsNonEmpty [Refl], \_ => Projected IsNonEmpty [Refl]]
-keptOn RuntimeState = [\_ => Projected IsNonEmpty [Refl]]
-keptOn Exit = [\_ => Projected IsNonEmpty [Refl]]
-keptOn Crash = [\_ => Projected IsNonEmpty [Refl]]
-keptOn Divergence = [\_ => Projected IsNonEmpty [Refl]]
+keptOn IO = [\_ => Projected IsNonEmpty [Itself], \_ => Projected IsNonEmpty [Itself]]
+keptOn RuntimeState = [\_ => Projected IsNonEmpty [Itself]]
+keptOn Exit = [\_ => Projected IsNonEmpty [Itself]]
+keptOn Crash = [\_ => Projected IsNonEmpty [Itself]]
+keptOn Divergence = [\_ => Projected IsNonEmpty [Itself]]
 
 ||| Every effect an op of ours may declare is kept: the row never says less
 ||| than the ops it summarizes. The kind's admission is its place in its

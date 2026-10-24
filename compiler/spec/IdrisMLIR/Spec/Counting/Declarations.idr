@@ -361,8 +361,9 @@ cellNew = countingOp "cell.new" [] [result "cell" cell] [] []
 ||| reference into the cell, and a hole is a field written later, once,
 ||| through its destination (idr-trmc makes them), of the field's declared
 ||| type at its grade. Its results follow from the cell's type, the fields
-||| and the holes. The cell is fresh, new or recycled, so nothing but its
-||| fields shares what the value reaches: the value is inferred as it is
+||| and the holes. The cell is fresh, new or recycled, so its fields are
+||| written while it is filled, which nothing else reaches, and nothing but
+||| its fields shares what the value reaches: the value is inferred as it is
 ||| made, used once and counted, claiming what a constructor of those
 ||| fields claims (`unique deep` where each leaves everything it reaches
 ||| unshared), a hole at what its destination's write must meet, so a cell
@@ -382,7 +383,7 @@ cellInit = countingOp "cell.init"
   , Implements statesLifetime statedMethods
   , Implements flowInterface ["getFlowEdges"]
   , Implements lifetimeUseInterface ["verifyLifetimeUse"] ]
-  (Executes [OnValues Write Contents (Operands 0)] [Consumes 1, NewIdentity 0] Covered Untouched)
+  (Executes [OnValues Write Filling (Operands 0)] [Consumes 1, NewIdentity 0] Covered Untouched)
   explicit VerifiesOp
   (Declared [ ValueOf (OperandRef 0), Lit ":", QualifiedTypeOf (OfGroup (OperandRef 0))
             , Custom fieldsWithHolesDirective [Group (OperandRef 1), TypeOfGroup (OperandRef 1), Group (AttrRef 0)]

@@ -46,6 +46,8 @@ enum class ResourceId : std::uint8_t {
   Heap,
   // memory written in place
   Contents,
+  // a cell's fields while it is filled
+  Filling,
   // reference counts
   Count,
   // a memo cell's state
@@ -215,8 +217,8 @@ struct EnumTraits<::idr::EffectKind> {
 
 template <>
 struct EnumTraits<::idr::ResourceId> {
-  static constexpr std::size_t count = 12;
-  static constexpr std::array<std::string_view, 12> names{{"root", "frame", "heap", "contents", "count", "memo_state", "identity", "io", "runtime_state", "exit", "crash", "divergence"}};
+  static constexpr std::size_t count = 13;
+  static constexpr std::array<std::string_view, 13> names{{"root", "frame", "heap", "contents", "filling", "count", "memo_state", "identity", "io", "runtime_state", "exit", "crash", "divergence"}};
 };
 
 template <>
@@ -290,6 +292,7 @@ inline constexpr ::idr::EnumArray<::idr::ResourceId, ::idr::ResourceId> resource
     ::idr::ResourceId::Root,
     ::idr::ResourceId::Root,
     ::idr::ResourceId::Heap,
+    ::idr::ResourceId::Contents,
     ::idr::ResourceId::Heap,
     ::idr::ResourceId::Heap,
     ::idr::ResourceId::Root,
@@ -302,6 +305,7 @@ inline constexpr ::idr::EnumArray<::idr::ResourceId, ::idr::ResourceId> resource
 
 // whether an effect on it may name a value
 inline constexpr ::idr::EnumArray<::idr::ResourceId, ::idr::ResourceReach> resourceReach{{
+    ::idr::ResourceReach::Addressable,
     ::idr::ResourceReach::Addressable,
     ::idr::ResourceReach::Addressable,
     ::idr::ResourceReach::Addressable,
@@ -322,6 +326,7 @@ inline constexpr ::idr::EnumArray<::idr::ResourceId, std::string_view> resourceP
     "AutomaticAllocationScope",
     "idr.heap",
     "idr.contents",
+    "idr.filling",
     "idr.count",
     "idr.memo_state",
     "idr.identity",
@@ -353,6 +358,7 @@ inline constexpr ::idr::EnumArray<::idr::ResourceId, ::idr::EnumSet<::idr::Atom>
     ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::read},
+    ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::count},
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::memo_state},
     ::idr::EnumSet<::idr::Atom>{},
@@ -368,6 +374,7 @@ inline constexpr ::idr::EnumArray<::idr::ResourceId, ::idr::EnumSet<::idr::Atom>
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::write, ::idr::Atom::count, ::idr::Atom::memo_state, ::idr::Atom::io, ::idr::Atom::exit, ::idr::Atom::crash, ::idr::Atom::divergence},
     ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{},
+    ::idr::EnumSet<::idr::Atom>{::idr::Atom::write},
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::write},
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::count},
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::memo_state},
@@ -393,6 +400,7 @@ inline constexpr ::idr::EnumArray<::idr::ResourceId, ::idr::EnumSet<::idr::Atom>
     ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{},
+    ::idr::EnumSet<::idr::Atom>{},
 }};
 
 // what an effect of the kind on the state summarizes as
@@ -400,6 +408,7 @@ inline constexpr ::idr::EnumArray<::idr::ResourceId, ::idr::EnumSet<::idr::Atom>
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::free},
     ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{::idr::Atom::free},
+    ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{},
     ::idr::EnumSet<::idr::Atom>{},

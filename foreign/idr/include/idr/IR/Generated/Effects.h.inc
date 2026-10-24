@@ -1478,7 +1478,7 @@ struct Declared<::idr::CellNewOp> {
 template <>
 struct Declared<::idr::CellInitOp> {
   static constexpr Form form = Form::Declares;
-  static constexpr std::array<Static, 1> effects{{{::idr::effects::Kind::Write, ::idr::effects::ResourceId::Contents, ::idr::effects::Subject::operand(0)}}};
+  static constexpr std::array<Static, 1> effects{{{::idr::effects::Kind::Write, ::idr::effects::ResourceId::Filling, ::idr::effects::Subject::operand(0)}}};
   using Rules = std::tuple<::idr::effects::Consumes<::idr::effects::OnOperand<1>>, ::idr::effects::NewIdentity<::idr::effects::OnResult<0>>>;
   static constexpr Bodies bodies = Bodies::Own;
 };

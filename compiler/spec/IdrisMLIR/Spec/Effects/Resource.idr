@@ -88,9 +88,16 @@ data Resource : Type where
   ||| only acquiring and freeing are on it, everything a live cell holds is
   ||| beneath it, so giving memory back is ordered after every use of it.
   Heap : Resource
-  ||| Memory written in place: array elements, buffer bytes, a cell's
-  ||| fields while it is filled.
+  ||| Memory written in place: array elements, buffer bytes, and, beneath
+  ||| it, a cell's fields while it is filled.
   Contents : Resource
+  ||| A cell's fields while it is filled, between its allocation or reuse
+  ||| and its first use as a value. Beneath the contents, so whatever is
+  ||| ordered with memory written in place is ordered with it; a state of
+  ||| its own, since only the cell, which nothing else holds yet, reaches
+  ||| it: a write of it can see no place another value holds, an element
+  ||| an update emptied among them.
+  Filling : Resource
   ||| Reference counts, which counting reads and writes and consuming a
   ||| reference frees.
   Count : Resource
@@ -127,25 +134,27 @@ resourceClosed : Closed Resource
 resourceClosed = MkClosed
   { name = ident "ResourceId"
   , shape = OneOf
-  , every = Root ::: [Frame, Heap, Contents, Count, MemoState, Identity, IO, RuntimeState, Exit, Crash, Divergence]
+  , every = Root ::: [Frame, Heap, Contents, Filling, Count, MemoState, Identity, IO, RuntimeState, Exit, Crash, Divergence]
   , complete = \case
       Root => Here
       Frame => There Here
       Heap => There (There Here)
       Contents => There (There (There Here))
-      Count => There (There (There (There Here)))
-      MemoState => There (There (There (There (There Here))))
-      Identity => There (There (There (There (There (There Here)))))
-      IO => There (There (There (There (There (There (There Here))))))
-      RuntimeState => There (There (There (There (There (There (There (There Here)))))))
-      Exit => There (There (There (There (There (There (There (There (There Here))))))))
-      Crash => There (There (There (There (There (There (There (There (There (There Here)))))))))
-      Divergence => There (There (There (There (There (There (There (There (There (There (There Here))))))))))
+      Filling => There (There (There (There Here)))
+      Count => There (There (There (There (There Here))))
+      MemoState => There (There (There (There (There (There Here)))))
+      Identity => There (There (There (There (There (There (There Here))))))
+      IO => There (There (There (There (There (There (There (There Here)))))))
+      RuntimeState => There (There (There (There (There (There (There (There (There Here))))))))
+      Exit => There (There (There (There (There (There (There (There (There (There Here)))))))))
+      Crash => There (There (There (There (There (There (There (There (There (There (There Here))))))))))
+      Divergence => There (There (There (There (There (There (There (There (There (There (There (There Here)))))))))))
   , describe = \case
       Root => MkCase (ident "Root") (word "root" ::: []) (line "upstream's root: any memory")
       Frame => MkCase (ident "Frame") (word "frame" ::: []) (line "upstream's frame: a function's stack cells")
       Heap => MkCase (ident "Heap") (word "heap" ::: []) (line "the memory any cell lives in: acquired and given back")
       Contents => MkCase (ident "Contents") (word "contents" ::: []) (line "memory written in place")
+      Filling => MkCase (ident "Filling") (word "filling" ::: []) (line "a cell's fields while it is filled")
       Count => MkCase (ident "Count") (word "count" ::: []) (line "reference counts")
       MemoState => MkCase (ident "MemoState") (word "memo_state" ::: []) (line "a memo cell's state")
       Identity => MkCase (ident "Identity") (word "identity" ::: []) (line "a fresh value's identity, which no memory holds")
@@ -165,14 +174,15 @@ treeRank Root = 0
 treeRank Frame = 1
 treeRank Heap = 2
 treeRank Contents = 3
-treeRank Count = 4
-treeRank MemoState = 5
-treeRank Identity = 6
-treeRank IO = 7
-treeRank RuntimeState = 8
-treeRank Exit = 9
-treeRank Crash = 10
-treeRank Divergence = 11
+treeRank Filling = 4
+treeRank Count = 5
+treeRank MemoState = 6
+treeRank Identity = 7
+treeRank IO = 8
+treeRank RuntimeState = 9
+treeRank Exit = 10
+treeRank Crash = 11
+treeRank Divergence = 12
 
 ||| Whether a value reaches the state. The outside's subtree is opaque;
 ||| memory, counts, memo state, identity and the frame are addressable.
@@ -182,6 +192,7 @@ reach Root = Addressable
 reach Frame = Addressable
 reach Heap = Addressable
 reach Contents = Addressable
+reach Filling = Addressable
 reach Count = Addressable
 reach MemoState = Addressable
 reach Identity = Addressable
@@ -208,6 +219,7 @@ parent Root = IsRoot
 parent Frame = Under Root
 parent Heap = Under Root
 parent Contents = Under Heap
+parent Filling = Under Contents
 parent Count = Under Heap
 parent MemoState = Under Heap
 parent Identity = Under Root
@@ -224,6 +236,13 @@ above : Resource -> Resource
 above r = case parent r of
   IsRoot => Root
   Under p => p
+
+||| Evidence that a state is another's or above it: the walk up the tree
+||| from the other, a parent at a time.
+public export
+data AtOrAbove : (state, other : Resource) -> Type where
+  Itself : AtOrAbove r r
+  Up : AtOrAbove s (above r) -> AtOrAbove s r
 
 ------------------------------------------------------------------------------
 -- The kinds
@@ -277,13 +296,15 @@ DecEq Kind where
 ||| The kinds an op of ours may declare on each state. The root takes none:
 ||| no op of ours acts on "any memory". Runtime state is only read, so a
 ||| change of it is IO. A run's ends are only written. The heap is only
-||| acquired and given back; what live memory holds is beneath it.
+||| acquired and given back; what live memory holds is beneath it. A cell
+||| being filled is only written: nothing reads it before its first use.
 public export
 admittedKinds : Resource -> List Kind
 admittedKinds Root = []
 admittedKinds Frame = [Allocate]
 admittedKinds Heap = [Allocate, Free]
 admittedKinds Contents = [Read, Write]
+admittedKinds Filling = [Write]
 admittedKinds Count = [Read, Write, Free]
 admittedKinds MemoState = [Read, Write]
 admittedKinds Identity = [Allocate]
@@ -311,6 +332,7 @@ printedName Root = line "<Default>"
 printedName Frame = line "AutomaticAllocationScope"
 printedName Heap = line "idr.heap"
 printedName Contents = line "idr.contents"
+printedName Filling = line "idr.filling"
 printedName Count = line "idr.count"
 printedName MemoState = line "idr.memo_state"
 printedName Identity = line "idr.identity"
@@ -331,6 +353,7 @@ origin Root = Upstream
 origin Frame = Upstream
 origin Heap = Ours
 origin Contents = Ours
+origin Filling = Ours
 origin Count = Ours
 origin MemoState = Ours
 origin Identity = Ours

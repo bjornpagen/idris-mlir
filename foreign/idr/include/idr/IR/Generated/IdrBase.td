@@ -363,6 +363,7 @@ def Idr_NoRuntimeFormTrait : NativeOpTrait<"NoRuntimeForm"> { let cppNamespace =
 def Idr_EndsOwnerTrait : NativeOpTrait<"EndsOwner"> { let cppNamespace = "::idr"; }
 def Idr_HeapResource : Resource<"::idr::effects::Heap">;
 def Idr_ContentsResource : Resource<"::idr::effects::Contents">;
+def Idr_FillingResource : Resource<"::idr::effects::Filling">;
 def Idr_CountResource : Resource<"::idr::effects::Count">;
 def Idr_MemoStateResource : Resource<"::idr::effects::MemoState">;
 def Idr_IdentityResource : Resource<"::idr::effects::Identity">;

@@ -1,6 +1,6 @@
-specification a9ccefb6fbfc177b
+specification f949df980e87c822
 generator 663362453c896906
-3807f07f0c94afec foreign/idr/include/idr/IR/Generated/IdrBase.td
+4ca7f88c451ec07f foreign/idr/include/idr/IR/Generated/IdrBase.td
 bed5c61241a515dc foreign/idr/include/idr/IR/Generated/IdrInterfaces.td
 260f35458dcaaa6e foreign/idr/include/idr/IR/Generated/IdrTypes.td
 d5735c21a20e2d70 foreign/idr/include/idr/IR/Generated/IdrOps.td
@@ -29,8 +29,8 @@ eef8c01a1d459941 foreign/idr/include/idr/IR/Generated/Storages.h.inc
 68e3ceca03ab911e foreign/idr/include/idr/IR/Generated/InlineMeanings.h.inc
 33ce11ca871aaacf foreign/idr/include/idr/IR/Generated/RuntimeAbi.h.inc
 5bc5829301f66563 runtime/Generated/idris_rt_ops.h
-8ad40bb10dc45593 foreign/idr/include/idr/IR/Generated/Resources.h.inc
-f61d03fe59dc91bd foreign/idr/include/idr/IR/Generated/Effects.h.inc
+eee0d68f3a0d55b7 foreign/idr/include/idr/IR/Generated/Resources.h.inc
+c246228892be9d7a foreign/idr/include/idr/IR/Generated/Effects.h.inc
 cde246d8325f733b foreign/idr/include/idr/IR/Generated/Effects.cpp.inc
 ac27e1d586ebc0bf foreign/idr/include/idr/IR/Generated/Wire.cpp.inc
 cb7a35b35c824fa3 foreign/idr/include/idr/IR/Generated/SkeletonRules.h.inc
@@ -50,7 +50,7 @@ e961abb446ea9612 foreign/idr/include/idr/IR/Generated/Rules.h.inc
 997ee58402212daf foreign/idr/include/idr/IR/Generated/Words.h.inc
 c007172702ee9849 foreign/idr/include/idr/IR/Generated/StageFacts.h.inc
 455fa944c48c51d7 foreign/idr/include/idr/IR/Generated/Verdict.h.inc
-a310756d6c6cb9f6 foreign/idr/include/idr/IR/Generated/EffectTree.h.inc
+fccbad4a5693fea5 foreign/idr/include/idr/IR/Generated/EffectTree.h.inc
 38b8278a11b17e45 foreign/idr/include/idr/IR/Generated/Families.h.inc
 d6f2f4b67368a2c7 foreign/idr/include/idr/IR/Generated/Grades.h.inc
 978454316de3be9c foreign/idr/include/idr/IR/Generated/Lifetimes.h.inc

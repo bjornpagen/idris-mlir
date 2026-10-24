@@ -111,6 +111,15 @@ struct ChangesMemoryOf {
   }
 };
 
+// What fusion keeps out of the update it makes: an effect that may reach
+// memory written in place, a release on the heap among them, or a cell
+// filled beneath it. Stricter than the update's region, which lets a free
+// on the heap and a cell filled through.
+bool keptOut(const effects::Effect &each) {
+  return onContents(each) ||
+         effects::atOrBelow[effects::ResourceId::Contents].contains(each.resource);
+}
+
 // The last op before `op` in its block that does what `touches` asks about;
 // null where none does.
 template <effects::Question Q>
@@ -197,7 +206,7 @@ std::optional<Fusion<Write>> fusionOf(Write write) {
     Operation *op = between[at];
     if (!readsRebuilt(op))
       continue;
-    if (touchesInPlace(op))
+    if (effects::classify(op, keptOut) == effects::Does::Touches)
       return std::nullopt;
     rebuilds.set(at);
     fusion.rebuilding.push_back(op);

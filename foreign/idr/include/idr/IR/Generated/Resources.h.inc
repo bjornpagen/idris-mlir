@@ -10,6 +10,7 @@ namespace idr::effects {
 
 using Heap = ::idr::effects::State<::idr::ResourceId::Heap>;
 using Contents = ::idr::effects::State<::idr::ResourceId::Contents>;
+using Filling = ::idr::effects::State<::idr::ResourceId::Filling>;
 using Count = ::idr::effects::State<::idr::ResourceId::Count>;
 using MemoState = ::idr::effects::State<::idr::ResourceId::MemoState>;
 using Identity = ::idr::effects::State<::idr::ResourceId::Identity>;

@@ -63,8 +63,25 @@ bool onContents(const effects::Effect &each) {
          effects::atOrAbove[effects::ResourceId::Contents].contains(each.resource);
 }
 
+namespace {
+
+// What the place an update empties may see: a read or a write of the
+// contents or of a state above them. A free or an allocation on the heap
+// gives memory back or takes it, never what a place holds, and a cell
+// being filled, beneath the contents, is reached by no value but its own,
+// so counting's own work in the region passes. Which value an effect names
+// is not read: a call writing through a cell that holds the array reaches
+// the place.
+bool seesEmptyPlace(const effects::Effect &each) {
+  constexpr effects::Kinds readsOrWrites{effects::Kind::Read, effects::Kind::Write};
+  return readsOrWrites.contains(each.kind) &&
+         effects::atOrAbove[effects::ResourceId::Contents].contains(each.resource);
+}
+
+} // namespace
+
 bool touchesInPlace(Operation *op) {
-  return effects::classify(op, onContents) == effects::Does::Touches;
+  return effects::classify(op, seesEmptyPlace) == effects::Does::Touches;
 }
 
 void generatingSuccessors(Operation *op, SmallVectorImpl<RegionSuccessor> &regions) {

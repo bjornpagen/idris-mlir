@@ -3,9 +3,10 @@
 // builds-nothing: a function builds no value in memory: what it returns or
 // holds is its parameters' or static data. Building is what the effect
 // system's declaration of an op says: memory acquired for a result, of the
-// heap or of the frame, or the contents of a cell written, a recycled one
-// included. A fresh identity alone (a reference taken, a field read out) is
-// no memory built; a call's building is its callee's, stated of the callee.
+// heap or of the frame, or a write of the contents or beneath them, a
+// cell's fields as it is filled among them, a recycled one's included. A
+// fresh identity alone (a reference taken, a field read out) is no memory
+// built; a call's building is its callee's, stated of the callee.
 
 #include "idr/Transforms/Expect.h"
 
@@ -24,8 +25,9 @@ LogicalResult buildsNothing(const Request<Functions> &request) {
     fn.getFunctionBody().walk([&](Operation *op) {
       if (isa<CallOpInterface>(op))
         return;
-      if (!effects::acquires(op) &&
-          !effects::own(op).on(effects::Kind::Write, effects::ResourceId::Contents))
+      if (!effects::acquires(op) && (effects::own(op).byKind[effects::Kind::Write] &
+                                     effects::atOrBelow[effects::ResourceId::Contents])
+                                        .empty())
         return;
       fail(op->getLoc(), request.property) << op->getName() << " builds a value in " << where(op);
       held = false;
