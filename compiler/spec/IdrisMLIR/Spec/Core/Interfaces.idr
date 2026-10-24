@@ -119,9 +119,11 @@ structureInterface = MkInterfaceDef
 ||| name is the hand header `idr/IR/Interfaces/Vocabulary.h`, which the
 ||| dialect's header includes before the interfaces.
 
-||| `IndexedTypeInterface`: the index terms a type names directly, and how a
-||| walk over a scope reads it: the levels those terms leave free, the group
-||| member it names by position, and whether its parts must still be walked.
+||| `IndexedTypeInterface`: the index terms a type names directly, how a walk
+||| over a scope reads it (the levels those terms leave free, and whether its
+||| parts must still be walked), and what a field of it names: a member of
+||| the group being declared by position, its own group's member, or none, a
+||| closed sum (`::idr::families::FieldNaming`) every reader folds.
 public export
 indexedTypeInterface : InterfaceDef
 indexedTypeInterface = MkInterfaceDef
@@ -133,8 +135,8 @@ indexedTypeInterface = MkInterfaceDef
           (line "the runs of index terms this type names directly, each whole terms one after the other, not those of its parts")
       , MkMethod PerObject (code "std::uint32_t") (ident "getFreeLevels") [] (Delegates (ident "freeLevelsOfTerms"))
           (line "how many index levels the terms it names leave free")
-      , MkMethod PerObject (code "std::optional<std::uint32_t>") (ident "getPositionalMember") [] (Delegates (ident "noPositionalMember"))
-          (line "the member of the group being declared that it names by position; none for a type that names none")
+      , MkMethod PerObject (code "::idr::families::FieldNaming") (ident "getFieldNaming") [] (Delegates (ident "namesNoMember"))
+          (line "what a field of this type names: a member of the group being declared, by position; a data type's own member; or none")
       , MkMethod PerObject (code "bool") (ident "scopeHoldsParts") [] (Delegates (ident "scopeHoldsEveryPart"))
           (line "whether a walk over a scope must still read its parts: false where its own fact already holds what they name") ]
   , verifier = Unverified

@@ -49,7 +49,7 @@ def Idr_IndexedTypeInterface : TypeInterface<"IndexedTypeInterface"> {
   let methods = [
     InterfaceMethod<"the runs of index terms this type names directly, each whole terms one after the other, not those of its parts", "::llvm::SmallVector<::llvm::ArrayRef<::idr::families::TermNode>, 2>", "getIndexTermRuns", (ins)>,
     InterfaceMethod<"how many index levels the terms it names leave free", "std::uint32_t", "getFreeLevels", (ins), [{}], [{ return ::idr::freeLevelsOfTerms($_type); }]>,
-    InterfaceMethod<"the member of the group being declared that it names by position; none for a type that names none", "std::optional<std::uint32_t>", "getPositionalMember", (ins), [{}], [{ return ::idr::noPositionalMember($_type); }]>,
+    InterfaceMethod<"what a field of this type names: a member of the group being declared, by position; a data type's own member; or none", "::idr::families::FieldNaming", "getFieldNaming", (ins), [{}], [{ return ::idr::namesNoMember($_type); }]>,
     InterfaceMethod<"whether a walk over a scope must still read its parts: false where its own fact already holds what they name", "bool", "scopeHoldsParts", (ins), [{}], [{ return ::idr::scopeHoldsEveryPart($_type); }]>
   ];
 }

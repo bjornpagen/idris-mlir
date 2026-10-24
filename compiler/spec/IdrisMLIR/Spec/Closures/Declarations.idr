@@ -113,7 +113,7 @@ closureAttr = MkAttrDef
       , MkParameter "captures" (WiredValue (WiredOne (LeafAttr "::mlir::ArrayAttr")) capturesParam)
           AlwaysWritten "its captures, the function's leading parameters, each a constant" ]
   , syntax = Declarative [Keyword "<", ParamAt 0, Keyword ",", ParamAt 1, Keyword ">"]
-  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]]
+  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]]
   , verifier = AnyParameters
   , bytecode = Derived
   , members = []

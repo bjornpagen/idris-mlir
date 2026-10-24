@@ -33,9 +33,8 @@ std::uint32_t freeLevelsOfTerms(Type self) {
   return levels;
 }
 
-// A type names a member of the group being declared by position only
-// where it says so.
-std::optional<std::uint32_t> noPositionalMember(Type) { return std::nullopt; }
+// A type names a member of a family only where it says so.
+families::FieldNaming namesNoMember(Type) { return families::naming::Nothing{}; }
 
 // A scope's walk reads every part of a type whose own fact does not hold
 // them.

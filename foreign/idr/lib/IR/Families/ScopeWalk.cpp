@@ -204,7 +204,7 @@ Walk::Named Walk::levelsOf(Type type) {
   walker.addWalk([](FamilyAttr) { return WalkResult::skip(); });
   walker.addWalk([&](IndexedTypeInterface indexed) {
     named.levels = std::max(named.levels, indexed.getFreeLevels());
-    if (indexed.getPositionalMember())
+    if (std::holds_alternative<naming::Positional>(indexed.getFieldNaming()))
       named.member = Named::Member::ByPosition;
     return indexed.scopeHoldsParts() ? WalkResult::advance() : WalkResult::skip();
   });
@@ -396,7 +396,12 @@ std::uint32_t DataType::getFreeLevels() const { return freeLevels(); }
 // need not enter it.
 bool DataType::scopeHoldsParts() const { return false; }
 
-// The member of the group being declared, named by its position.
-std::optional<std::uint32_t> SelfType::getPositionalMember() const { return getMember(); }
+// What a field of each names: a data type its own group's member, a member
+// named by position the group being declared's.
+families::FieldNaming DataType::getFieldNaming() const { return families::naming::Own{{*this}}; }
+
+families::FieldNaming SelfType::getFieldNaming() const {
+  return families::naming::Positional{getMember()};
+}
 
 } // namespace idr

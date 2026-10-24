@@ -9,7 +9,7 @@
 include "idr/IR/Generated/IdrBase.td"
 include "idr/IR/Generated/IdrInterfaces.td"
 
-def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<Idr_IndexedTypeInterface, ["getIndexTermRuns", "getFreeLevels", "scopeHoldsParts"]>, DeclareTypeInterfaceMethods<Idr_PatternTypeInterface, ["matchInstance"]>, DeclareTypeInterfaceMethods<Idr_FieldTypeInterface, ["getFieldReach"]>, DeclareTypeInterfaceMethods<Idr_NumericTypeInterface, ["getNumericReading", "isCarriedAsBig"]>, DeclareTypeInterfaceMethods<Idr_IndexPositionsTypeInterface, ["appendIndexPositions", "atFreshPositions"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
+def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, DeclareTypeInterfaceMethods<Idr_IndexedTypeInterface, ["getIndexTermRuns", "getFreeLevels", "getFieldNaming", "scopeHoldsParts"]>, DeclareTypeInterfaceMethods<Idr_PatternTypeInterface, ["matchInstance"]>, DeclareTypeInterfaceMethods<Idr_FieldTypeInterface, ["getFieldReach"]>, DeclareTypeInterfaceMethods<Idr_NumericTypeInterface, ["getNumericReading", "isCarriedAsBig"]>, DeclareTypeInterfaceMethods<Idr_IndexPositionsTypeInterface, ["appendIndexPositions", "atFreshPositions"]>, DeclareTypeInterfaceMethods<Idr_ValueFactsTypeInterface>]> {
   let summary = "a data type: a member of a family applied to index terms";
   let description = [{
     Written `!idr.data<#Vect[v0]>`, `!idr.data<#Tree at 1 [v0]>`, refined
@@ -57,7 +57,7 @@ def Idr_DataType : Idr_Type<"Data", "data", [MemRefElementTypeInterface, Declare
   }];
 }
 
-def Idr_SelfType : Idr_Type<"Self", "self", [DeclareTypeInterfaceMethods<Idr_IndexedTypeInterface, ["getIndexTermRuns", "getPositionalMember"]>, DeclareTypeInterfaceMethods<Idr_FieldTypeInterface, ["getFieldReach"]>]> {
+def Idr_SelfType : Idr_Type<"Self", "self", [DeclareTypeInterfaceMethods<Idr_IndexedTypeInterface, ["getIndexTermRuns", "getFieldNaming"]>, DeclareTypeInterfaceMethods<Idr_FieldTypeInterface, ["getFieldReach"]>]> {
   let summary = "a member of the group a field is declared in, by position";
   let parameters = (ins Idr_HandParameter<"uint32_t", "MemberPosition">:$member, Idr_HandArrayParameter<"::idr::families::TermNode", "IndexTerms">:$indices);
   let hasCustomAssemblyFormat = 1;
@@ -367,7 +367,7 @@ def Idr_EquationAttr : Idr_Attr<"Equation", "equation", []> {
   let genStorageClass = 0;
 }
 
-def Idr_ConAttr : Idr_Attr<"Con", "con", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]>]> {
+def Idr_ConAttr : Idr_Attr<"Con", "con", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]>]> {
   let summary = "a constant constructor value, a run of its cells";
   let parameters = (ins Idr_HandParameter<"::idr::DataType", "DataRef">:$data, Idr_ArrayRefParameter<"::mlir::Attribute">:$cells, DefaultValuedParameter<"uint64_t", "0">:$spine);
   let hasCustomAssemblyFormat = 1;
@@ -399,14 +399,14 @@ def Idr_SiteAttr : Idr_Attr<"Site", "site", []> {
   let assemblyFormat = [{ `<` $file `,` $line `,` $column `,` $function `>` }];
 }
 
-def Idr_BigAttr : Idr_Attr<"Big", "big", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]>, DeclareAttrInterfaceMethods<Idr_IntegerKeyAttrInterface, ["getKeyInteger"]>]> {
+def Idr_BigAttr : Idr_Attr<"Big", "big", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]>, DeclareAttrInterfaceMethods<Idr_IntegerKeyAttrInterface, ["getKeyInteger"]>]> {
   let summary = "an integer of any size";
   let parameters = (ins Idr_APIntParameter<"">:$value);
   let assemblyFormat = [{ `<` $value `>` }];
   let genStorageClass = 0;
 }
 
-def Idr_ClosureAttr : Idr_Attr<"Closure", "closure", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]>]> {
+def Idr_ClosureAttr : Idr_Attr<"Closure", "closure", [DeclareAttrInterfaceMethods<Idr_ConstantAttrInterface, ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]>]> {
   let summary = "a closure whose captures are constants";
   let parameters = (ins Idr_HandParameter<"::mlir::FlatSymbolRefAttr", "CalleeRef">:$callee, Idr_HandParameter<"::mlir::ArrayAttr", "Captures">:$captures);
   let assemblyFormat = [{ `<` $callee `,` $captures `>` }];

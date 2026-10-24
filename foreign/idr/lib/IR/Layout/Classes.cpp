@@ -54,18 +54,26 @@ SmallVector<Tag> possibleAt(FamilyAttr group, uint32_t member, ArrayRef<TermNode
   return out;
 }
 
-// Essential, two contexts a field names a member in: a member named by
-// position is of the group the field is declared in, which only the holder
-// knows, at the one run of terms it names; a data type names its own group.
+// Essential, two contexts a field names a member in, as its type answers:
+// a member named by position is of the group the field is declared in,
+// which only the holder knows, at the one run of terms it names; a data
+// type names its own group.
 std::optional<NamedApplication> namedBy(FamilyAttr holder, Type field) {
   auto indexed = dyn_cast<IndexedTypeInterface>(field);
-  if (std::optional<uint32_t> position = indexed ? indexed.getPositionalMember() : std::nullopt)
-    return NamedApplication{holder, *position, indexed.getIndexTermRuns().front(),
-                            LayoutMark::ByIndices, ByPosition{}};
-  if (auto data = dyn_cast<DataType>(field))
-    return NamedApplication{data.getGroup(), data.getMember(), data.getIndices(), data.getMark(),
-                            data};
-  return std::nullopt;
+  if (!indexed)
+    return std::nullopt;
+  return match(
+      indexed.getFieldNaming(),
+      [&](naming::Positional named) -> std::optional<NamedApplication> {
+        return NamedApplication{holder, named.member, indexed.getIndexTermRuns().front(),
+                                LayoutMark::ByIndices, ByPosition{}};
+      },
+      [](naming::Own own) -> std::optional<NamedApplication> {
+        DataType data = own.data.get();
+        return NamedApplication{data.getGroup(), data.getMember(), data.getIndices(),
+                                data.getMark(), data};
+      },
+      [](naming::Nothing) -> std::optional<NamedApplication> { return std::nullopt; });
 }
 
 TagSet NamedApplication::kept() const {

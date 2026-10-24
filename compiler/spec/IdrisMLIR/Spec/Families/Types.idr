@@ -174,7 +174,7 @@ dataType = MkTypeDef
   , syntax = HandSyntax
   , interfaces =
       [ Declares MemRefElementType []
-      , Implements indexedTypeInterface ["getIndexTermRuns", "getFreeLevels", "scopeHoldsParts"]
+      , Implements indexedTypeInterface ["getIndexTermRuns", "getFreeLevels", "getFieldNaming", "scopeHoldsParts"]
       , Implements patternTypeInterface ["matchInstance"]
       , Implements fieldTypeInterface ["getFieldReach"]
       , Implements numericTypeInterface ["getNumericReading", "isCarriedAsBig"]
@@ -238,7 +238,7 @@ selfType = MkTypeDef
       , MkParameter "indices" (WiredValue (WiredArray termWire) termsParam) AlwaysWritten "one term per index, over the constructor's binders" ]
   , syntax = HandSyntax
   , interfaces =
-      [ Implements indexedTypeInterface ["getIndexTermRuns", "getPositionalMember"]
+      [ Implements indexedTypeInterface ["getIndexTermRuns", "getFieldNaming"]
       , Implements fieldTypeInterface ["getFieldReach"] ]
   , verifier = AnyParameters
   , bytecode = CheckedBy "readSelf"
@@ -282,7 +282,7 @@ conAttr = MkAttrDef
       , MkParameter "cells" (ListOf AttrValue) AlwaysWritten "the cells, each an array of its fields, every one but the last without the spine"
       , MkParameter "spine" CountValue (DefaultsTo "0") "the field a run runs along" ]
   , syntax = HandSyntax
-  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding"]]
+  , interfaces = [Implements constantAttrInterface ["isBuildableAt", "getStaticForm", "verifyParts", "getClosureHolding", "getFoldValue"]]
   , verifier = VerifiesParameters
   , bytecode = CheckedBy "readCon"
   , storage = HandStorage

@@ -225,8 +225,7 @@ struct NamedApplication {
 
 // What `field`, the value type of a field declared in a member of `holder`,
 // names; none for any other type, whose words no index decides. Asked of
-// the index interface, which says which member a type names by position,
-// and of the data type.
+// the index interface, which says what a field of each type names.
 std::optional<NamedApplication> namedBy(FamilyAttr holder, mlir::Type field);
 
 // Reads a constructor's label into its tag in `group`, checking its arity:

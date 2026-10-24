@@ -297,6 +297,28 @@ struct CaseScrutinee : std::variant<case_scrutinee::Bound, case_scrutinee::Equal
 };
 
 namespace families {
+// What a field's declared type names over its constructor's binders, the
+// answer of IndexedTypeInterface::getFieldNaming: a member of the group the
+// field is declared in, by its position, which only the holder knows, at
+// the one run of terms the type names; a data type's own member, of its own
+// group, at its terms, the type itself; or no member, a type whose words no
+// index decides (a natural). The class rule's unfolding and a re-pack's walk
+// (namedBy), the type graph and a scope's walk fold it, so none names a
+// type.
+namespace naming {
+struct Positional {
+  std::uint32_t member;
+};
+struct Own {
+  TypeOf<DataType> data;
+};
+struct Nothing {};
+} // namespace naming
+
+struct FieldNaming : std::variant<naming::Positional, naming::Own, naming::Nothing> {
+  using variant::variant;
+};
+
 // A pattern type's match against an instance in progress: it compares index
 // terms and queues the parts a match pairs (Families/Matching.h).
 class PatternMatch;

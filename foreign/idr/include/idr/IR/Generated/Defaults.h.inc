@@ -16,8 +16,8 @@ namespace idr {
 // The default of IndexedTypeInterface::getFreeLevels.
 std::uint32_t freeLevelsOfTerms(::mlir::Type self);
 
-// The default of IndexedTypeInterface::getPositionalMember.
-std::optional<std::uint32_t> noPositionalMember(::mlir::Type self);
+// The default of IndexedTypeInterface::getFieldNaming.
+::idr::families::FieldNaming namesNoMember(::mlir::Type self);
 
 // The default of IndexedTypeInterface::scopeHoldsParts.
 bool scopeHoldsEveryPart(::mlir::Type self);
