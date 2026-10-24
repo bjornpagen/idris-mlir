@@ -1371,3 +1371,22 @@ to L16ev. Waiting:
   would start folding memo reads once a con reaches a family-typed
   value; `idr.cell.init` gives the family type under any option) wait on
   the ruling.
+- From L16ev: the frontend's self-compile passes the boundary with no
+  R-META and then hits the 2 h CPU cap (status 152, 4.6 h wall, 14.5 GB
+  peak, at 0a5e44c5c): the frontend compiling itself is too slow to
+  finish (INT: profile where the time goes, the walk, growth, Emit;
+  L16); the runner's next stop is a growth refusal at
+  `harness/Main.idr:470` (`Ord (a, b)`), likely L16fb's nested-instance
+  class (rerun at HEAD); the checker's `Libraries/Utils/String`
+  workaround can go back to base's trims and parsers (K16); `State.solutionIn`,
+  `Closed.filledIn` and `Keys` read a metavariable by the term's entry
+  (L16fc).
+- From L03ai (34fad9792): `Outputs.idr:360` finds the eliminating trait
+  by comparing `eliminatesOperand`'s name (a typed identity for our traits
+  in `Core/Interfaces.idr`, L03); `MkOp` accepts `ins`/`outs` that differ
+  from its meaning's function (a proof field, L03); the read operand's
+  `i64` and `TakesInt64` are two statements kept in step by a
+  `static_assert` (L03).
+- From L13aa: `families::refines` ignores which function a type appears
+  in, so a constant's attribute's index variables are checked by no walk
+  (hand-written IR only, L04).
