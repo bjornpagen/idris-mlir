@@ -8,11 +8,13 @@
 module IdrisMLIR.Spec.Families.Ops
 
 import IdrisMLIR.Spec.Control.Flow
+import IdrisMLIR.Spec.Control.Matches
 import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Families.Dialect
 import IdrisMLIR.Spec.Families.Types
 import IdrisMLIR.Spec.Lifetimes.Declarations
+import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Tail.Declarations
 
 import Data.Fin
@@ -25,12 +27,6 @@ import Data.Vect
 -- What an operand of ours is
 ------------------------------------------------------------------------------
 
-||| A value of a data type, at any grade: what a match takes apart and a tag
-||| reads.
-export
-dataValue : Predicate
-dataValue = MkPredicate "isDataValue" OnType (brief "a value of a data type, at any grade")
-
 ||| A value of a data type refined to one constructor whose binders it
 ||| determines, at any grade: what a field is a total read of.
 export
@@ -38,15 +34,10 @@ refinedValue : Predicate
 refinedValue = MkPredicate "isRefinedValue" OnType
   (brief "a value of a data type refined to one constructor, at any grade")
 
-||| A value of a numeral family, whose layout is a number.
+||| A value of a numeral family, whose layout is a number, at any grade.
 export
 numeralValue : Predicate
 numeralValue = MkPredicate "isNumeralValue" OnType (brief "a value of a family of numeral shape")
-
-||| A natural, at any grade.
-export
-naturalValue : Predicate
-naturalValue = MkPredicate "isNaturalValue" OnType (brief "a natural, at any grade")
 
 ||| A lifetime a scoped result lives in.
 lifetimeOperand : TypeC
@@ -176,13 +167,14 @@ fieldOp = MkOp
 
 ||| `idr.data.tag`: the constructor of a data value, in [0, n-1] for its n
 ||| declared constructors, an `i64` its result's rule fixes, so no builder
-||| states it; it folds where the type leaves one possible.
+||| states it; it folds where the type leaves one possible. It reads what a
+||| match takes apart, a data value at any grade.
 public export
 tagOp : Op 1 1 0 0
 tagOp = MkOp
   { home = InIdr
   , mnemonic = "data.tag"
-  , ins = [single "value" (SatisfiesType dataValue)]
+  , ins = [single "value" (SatisfiesType matchable)]
   , outs = [result "result" (UpstreamType I64C)]
   , attrs = []
   , regions = []
@@ -308,7 +300,7 @@ numeralToNatOp = MkOp
   { home = InIdr
   , mnemonic = "numeral.to_nat"
   , ins = [single "value" (SatisfiesType numeralValue)]
-  , outs = [result "result" (SatisfiesType naturalValue)]
+  , outs = [result "result" natValue]
   , attrs = []
   , regions = []
   , traits = []
@@ -317,7 +309,7 @@ numeralToNatOp = MkOp
   , speculation = AlwaysSpeculatable
   , stages = Always
   , meaning = HandFolder
-  , verify = VerifiesOp
+  , verify = DeclarationOnly
   , format = Declared
       [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
       , Lit "->", TypeOf (OfGroup (ResultRef 0)) ]
@@ -337,7 +329,7 @@ numeralOfNatOp : Op 1 1 0 0
 numeralOfNatOp = MkOp
   { home = InIdr
   , mnemonic = "numeral.of_nat"
-  , ins = [single "value" (SatisfiesType naturalValue)]
+  , ins = [single "value" natValue]
   , outs = [result "result" (SatisfiesType numeralValue)]
   , attrs = []
   , regions = []
@@ -347,7 +339,7 @@ numeralOfNatOp = MkOp
   , speculation = AlwaysSpeculatable
   , stages = Always
   , meaning = NoFold
-  , verify = VerifiesOp
+  , verify = DeclarationOnly
   , format = Declared
       [ ValueOf (OperandRef 0), AttrDict, Lit ":", TypeOf (OfGroup (OperandRef 0))
       , Lit "->", TypeOf (OfGroup (ResultRef 0)) ]

@@ -12,9 +12,11 @@
 // layout mark: the indices decide what is possible, and the mark how the
 // value is laid out, which a case's refined value shares with what it
 // refines. Then the binders and
-// the fields of a constructor at the type's application. Each type is made
-// through the generated builder, whose storage is complete where the types
-// are defined.
+// the fields of a constructor at the type's application, and whether a
+// value is refined to one constructor whose binders it determines, which
+// the constraints of a field read and a constructor value ask. Each type
+// is made through the generated builder, whose storage is complete where
+// the types are defined.
 
 #include "idr/IR/Families/Families.h"
 #include "idr/IR/Families/FamilyStorage.h"
@@ -252,4 +254,16 @@ std::optional<SmallVector<Type>> DataType::determinedFields(Tag tag) const {
     return std::nullopt;
   return instantiateFields(getGroup(), ctor(tag).fields,
                            termsOf(*binders, ctor(tag).binders.size()));
+}
+
+// A value refined to one constructor whose binders its type determines, at
+// any grade: what a field is a total read of, and what a constructor
+// value builds. Its fields are determined exactly where its binders are,
+// which this asks, so the constraint makes no field type.
+bool idr::isRefinedValue(Type type) {
+  auto data = dyn_cast<DataType>(unrestricted(type));
+  if (!data)
+    return false;
+  std::optional<Tag> tag = data.singleTag();
+  return tag && data.bindersOf(*tag);
 }

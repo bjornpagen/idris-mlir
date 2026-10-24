@@ -11,11 +11,12 @@
 // parameter by its position among the parameters that admit that part, so
 // a write part cannot describe a lifetime, nor an amount a value. Last,
 // the operands a call's callee writes through, which every reader of a
-// call's effects asks. The dialect's inliner rules come first. Each value's
-// text and the row are hooks the specification declares with every other
-// (Generated/Hooks.h.inc), after the classes they name, and a termination
-// proof's text is printed from its members; each value's bytecode is
-// printed from its wire, which reads these classes' members by name.
+// call's effects asks. The dialect's inliner rules come first. The text of
+// each value a generated syntax writes, and the row, are hooks the
+// specification declares with every other (Generated/Hooks.h.inc), after
+// the classes they name, and a termination proof's text is printed from
+// its members; each value's bytecode is printed from its wire, which reads
+// these classes' members by name.
 //
 // It reads types alone (Grades.h, Lifetimes.h), and no op but a call's
 // copy of its callee's write part; what a function's body does and the one

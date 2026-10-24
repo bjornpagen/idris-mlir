@@ -6,12 +6,12 @@
 ||| the copy that first writes a buffer allocated for it, the extent of an
 ||| array to be made and the tie of its dimensions;
 ||| the memory space of mutable memory; the two interfaces the generating
-||| set and the update share; the two hand predicates their operands are
-||| checked by; the skeleton rules on two accesses of one element of
-||| mutable memory: a read and a write its update, a read of a write the
-||| value written, a write overwritten unread gone; and what each function
-||| of the array library that the compiler writes as array operations
-||| means, as a composition of those operations over its arguments.
+||| set and the update share; the skeleton rules on two accesses of one
+||| element of mutable memory: a read and a write its update, a read of a
+||| write the value written, a write overwritten unread gone; and what each
+||| function of the array library that the compiler writes as array
+||| operations means, as a composition of those operations over its
+||| arguments.
 module IdrisMLIR.Spec.Arrays.Declarations
 
 import IdrisMLIR.Spec.Core.Vocabulary
@@ -530,8 +530,6 @@ declarations = MkDeclarations
   , enums = []
   , interfaces = generatingInterfacesDeclared
   , traits = []
-  , directives = []
-  , predicates = [valueBuffer, mutableArray]
   , resources = []
   , helpers = []
   , admitted = tensorAdmitted ++ tensorJoinsAdmitted ++ bufferizationAdmitted ++ memrefAdmitted

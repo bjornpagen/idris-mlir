@@ -9,9 +9,9 @@
 // and the one rule of where a value meets a signature's view by shape
 // compatibility. What an entry names of the signature and of the binders,
 // and where a constant may stand, is the function's verifier's. Their
-// bytecode is printed from their wires; the entries' list, and each
-// entry's position and axis, are written with the hooks the specification
-// declares.
+// bytecode is printed from their wires; the entries' list is written with
+// the hooks the specification declares for the list's generated syntax,
+// and each entry, by its own parser and printer, here.
 
 #include "idr/IR/Func.h"
 #include "idr/IR/IdrDialect.h"
@@ -38,17 +38,21 @@ using namespace idr;
 // Positions
 //===----------------------------------------------------------------------===//
 
+namespace {
+
 // A position in a signature, or an axis of a shape, `1`: the text of the
 // wire an extent's position and axis share, which its entry is written
 // with.
-FailureOr<std::uint32_t> idr::parsePosition(AsmParser &parser) {
+FailureOr<std::uint32_t> parsePosition(AsmParser &parser) {
   std::uint32_t position = 0;
   if (parser.parseInteger(position))
     return failure();
   return position;
 }
 
-void idr::printPosition(AsmPrinter &printer, std::uint32_t position) { printer << position; }
+void printPosition(AsmPrinter &printer, std::uint32_t position) { printer << position; }
+
+} // namespace
 
 //===----------------------------------------------------------------------===//
 // #idr.extent

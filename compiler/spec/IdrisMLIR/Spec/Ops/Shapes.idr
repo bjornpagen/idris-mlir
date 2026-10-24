@@ -126,12 +126,6 @@ rank1ArrayP : Predicate
 rank1ArrayP = predicate "isRank1Array" "an array of mutable memory of one dimension"
 
 public export
-opPredicates : List Predicate
-opPredicates =
-  [ strReadP, strValueP, strStaticP, bigReadP, bigValueP, natReadP, natValueP, bigOrNatReadP
-  , bigOrNatValueP, bigOrNatStaticP, charListP, strListP, byteBufferP, rank1ArrayP ]
-
-public export
 strRead : TypeC
 strRead = SatisfiesType strReadP
 

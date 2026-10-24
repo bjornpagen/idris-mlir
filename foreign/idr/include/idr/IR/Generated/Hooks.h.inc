@@ -23,21 +23,13 @@ template <typename E>
 ::mlir::ParseResult parseFields(::mlir::OpAsmParser &parser, ::llvm::SmallVectorImpl<::mlir::OpAsmParser::UnresolvedOperand> &, ::llvm::SmallVectorImpl<::mlir::Type> &);
 void printFields(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::OperandRange, ::mlir::TypeRange);
 
-// the fields a cell's init writes, and its holes
-::mlir::ParseResult parseFieldsWithHoles(::mlir::OpAsmParser &parser, ::llvm::SmallVectorImpl<::mlir::OpAsmParser::UnresolvedOperand> &, ::llvm::SmallVectorImpl<::mlir::Type> &, ::mlir::DenseI32ArrayAttr &);
-void printFieldsWithHoles(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::OperandRange, ::mlir::TypeRange, ::mlir::DenseI32ArrayAttr);
-
-// a dup's result, counted unless written
-::mlir::ParseResult parseCountedResult(::mlir::OpAsmParser &parser, ::mlir::Type &, ::mlir::Type);
-void printCountedResult(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type, ::mlir::Type);
+// a view lifetime, written as nothing
+::mlir::ParseResult parseViewLifetime(::mlir::OpAsmParser &parser, ::mlir::Type &);
+void printViewLifetime(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type);
 
 // a result of its operand's type, written once
 ::mlir::ParseResult parseSameType(::mlir::OpAsmParser &parser, ::mlir::Type &, ::mlir::Type);
 void printSameType(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type, ::mlir::Type);
-
-// a view lifetime, written as nothing
-::mlir::ParseResult parseViewLifetime(::mlir::OpAsmParser &parser, ::mlir::Type &);
-void printViewLifetime(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type);
 
 // a room lifetime, written as nothing
 ::mlir::ParseResult parseRoomLifetime(::mlir::OpAsmParser &parser, ::mlir::Type &);
@@ -51,17 +43,25 @@ void printResultTypes(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::ml
 ::mlir::ParseResult parseMatchCases(::mlir::OpAsmParser &parser, ::mlir::Type, ::mlir::DenseI32ArrayAttr &, ::llvm::SmallVectorImpl<std::unique_ptr<::mlir::Region>> &);
 void printMatchCases(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type, ::mlir::DenseI32ArrayAttr, ::llvm::MutableArrayRef<::mlir::Region>);
 
-// each case: its literal and its region
-::mlir::ParseResult parseLiteralCases(::mlir::OpAsmParser &parser, ::mlir::Type, ::mlir::ArrayAttr &, ::llvm::SmallVectorImpl<std::unique_ptr<::mlir::Region>> &);
-void printLiteralCases(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type, ::mlir::ArrayAttr, ::llvm::MutableArrayRef<::mlir::Region>);
-
 // the default and what it binds, when it runs
 ::mlir::ParseResult parseDefaultCase(::mlir::OpAsmParser &parser, ::mlir::Region &);
 void printDefaultCase(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Region &);
 
+// each case: its literal and its region
+::mlir::ParseResult parseLiteralCases(::mlir::OpAsmParser &parser, ::mlir::Type, ::mlir::ArrayAttr &, ::llvm::SmallVectorImpl<std::unique_ptr<::mlir::Region>> &);
+void printLiteralCases(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type, ::mlir::ArrayAttr, ::llvm::MutableArrayRef<::mlir::Region>);
+
+// a dup's result, counted unless written
+::mlir::ParseResult parseCountedResult(::mlir::OpAsmParser &parser, ::mlir::Type &, ::mlir::Type);
+void printCountedResult(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type, ::mlir::Type);
+
 // a share's result, the value with its claim forgotten unless written
 ::mlir::ParseResult parseShared(::mlir::OpAsmParser &parser, ::mlir::Type &, ::mlir::Type);
 void printShared(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::Type, ::mlir::Type);
+
+// the fields a cell's init writes, and its holes
+::mlir::ParseResult parseFieldsWithHoles(::mlir::OpAsmParser &parser, ::llvm::SmallVectorImpl<::mlir::OpAsmParser::UnresolvedOperand> &, ::llvm::SmallVectorImpl<::mlir::Type> &, ::mlir::DenseI32ArrayAttr &);
+void printFieldsWithHoles(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::OperandRange, ::mlir::TypeRange, ::mlir::DenseI32ArrayAttr);
 
 // an init's result, what it infers unless written
 ::mlir::ParseResult parseCellResult(::mlir::OpAsmParser &parser, ::mlir::Type &, ::mlir::Type, ::mlir::TypeRange, ::mlir::DenseI32ArrayAttr);
@@ -71,26 +71,20 @@ void printCellResult(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mli
 ::mlir::ParseResult parseCellDests(::mlir::OpAsmParser &parser, ::llvm::SmallVectorImpl<::mlir::Type> &, ::mlir::Type, ::mlir::DenseI32ArrayAttr);
 void printCellDests(::mlir::OpAsmPrinter &printer, ::mlir::Operation *op, ::mlir::TypeRange, ::mlir::Type, ::mlir::DenseI32ArrayAttr);
 
-// a value of a data type, at any grade
-bool isDataValue(::mlir::Type value);
-
 // a value of a data type refined to one constructor, at any grade
 bool isRefinedValue(::mlir::Type value);
+
+// a value of a data type, at any grade
+bool isMatchable(::mlir::Type value);
 
 // a value of a family of numeral shape
 bool isNumeralValue(::mlir::Type value);
 
-// a natural, at any grade
-bool isNaturalValue(::mlir::Type value);
-
-// a lifetime something may allocate into
-bool admitsPuts(::mlir::Type value);
+// a natural at any grade, of any index term
+bool isNatValue(::mlir::Type value);
 
 // a cursor lifetime
 bool isCursorLifetime(::mlir::Type value);
-
-// a room lifetime
-bool isRoomLifetime(::mlir::Type value);
 
 // a view lifetime
 bool isViewLifetime(::mlir::Type value);
@@ -98,8 +92,11 @@ bool isViewLifetime(::mlir::Type value);
 // a tensor or a buffer that holds references, at any grade
 bool isLendable(::mlir::Type value);
 
-// a value of a data type, at any grade
-bool isMatchable(::mlir::Type value);
+// a room lifetime
+bool isRoomLifetime(::mlir::Type value);
+
+// a lifetime something may allocate into
+bool admitsPuts(::mlir::Type value);
 
 // a value of a type with literals that is no condition, at any grade
 bool isMatchedLiteral(::mlir::Type value);
@@ -110,26 +107,11 @@ bool isValueBuffer(::mlir::Type value);
 // an array of mutable memory, at any grade
 bool isArray(::mlir::Type value);
 
-// a string, used any number of times, read in place
-bool isStrRead(::mlir::Type value);
-
-// a string at any grade
-bool isStrValue(::mlir::Type value);
-
-// a string held static, used any number of times
-bool isStrStatic(::mlir::Type value);
-
-// an Integer, used any number of times, read in place
-bool isBigRead(::mlir::Type value);
-
-// an Integer at any grade
-bool isBigValue(::mlir::Type value);
-
 // a natural, used any number of times, read in place
 bool isNatRead(::mlir::Type value);
 
-// a natural at any grade, of any index term
-bool isNatValue(::mlir::Type value);
+// a string held static, used any number of times
+bool isStrStatic(::mlir::Type value);
 
 // an Integer or a natural, read in place
 bool isBigOrNatRead(::mlir::Type value);
@@ -137,8 +119,20 @@ bool isBigOrNatRead(::mlir::Type value);
 // an Integer or a natural at any grade
 bool isBigOrNatValue(::mlir::Type value);
 
+// an Integer, used any number of times, read in place
+bool isBigRead(::mlir::Type value);
+
+// an Integer at any grade
+bool isBigValue(::mlir::Type value);
+
 // an Integer or a natural held static, used any number of times
 bool isBigOrNatStatic(::mlir::Type value);
+
+// a string at any grade
+bool isStrValue(::mlir::Type value);
+
+// a string, used any number of times, read in place
+bool isStrRead(::mlir::Type value);
 
 // a list of characters, read in place
 bool isListOfChars(::mlir::Type value);
@@ -146,11 +140,11 @@ bool isListOfChars(::mlir::Type value);
 // a list of strings, read in place
 bool isListOfStrings(::mlir::Type value);
 
-// a buffer of bytes, an array of mutable memory of i8 of one dimension
-bool isByteBuffer(::mlir::Type value);
-
 // an array of mutable memory of one dimension
 bool isRank1Array(::mlir::Type value);
+
+// a buffer of bytes, an array of mutable memory of i8 of one dimension
+bool isByteBuffer(::mlir::Type value);
 
 // a value its count frees
 bool isCountedValue(::mlir::Type value);
@@ -158,20 +152,20 @@ bool isCountedValue(::mlir::Type value);
 // a value used any number of times
 bool isUsedMany(::mlir::Type value);
 
+// a value that holds references
+bool isHeldValue(::mlir::Type value);
+
 // a counted value refined to a constructor with a cell
 bool isTakeable(::mlir::Type value);
+
+// a reuse token, used once
+bool isTokenValue(::mlir::Type value);
 
 // a counted value refined to a constructor with a cell that holds an array
 bool isTakeableWithArrays(::mlir::Type value);
 
 // a value refined to a constructor held in place
 bool isUnpackable(::mlir::Type value);
-
-// a reuse token, used once
-bool isTokenValue(::mlir::Type value);
-
-// a value that holds references
-bool isHeldValue(::mlir::Type value);
 
 // a closure, at any grade
 bool isClosureType(::mlir::Type value);
@@ -197,48 +191,19 @@ bool isMemoState(::mlir::Type value);
 // The default of GuardOpInterface::getGuarded.
 ::mlir::Value guardedOperand(::mlir::Operation *self);
 
-::mlir::FailureOr<::idr::FamilyAttr> parseFamilyRef(::mlir::AsmParser &parser);
-void printFamilyRef(::mlir::AsmPrinter &printer, ::idr::FamilyAttr value);
-
-::mlir::FailureOr<uint32_t> parseMemberPosition(::mlir::AsmParser &parser);
-void printMemberPosition(::mlir::AsmPrinter &printer, uint32_t value);
-
-::mlir::FailureOr<::llvm::SmallVector<::idr::families::TermNode>> parseIndexTerms(::mlir::AsmParser &parser);
-void printIndexTerms(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::families::TermNode> value);
-
-::mlir::FailureOr<::mlir::DenseI32ArrayAttr> parseRefinement(::mlir::AsmParser &parser);
-void printRefinement(::mlir::AsmPrinter &printer, ::mlir::DenseI32ArrayAttr value);
+::llvm::hash_code hash_value(const ::idr::InComponent &value);
 
 ::mlir::FailureOr<::idr::LifetimeKind> parseLifetimeKind(::mlir::AsmParser &parser);
 void printLifetimeKind(::mlir::AsmPrinter &printer, ::idr::LifetimeKind value);
 
-::llvm::hash_code hash_value(const ::idr::InComponent &value);
 ::mlir::FailureOr<::idr::InComponent> parseProof(::mlir::AsmParser &parser);
 void printProof(::mlir::AsmPrinter &printer, ::idr::InComponent value);
 
 ::mlir::FailureOr<::llvm::SmallVector<::idr::PutBound>> parsePutBounds(::mlir::AsmParser &parser);
 void printPutBounds(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::PutBound> value);
 
-::mlir::FailureOr<::llvm::SmallVector<::idr::LivesIn>> parseLivesInEntries(::mlir::AsmParser &parser);
-void printLivesInEntries(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::LivesIn> value);
-
-::mlir::FailureOr<::llvm::SmallVector<::idr::Outlives>> parseOutlivesBounds(::mlir::AsmParser &parser);
-void printOutlivesBounds(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::Outlives> value);
-
-::mlir::FailureOr<uint32_t> parsePosition(::mlir::AsmParser &parser);
-void printPosition(::mlir::AsmPrinter &printer, uint32_t value);
-
 ::mlir::FailureOr<::llvm::SmallVector<::idr::ExtentAttr>> parseExtentEntries(::mlir::AsmParser &parser);
 void printExtentEntries(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::ExtentAttr> value);
-
-::mlir::FailureOr<::llvm::ArrayRef<::idr::families::Member>> parseMembers(::mlir::AsmParser &parser);
-void printMembers(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::families::Member> value);
-
-::mlir::FailureOr<::llvm::SmallVector<::idr::families::Sort>> parseSorts(::mlir::AsmParser &parser);
-void printSorts(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::families::Sort> value);
-
-::mlir::FailureOr<::idr::DataType> parseDataRef(::mlir::AsmParser &parser);
-void printDataRef(::mlir::AsmPrinter &printer, ::idr::DataType value);
 
 ::mlir::FailureOr<::mlir::FlatSymbolRefAttr> parseCalleeRef(::mlir::AsmParser &parser);
 void printCalleeRef(::mlir::AsmPrinter &printer, ::mlir::FlatSymbolRefAttr value);

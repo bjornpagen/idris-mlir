@@ -103,15 +103,11 @@ Speculation::Speculatability DataConOp::getSpeculatability() {
   return Speculation::Speculatable;
 }
 
-// The result is refined to one constructor, which its type determines the
-// binders of; the fields given are that constructor's at that application,
-// each filling its field.
+// The fields given are the constructor's its result is refined to, at that
+// application, each filling its field: the result's constraint holds it to
+// one constructor whose binders its type determines (isRefinedValue).
 LogicalResult DataConOp::verify() {
   DataType data = getDataType();
-  if (!data)
-    return emitOpError("builds ") << getResult().getType()
-                                  << ", which is refined to no one constructor whose binders it "
-                                  << "determines";
   SmallVector<Type> fields = *data.determinedFields(getTag());
   if (getFields().size() != fields.size())
     return emitOpError("expects ") << fields.size() << " fields";

@@ -567,8 +567,6 @@ declarations =
            , SomeOp matchUnique, SomeOp cellNew, SomeOp cellInit, SomeOp cellRecycle
            , SomeOp tokenFree, SomeOp tokenNull, SomeOp tokenRebuild, SomeOp adopt, SomeOp give ]
   , types := [SomeType cellType, SomeType reuseTokenType]
-  , directives := [sharedDirective, cellResultDirective, cellDestsDirective]
-  , predicates := [countedValue, usedMany, takeable, takeableWithArrays, unpackable, tokenValue, heldValue]
   , interfaces := [reuseSourceInterface, reuseSinkInterface]
   , traits := [endsOwner]
   } nothing

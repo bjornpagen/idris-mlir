@@ -1,10 +1,12 @@
 -- SPDX-License-Identifier: 0BSD
 -- Copyright (c) 2026 Bjorn Pagen
 ||| What one area of the dialect declares: its ops, types, attributes,
-||| enums, interfaces and traits, custom directives and hand
-||| predicates, the resources of the effect tree, the runtime's helper
-||| functions, the admitted upstream ops it reads, its rules, and the
-||| headers of constants its hand C++ includes. Each area
+||| enums, interfaces and traits, the resources of the effect tree, the
+||| runtime's helper functions, the admitted upstream ops it reads, its
+||| rules, and the headers of constants its hand C++ includes. The custom
+||| directives and hand predicates its ops name are no list of their own:
+||| the hooks' header reads each off the format or constraint that calls
+||| it. Each area
 ||| of the specification exports one value of this from its directory's
 ||| `Declarations` module (`IdrisMLIR.Spec.<Area>.Declarations`), and the
 ||| dialect is their union in the specification's root, in a fixed order:
@@ -34,8 +36,6 @@ record Declarations where
   enums : List EnumDef
   interfaces : List InterfaceDef
   traits : List TraitDef
-  directives : List Directive
-  predicates : List Predicate
   resources : List ResourceDef
   helpers : List RuntimeHelper
   admitted : List Admitted
@@ -47,7 +47,7 @@ record Declarations where
 ||| fields given.
 public export
 nothing : Declarations
-nothing = MkDeclarations [] [] [] [] [] [] [] [] [] [] [] [] [] []
+nothing = MkDeclarations [] [] [] [] [] [] [] [] [] [] [] []
 
 ||| Two areas' declarations together, the first's first.
 public export
@@ -55,7 +55,7 @@ union : Declarations -> Declarations -> Declarations
 union x y = MkDeclarations
   (x.ops ++ y.ops) (x.types ++ y.types) (x.attributes ++ y.attributes)
   (x.enums ++ y.enums) (x.interfaces ++ y.interfaces)
-  (x.traits ++ y.traits) (x.directives ++ y.directives) (x.predicates ++ y.predicates)
+  (x.traits ++ y.traits)
   (x.resources ++ y.resources) (x.helpers ++ y.helpers) (x.admitted ++ y.admitted)
   (x.rewrites ++ y.rewrites) (x.skeleton ++ y.skeleton) (x.headers ++ y.headers)
 

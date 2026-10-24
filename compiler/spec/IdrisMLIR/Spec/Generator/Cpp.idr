@@ -1316,23 +1316,100 @@ predicateDecl p =
                   OnType => "::mlir::Type"
   in slashComment [lineText p.doc.summary] ++ ["bool " ++ identText p.name ++ "(" ++ subject ++ " value);", ""]
 
-||| A wired value's parser and printer of its text, and, for one spelled
-||| by its members, the hash its storage keys by: their definitions are a
+||| The hash a wired value spelled by its members is keyed by in its
+||| storage, whatever its syntax: printed from the wire beside its bytecode
+||| (Generated/Wire.cpp.inc).
+export
+hashDecl : (Wired, Directive) -> Lines
+hashDecl (WiredOf c, _) = case spellingOf c of
+  ByMembers _ => ["::llvm::hash_code hash_value(const " ++ codeText (compositeCpp c) ++ " &value);", ""]
+  ByHand => []
+hashDecl (WiredArray _, _) = []
+hashDecl (WiredOne _, _) = []
+
+||| A wired value's parser and printer of its text, which a declarative
+||| syntax's generated parser and printer call: their definitions are a
 ||| hand unit's, or, for one spelled by its members, printed from the wire
-||| beside its bytecode (Generated/Wire.cpp.inc). An array is parsed into
-||| the vector that owns its elements, and printed from its view.
+||| beside its bytecode. An array is parsed into the vector that owns its
+||| elements, and printed from its view.
 export
 textCodecDecls : (Wired, Directive) -> Lines
 textCodecDecls (w, d) =
-  hashDecl w
-  ++ [ "::mlir::FailureOr<" ++ wiredParsed w ++ "> parse" ++ identText d.name ++ "(::mlir::AsmParser &parser);"
-     , "void print" ++ identText d.name ++ "(::mlir::AsmPrinter &printer, " ++ wiredHeld w ++ " value);", "" ]
+  [ "::mlir::FailureOr<" ++ wiredParsed w ++ "> parse" ++ identText d.name ++ "(::mlir::AsmParser &parser);"
+  , "void print" ++ identText d.name ++ "(::mlir::AsmPrinter &printer, " ++ wiredHeld w ++ " value);", "" ]
+
+mutual
+  ||| The hand predicates a type constraint calls, in its order.
+  typePredicates : TypeC -> List Predicate
+  typePredicates (UpstreamType _) = []
+  typePredicates (OurType _) = []
+  typePredicates (AnyOfTypes (t ::: ts) _) = typePredicates t ++ restPredicates ts
+  typePredicates (AllOfTypes (t ::: ts) _) = typePredicates t ++ restPredicates ts
+  typePredicates (SatisfiesType p) = [p]
+  typePredicates (OurTypeSatisfying _ p) = [p]
+
+  restPredicates : List TypeC -> List Predicate
+  restPredicates [] = []
+  restPredicates (t :: ts) = typePredicates t ++ restPredicates ts
+
+||| The hand predicates an attribute constraint calls.
+attrPredicates : AttrC -> List Predicate
+attrPredicates (UpstreamAttr _) = []
+attrPredicates (OurAttr _) = []
+attrPredicates (EnumAttrOf _) = []
+attrPredicates (TypeAttrOf t) = typePredicates t
+attrPredicates (Confined base _) = attrPredicates base
+attrPredicates (SatisfiesAttr p) = [p]
+
+||| The hand predicates an op's constraints call: its operands', its
+||| results' and its attributes'.
+predicatesOf : AnyOp -> List Predicate
+predicatesOf (SomeOp op) =
+  concatMap (\x => typePredicates x.type) (toList op.ins)
+  ++ concatMap (\y => typePredicates y.type) (toList op.outs)
+  ++ concatMap ofAttr (toList op.attrs)
   where
-    hashDecl : Wired -> Lines
-    hashDecl (WiredOf c) = case spellingOf c of
-      ByMembers _ => ["::llvm::hash_code hash_value(const " ++ codeText (compositeCpp c) ++ " &value);"]
-      ByHand => []
-    hashDecl _ = []
+    ofAttr : Attr -> List Predicate
+    ofAttr x = case x.kind of
+      AnAttribute c _ => attrPredicates c
+      AProperty _ => []
+
+mutual
+  ||| The custom directives a format's items name, in their order.
+  itemsDirectives : List (Item i o a r) -> List Directive
+  itemsDirectives [] = []
+  itemsDirectives (x :: xs) = itemDirectives x ++ itemsDirectives xs
+
+  itemDirectives : Item i o a r -> List Directive
+  itemDirectives (Custom d _) = [d]
+  itemDirectives (OptionalGroup before anchor after) =
+    itemsDirectives before ++ itemDirectives anchor ++ itemsDirectives after
+  itemDirectives (Lit _) = []
+  itemDirectives (ValueOf _) = []
+  itemDirectives (TypeOf _) = []
+  itemDirectives (QualifiedTypeOf _) = []
+  itemDirectives (FunctionalType _ _) = []
+  itemDirectives AttrDict = []
+  itemDirectives AttrDictWithKeyword = []
+  itemDirectives PropDict = []
+  itemDirectives Regions = []
+
+||| The custom directives an op's format names: none of a hand format,
+||| whose parser and printer are its own.
+directivesOf : AnyOp -> List Directive
+directivesOf (SomeOp op) = case op.format of
+  Declared items => itemsDirectives items
+  HandFormat => []
+
+||| The custom directives the ops' formats name, each once, by the name its
+||| hooks are declared under, in first use's order.
+directivesUsed : List AnyOp -> List Directive
+directivesUsed ops = nubBy (\x, y => x.name == y.name) (concatMap directivesOf ops)
+
+||| The predicates the ops' constraints call, each once, by the name it is
+||| declared under, in first use's order.
+predicatesUsed : List AnyOp -> List Predicate
+predicatesUsed ops = nubBy (\x, y => x.name == y.name) (concatMap predicatesOf ops)
 
 ||| Every hand property the ops hold, once per directive: its class and its
 ||| directive.
@@ -1425,17 +1502,23 @@ defaultsHeader is =
   header "Defaults" ["\"mlir/IR/Attributes.h\"", "\"mlir/IR/Types.h\"", "<cstdint>", "<optional>"]
     (inNamespace "idr" (delegatesAt BeforeValues is))
 
-||| The declarations of every hand hook the specification names: custom
-||| directives, predicates, parameter codecs, property hooks and the
-||| functions the op interfaces' defaults call. Their definitions are hand
-||| C++; a missing one is a link error.
+||| The declarations of every hand hook generated code calls, each read off
+||| what calls it, so none is declared that nothing calls and none is
+||| called undeclared: the custom directives the ops' formats name, the
+||| predicates their constraints call, the property hooks of their hand
+||| properties, the functions the op interfaces' defaults call, the hash
+||| a wired value spelled by its members is keyed by, the text of each
+||| wired value a declarative syntax names, and the check the stage trait
+||| calls. Their definitions are hand C++; a missing one is a link error.
 export
-hooksHeader : List Directive -> List Predicate -> List InterfaceDef -> List AnyTypeDef -> List AnyAttrDef
-           -> List AnyOp -> Lines
-hooksHeader ds ps is ts as ops =
+hooksHeader : List InterfaceDef -> List AnyTypeDef -> List AnyAttrDef -> List AnyOp -> Lines
+hooksHeader is ts as ops =
   header "Hooks" ["\"mlir/Bytecode/BytecodeImplementation.h\"", "\"mlir/IR/OpImplementation.h\"", "\"llvm/ADT/Hashing.h\"", "<memory>", "<optional>"]
-    (inNamespace "idr" (enumReader ++ concatMap directiveDecls ds ++ concatMap predicateDecl ps
-                        ++ delegatesAt AfterValues is ++ concatMap textCodecDecls (wiredOf ts as)
+    (inNamespace "idr" (enumReader
+                        ++ concatMap directiveDecls (directivesUsed ops)
+                        ++ concatMap predicateDecl (predicatesUsed ops)
+                        ++ delegatesAt AfterValues is ++ concatMap hashDecl (wiredOf ts as)
+                        ++ concatMap textCodecDecls (textWiredOf ts as)
                         ++ concatMap propertyDecls (propertiesOf ops) ++ legalAt))
   where
     enumReader : Lines

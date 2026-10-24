@@ -33,8 +33,11 @@ llvm::hash_code idr::hash_value(const Outlives &bound) {
   return llvm::hash_combine(bound.longer, bound.shorter);
 }
 
-// The entries' text, `(2 in 0, 3 in 0)`; their bytecode is their wire's.
-FailureOr<SmallVector<LivesIn>> idr::parseLivesInEntries(AsmParser &parser) {
+namespace {
+
+// The entries' text, `(2 in 0, 3 in 0)`, which the attribute's own parser
+// and printer read and write; their bytecode is their wire's.
+FailureOr<SmallVector<LivesIn>> parseLivesInEntries(AsmParser &parser) {
   SmallVector<LivesIn> entries;
   if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, [&]() -> ParseResult {
         LivesIn entry{};
@@ -48,7 +51,7 @@ FailureOr<SmallVector<LivesIn>> idr::parseLivesInEntries(AsmParser &parser) {
   return entries;
 }
 
-void idr::printLivesInEntries(AsmPrinter &printer, ArrayRef<LivesIn> entries) {
+void printLivesInEntries(AsmPrinter &printer, ArrayRef<LivesIn> entries) {
   printer << '(';
   llvm::interleaveComma(entries, printer,
                         [&](LivesIn entry) { printer << entry.value << " in " << entry.lifetime; });
@@ -56,7 +59,7 @@ void idr::printLivesInEntries(AsmPrinter &printer, ArrayRef<LivesIn> entries) {
 }
 
 // The bounds' text, `(0 >= 1)`; their bytecode is their wire's.
-FailureOr<SmallVector<Outlives>> idr::parseOutlivesBounds(AsmParser &parser) {
+FailureOr<SmallVector<Outlives>> parseOutlivesBounds(AsmParser &parser) {
   SmallVector<Outlives> bounds;
   if (parser.parseCommaSeparatedList(AsmParser::Delimiter::Paren, [&]() -> ParseResult {
         Outlives bound{};
@@ -70,13 +73,15 @@ FailureOr<SmallVector<Outlives>> idr::parseOutlivesBounds(AsmParser &parser) {
   return bounds;
 }
 
-void idr::printOutlivesBounds(AsmPrinter &printer, ArrayRef<Outlives> bounds) {
+void printOutlivesBounds(AsmPrinter &printer, ArrayRef<Outlives> bounds) {
   printer << '(';
   llvm::interleaveComma(bounds, printer, [&](const Outlives &bound) {
     printer << bound.longer << " >= " << bound.shorter;
   });
   printer << ')';
 }
+
+} // namespace
 
 //===----------------------------------------------------------------------===//
 // #idr.lives_in

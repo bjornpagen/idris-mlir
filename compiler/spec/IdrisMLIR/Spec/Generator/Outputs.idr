@@ -490,7 +490,7 @@ generate =
      , (generated "SkeletonRules.h.inc", render (skeletonRulesHeader declarations.skeleton))
      , (generated "Rewrites.h.inc", render (rewritesHeader declarations.rewrites ourOps declarations.admitted declarations.skeleton))
      , (generated "Laws.h.inc", render (lawsHeader ourOps declarations.admitted))
-     , (generated "Hooks.h.inc", render (hooksHeader declarations.directives declarations.predicates declarations.interfaces declarations.types declarations.attributes ourOps))
+     , (generated "Hooks.h.inc", render (hooksHeader declarations.interfaces declarations.types declarations.attributes ourOps))
      , (generated "Pipeline.h.inc", render (pipelineHeader (fst (stepsOf Higher [] pipeline))))
      , (generated "ApplyGroups.h.inc", render (applyGroupsHeader (groupsOf Higher pipeline)))
      , (generated "Actions.h.inc", render (actionsHeader everyAction))

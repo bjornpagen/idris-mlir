@@ -62,16 +62,48 @@ wiredOfKind _ = []
 paramsOf : List AnyTypeDef -> List AnyAttrDef -> List Parameter
 paramsOf ts as = concatMap (\(SomeType t) => toList t.params) ts ++ concatMap (\(SomeAttr a) => toList a.params) as
 
-||| Every wired parameter of the dialect's types and attributes, once per
-||| directive, in first use's order: one codec each.
-export
-wiredOf : List AnyTypeDef -> List AnyAttrDef -> List (Wired, Directive)
-wiredOf ts as = once [] (concatMap (\x => wiredOfKind x.kind) (paramsOf ts as))
+||| The wired values of `ps`, once per directive, in first use's order.
+wiredOnce : List Parameter -> List (Wired, Directive)
+wiredOnce ps = once [] (concatMap (\x => wiredOfKind x.kind) ps)
   where
     once : List Ident -> List (Wired, Directive) -> List (Wired, Directive)
     once _ [] = []
     once seen ((w, d) :: rest) =
       if elem d.name seen then once seen rest else (w, d) :: once (d.name :: seen) rest
+
+||| Every wired parameter of the dialect's types and attributes, once per
+||| directive, in first use's order: one codec each.
+export
+wiredOf : List AnyTypeDef -> List AnyAttrDef -> List (Wired, Directive)
+wiredOf ts as = wiredOnce (paramsOf ts as)
+
+mutual
+  ||| The parameters a declarative syntax's items name, in their order.
+  namedParams : Vect p Parameter -> List (ParamItem p) -> List Parameter
+  namedParams _ [] = []
+  namedParams ps (x :: xs) = itemParams ps x ++ namedParams ps xs
+
+  itemParams : Vect p Parameter -> ParamItem p -> List Parameter
+  itemParams _ (Keyword _) = []
+  itemParams ps (ParamAt k) = [index k ps]
+  itemParams ps (OptionalParams _ a after) = index a ps :: namedParams ps after
+
+||| The parameters a syntax names: a declarative one's, which the
+||| generated parser and printer read and write by their codecs' text; none
+||| of one written by hand, whose own parser and printer call no codec.
+syntaxParams : Vect p Parameter -> Syntax p -> List Parameter
+syntaxParams ps (Declarative items) = namedParams ps items
+syntaxParams _ HandSyntax = []
+
+||| Every wired parameter a declarative syntax names, once per directive,
+||| in first use's order: the codecs whose text is printed, declared or
+||| defined, since a generated parser or printer calls it. A codec only
+||| hand syntaxes hold has a reader and a writer and no text.
+export
+textWiredOf : List AnyTypeDef -> List AnyAttrDef -> List (Wired, Directive)
+textWiredOf ts as =
+  wiredOnce (concatMap (\(SomeType t) => syntaxParams t.params t.syntax) ts
+             ++ concatMap (\(SomeAttr a) => syntaxParams a.params a.syntax) as)
 
 ||| The composites a wired value reaches through the alternatives whose
 ||| stages `enters` takes.
@@ -351,20 +383,28 @@ spellingOf (MkComposite _ _ (Fields (f :: fs)) _) = maybe ByHand ByMembers (trav
     number _ = Nothing
 spellingOf _ = ByHand
 
-||| One composite's hash and text where its members spell it, each its
-||| members' own, its text's hooks named for its directive as its bytecode
-||| is: `component 3`, the hash what its storage keys by.
-spelledCodec : Composite -> Directive -> Lines
-spelledCodec c d = case spellingOf c of
+||| One composite's hash where its members spell it, its members' own: the
+||| hash its storage keys by, whatever its syntax.
+spelledHash : Composite -> Lines
+spelledHash c = case spellingOf c of
+  ByHand => []
+  ByMembers ms =>
+    let cls = codeText (compositeCpp c)
+        names = map identText (forget ms)
+    in [ "::llvm::hash_code hash_value(const " ++ cls ++ " &value) {"
+       , "  return ::llvm::hash_combine(" ++ joinWith ", " (map ("value." ++) names) ++ ");"
+       , "}", "" ]
+
+||| One composite's text where its members spell it, `component 3`, its
+||| hooks named for its directive as its bytecode is.
+spelledText : Composite -> Directive -> Lines
+spelledText c d = case spellingOf c of
   ByHand => []
   ByMembers ms =>
     let cls = codeText (compositeCpp c)
         name = identText d.name
         names = map identText (forget ms)
-    in [ "::llvm::hash_code hash_value(const " ++ cls ++ " &value) {"
-       , "  return ::llvm::hash_combine(" ++ joinWith ", " (map ("value." ++) names) ++ ");"
-       , "}", ""
-       , "::mlir::FailureOr<" ++ cls ++ "> parse" ++ name ++ "(::mlir::AsmParser &parser) {"
+    in [ "::mlir::FailureOr<" ++ cls ++ "> parse" ++ name ++ "(::mlir::AsmParser &parser) {"
        , "  " ++ cls ++ " value{};" ]
        ++ indent 2 (concatMap (\m => returnsOnFailure ("parser.parseKeyword(" ++ quoted m ++ ")")
                                      ++ returnsOnFailure ("parser.parseInteger(value." ++ m ++ ")")) names)
@@ -372,6 +412,12 @@ spelledCodec c d = case spellingOf c of
           , "void print" ++ name ++ "(::mlir::AsmPrinter &printer, " ++ cls ++ " value) {"
           , "  printer << " ++ joinWith " << \" \" << " (map (\m => quoted (m ++ " ") ++ " << value." ++ m) names) ++ ";"
           , "}", "" ]
+
+||| A wired value's text, printed from its members where they spell it.
+wiredText : (Wired, Directive) -> Lines
+wiredText (WiredOf c, d) = spelledText c d
+wiredText (WiredArray _, _) = []
+wiredText (WiredOne _, _) = []
 
 ||| A wired parameter's reader and writer, named for its directive, which
 ||| the printed bytecode records call: an array's values read into what the
@@ -405,16 +451,18 @@ wiredCodec (WiredOf c, d) =
         , "  return read" ++ codecName c ++ "(reader, value);", "}", ""
         , "void write" ++ name ++ "(::mlir::DialectBytecodeWriter &writer, " ++ cls ++ " value) {"
         , "  write" ++ codecName c ++ "(writer, value);", "}", "" ]
-     ++ spelledCodec c d
+     ++ spelledHash c
 
 ||| Every composite's codec, then every wired parameter's, with the hash
-||| and text of one its members spell, as the dialect's bytecode unit
-||| includes them before the readers mlir-tblgen writes: the parts every
-||| codec reads (`Kept`, `keep`, `readCase`, `writeCase`, `readWord32`,
-||| `readLabel`) are that unit's, declared before.
+||| of one its members spell, then the text of each such one a declarative
+||| syntax names, as the dialect's bytecode unit includes them before the
+||| readers mlir-tblgen writes: the parts every codec reads (`Kept`,
+||| `keep`, `readCase`, `writeCase`, `readWord32`, `readLabel`) are that
+||| unit's, declared before.
 export
 wireDefinitions : List AnyTypeDef -> List AnyAttrDef -> Lines
 wireDefinitions ts as =
   banner slashComment
   ++ concatMap compositeCodec (compositesOf (const True) ts as)
   ++ concatMap wiredCodec (wiredOf ts as)
+  ++ concatMap wiredText (textWiredOf ts as)

@@ -886,7 +886,5 @@ declarations =
   , interfaces := [ statesLifetime, statesOuters, opensLifetime, perLevelInterface, derivesLifetime, putsIntoLifetime
                   , lifetimeUseInterface, cursorBinderInterface ]
   , traits := [runsOnce, runsOnceGivingBack, givesLifetime, adoptsCarrier]
-  , directives := [sameType, viewOf, roomOf]
-  , predicates := [putsPredicate, cursorPredicate, roomPredicate, viewPredicate, lendablePredicate]
   , headers := [lifetimesHeader]
   } nothing

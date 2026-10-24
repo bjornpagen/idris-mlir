@@ -216,7 +216,7 @@ def Idr_DataTagOp : Idr_Op<"data.tag", [
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
   ]> {
   let summary = "the constructor tag of a data value";
-  let arguments = (ins Type<CPred<"::idr::isDataValue($_self)">, "a value of a data type, at any grade", "::mlir::Type">:$value);
+  let arguments = (ins Type<CPred<"::idr::isMatchable($_self)">, "a value of a data type, at any grade", "::mlir::Type">:$value);
   let results = (outs I64:$result);
   let assemblyFormat = [{ $value attr-dict `:` type($value) }];
   let hasFolder = 1;
@@ -277,9 +277,8 @@ def Idr_NumeralToNatOp : Idr_Op<"numeral.to_nat", [
   ]> {
   let summary = "a numeral's value as a natural";
   let arguments = (ins Type<CPred<"::idr::isNumeralValue($_self)">, "a value of a family of numeral shape", "::mlir::Type">:$value);
-  let results = (outs Type<CPred<"::idr::isNaturalValue($_self)">, "a natural, at any grade", "::mlir::Type">:$result);
+  let results = (outs Type<CPred<"::idr::isNatValue($_self)">, "a natural at any grade, of any index term", "::mlir::Type">:$result);
   let assemblyFormat = [{ $value attr-dict `:` type($value) `->` type($result) }];
-  let hasVerifier = 1;
   let hasFolder = 1;
   let extraClassDeclaration = [{
     template <::idr::fold::Composite W> static ::std::optional<typename W::Result> meaning(W & where, ::idr::NumeralToNatOp op, ::llvm::ArrayRef<typename W::Operand> constants);
@@ -293,10 +292,9 @@ def Idr_NumeralOfNatOp : Idr_Op<"numeral.of_nat", [
     DeclareOpInterfaceMethods<Idr_FlowOpInterface, ["getFlowEdges"]>
   ]> {
   let summary = "a natural as a numeral, with no range check";
-  let arguments = (ins Type<CPred<"::idr::isNaturalValue($_self)">, "a natural, at any grade", "::mlir::Type">:$value);
+  let arguments = (ins Type<CPred<"::idr::isNatValue($_self)">, "a natural at any grade, of any index term", "::mlir::Type">:$value);
   let results = (outs Type<CPred<"::idr::isNumeralValue($_self)">, "a value of a family of numeral shape", "::mlir::Type">:$result);
   let assemblyFormat = [{ $value attr-dict `:` type($value) `->` type($result) }];
-  let hasVerifier = 1;
 }
 
 def Idr_LinCastOp : Idr_Op<"lin.cast", [

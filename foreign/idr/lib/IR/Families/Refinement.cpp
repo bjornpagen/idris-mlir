@@ -4,8 +4,9 @@
 // type its enclosing refinements make equal to its own, which says by its
 // types whether it gives that value on with no run-time work;
 // idr.index.assume, a region in which an erased equality holds; and the two
-// conversions between a numeral and a natural, the first carrying the bound
-// its operand's type proves into the natural's range. Each op checks here
+// conversions between a numeral and a natural, with what a numeral is,
+// which their constraints ask, the first carrying the bound its operand's
+// type proves into the natural's range. Each op checks here
 // what it says alone; that a cast's two types are equal under the
 // refinements around it is the function's scope walk's, which holds them.
 
@@ -236,20 +237,12 @@ ParseResult IndexAssumeOp::parse(OpAsmParser &parser, OperationState &state) {
 // Numerals
 //===----------------------------------------------------------------------===//
 
-namespace {
-
-// The data type of a numeral value, at any grade.
-DataType numeralOf(Type type) {
+// A value of a family of numeral shape, at any grade, as its declaration's
+// shape says: what a numeral's conversion to a natural reads and its
+// conversion from one gives, which their constraints check.
+bool idr::isNumeralValue(Type type) {
   auto data = dyn_cast<DataType>(unrestricted(type));
-  return data && data.getGroup().shape(data.getMember()) == Shape::Numeral ? data : DataType();
-}
-
-} // namespace
-
-LogicalResult NumeralToNatOp::verify() {
-  if (!numeralOf(getValue().getType()))
-    return emitOpError("reads ") << getValue().getType() << ", which is no numeral";
-  return success();
+  return data && data.getGroup().shape(data.getMember()) == Shape::Numeral;
 }
 
 // At most the largest value the operand's type allows, which the type kept
@@ -261,12 +254,6 @@ void NumeralToNatOp::inferResultRanges(ArrayRef<ConstantIntRanges>,
   ConstantIntRanges proved = idr::ranges::ofType(getValue().getType()).getValue();
   setResultRange(getResult(), idr::ranges::rangeOf(idr::ranges::ofInteger(
                                   proved, idr::numeric::Signedness::Unsigned)));
-}
-
-LogicalResult NumeralOfNatOp::verify() {
-  if (!numeralOf(getType()))
-    return emitOpError("gives ") << getType() << ", which is no numeral";
-  return success();
 }
 
 // The number of a constant numeral's successor layers, read off its runs of
