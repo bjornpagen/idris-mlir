@@ -1319,3 +1319,10 @@ to L16ev. Waiting:
   the scrutinee's constructor without casts (L14ag); `eraseGiven` asks
   `givenSmall` again at each step and CaptureDrops' `eraseRegrades` walks
   the same chain with its own loop (L12: read `throughGrades`' chain once).
+- From L03aj (C137): `scf.index_switch` is admitted at owned though its
+  doc and C204 say nothing before the lowering holds it (bound it to
+  lowered, L09 with L03); narrowing reads `scf.while`/`scf.condition` at
+  owned though nothing of ours writes them before the lowering (dead code,
+  L12); "the frontend writes only ops legal at higher" could be made
+  unrepresentable in the `Admitted` record (L03). The admitted stage
+  fields' cull finding (`audits/p0/cull/verifiers.md`) is resolved.
