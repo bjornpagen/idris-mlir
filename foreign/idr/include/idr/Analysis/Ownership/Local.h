@@ -444,7 +444,7 @@ Entry entryOf(LinCastOp enter, Keeps &&keeps) {
   while (!work.empty()) {
     mlir::OpOperand *use = work.pop_back_val();
     mlir::Operation *owner = use->getOwner();
-    if (alternatives(owner, cast))
+    if (mlir::insideMutuallyExclusiveRegions(owner, cast))
       continue;
     if (!owner->isProperAncestor(cast) && runsAfter(owner, cast))
       return HeldElsewhere{use};

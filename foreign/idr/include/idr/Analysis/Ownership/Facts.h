@@ -285,7 +285,10 @@ inline mlir::Region &regionHolding(mlir::Operation *op, mlir::Operation *inner) 
 // Whether `branch` may enter its region `to` once its region `from` has run:
 // what enters `to`, as the op answers (its predecessors), read back through
 // the regions those stand in until `from` is met. The op itself enters only
-// at its start.
+// at its start. Read here because upstream's walk of an op's region graph
+// is file-local, behind the questions whether a region repeats and whether
+// two ops exclude each other (insideMutuallyExclusiveRegions), and answers
+// no order of two regions.
 inline bool entersAfter(mlir::RegionBranchOpInterface branch, mlir::Region &from,
                         mlir::Region &to) {
   llvm::SmallVector<bool> seen(branch->getNumRegions(), false);
@@ -310,24 +313,6 @@ inline bool entersAfter(mlir::RegionBranchOpInterface branch, mlir::Region &from
   return false;
 }
 
-// Whether ops `a` and `b` never both run in one run of the region branch
-// that holds them in two of its regions: neither region may be entered once
-// the other has run (entersAfter). Read through what enters each region,
-// which counts a jump nested in a region, where upstream's mutual exclusion,
-// reading each region's own terminator alone, finds no way from a join op's
-// body to the region a nested jump enters.
-inline bool alternatives(mlir::Operation *a, mlir::Operation *b) {
-  for (auto branch = a->getParentOfType<mlir::RegionBranchOpInterface>(); branch;
-       branch = branch->getParentOfType<mlir::RegionBranchOpInterface>()) {
-    if (!branch->isProperAncestor(b))
-      continue;
-    mlir::Region &ra = regionHolding(branch.getOperation(), a);
-    mlir::Region &rb = regionHolding(branch.getOperation(), b);
-    return &ra != &rb && !entersAfter(branch, ra, rb) && !entersAfter(branch, rb, ra);
-  }
-  return false;
-}
-
 // Whether `use`, an op, may run after `call` on some path: later in a block
 // that holds the call, anywhere in a region that runs again around it, or
 // in a region of a branch that the branch may enter once the call's region
@@ -339,9 +324,11 @@ inline bool runsAfter(mlir::Operation *use, mlir::Operation *call) {
       if (holder != at)
         return at->isBeforeInBlock(holder);
       // Essential, the ops whose order their regions answer: a region
-      // branch holding the two in two of its regions; otherwise (the use the
-      // op that holds the call, or blocks of one region) only an
-      // alternative is known not to follow.
+      // branch holding the two in two of its regions. Otherwise the use is
+      // the op that holds the call, the call holds the use, the two stand in
+      // two blocks of one region, or `at` is no region branch: no region
+      // branch holds them in two of its regions, so they are no
+      // alternatives, and the use may follow.
       auto branch = llvm::dyn_cast<mlir::RegionBranchOpInterface>(at);
       if (branch && use != at && call != at) {
         mlir::Region &from = regionHolding(at, call);
@@ -349,7 +336,7 @@ inline bool runsAfter(mlir::Operation *use, mlir::Operation *call) {
         if (&from != &to)
           return entersAfter(branch, from, to);
       }
-      return !alternatives(use, call);
+      return true;
     }
     mlir::Operation *parent = at->getParentOp();
     if (parent && repeats(parent) && parent->isAncestor(use))

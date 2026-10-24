@@ -22,6 +22,18 @@ Two readers of ours meet it: the linearity verifier calls
 and bufferization's repetitive-region queries matter for arrays inside
 loops (L09 §1.3.4 U4).
 
+`insideMutuallyExclusiveRegions` meets the second of these across a join
+op's body and the join region a jump nested in the body enters: without
+the patch it sees no edge from the body to that region, and calls an op in
+the body and one in the region mutually exclusive, though the jump runs
+both on one path. Two readers of
+ours ask it there: the in-place rule (`ownership::entryOf`), which would
+skip the jump that hands a value on to the cast entering it, and
+bufferization's `mayRunAfter` (`Bufferize/Releases.cpp`), which would let a
+write in the join region take the buffer a release in the body handed on.
+On upstream's own ops the case has no form: every op an exit lands on
+(`scf.loop`, the test dialect's breakable loop) has one region.
+
 ## Reproduce
 
 `region-graph.mlir` (*read*: no tool of the pin parses `scf.loop`, and the
@@ -45,6 +57,9 @@ Status: carried (2026-10-21); not posted.
   unit test.
 - Upstream test: `isRepetitiveRegion` of `region-graph.mlir`'s loop region
   is true, and of a join op's region reached past a smaller op no read is
-  out of bounds (a unit test over the test dialect's breakable loop).
+  out of bounds (a unit test over the test dialect's breakable loop); and
+  `insideMutuallyExclusiveRegions` of an op in a two-region exit target's
+  first region and one in the region an exit nested in the first enters is
+  false, which needs a test op with two regions that an exit lands on.
 - The patch goes when the pin carries the pull request with this covered;
   if upstream merges another form, D82 decides (65's README).
