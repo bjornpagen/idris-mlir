@@ -2918,6 +2918,26 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   `let`-bound value read and then handed to an in-place rebuild compiles,
   as the language's promise says; refusing it would make the subset
   narrower than the exclusivity rule allows.
+- **C299** (2026-10-24; U04's review, under D64 and AGENTS.md's "a
+  recorded design is reversed only by a dated ruling of the owner"). An
+  exit's status is tested by its guard, `idr.check.byte`, and the crash
+  names the status as D64's message does (`exit status 300 cannot be
+  reported`): the guard's cause states, in the specification's ending
+  table, that its line reads the guarded operand, and the cold path passes
+  that operand to the crash. U04 moved the test into the guard and wrote a
+  fixed line; the line follows D64 again in a follow-up.
+- **C300** (2026-10-24; U07's review, under "a fact is computed once and
+  kept"). Static data are made once, in idr-lower's serial phase 0, into a
+  read-only table every later phase reads; no pass rewrites uses to
+  `llvm.mlir.addressof` ahead of the lowering. A separate pass would hand
+  the lowering a symbol it must look up again, the second reading the
+  table removes.
+- **C301** (2026-10-24; U05's review, under C39). A take fuses with its
+  recycles into `idr.take_into` only where the take's type proves nothing
+  of its sharing: a take proven unique keeps a take and a recycle, which
+  test nothing, so fusing it would add an op and no fact. Where paths part
+  after the match, a null token is still reached; whether those paths are
+  split before counting stays C39's open choice.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
