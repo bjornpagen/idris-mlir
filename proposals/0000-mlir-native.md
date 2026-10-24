@@ -150,7 +150,7 @@ remove a refusal or add one (C §4 #1), against AGENTS.md.
 **What "undo the damage of replacing upstream" became.** Four jobs, not
 a revert (B §1): patch upstream's state storage and measure it, the step
 history skipped; keep upstream's framework where a fact is per value
-inside one function (idr-constants already is, at stage-1 scale); use
+inside one function (narrowing's copy analysis and Ranges are; idr-constants was, until D132); use
 far more of upstream's non-solver machinery (the analysis manager's
 caching, `CallOpInterface` and `scc_iterator`, actions, SCCP's rewrite,
 `OperationEquivalence`); put what upstream has no mechanism for into one
@@ -2844,6 +2844,22 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   primitive's result is needed (`computedWithin` goes); the 429 fixtures'
   instance counts are measured first, and a material loss of sharing comes
   back to the owner.
+- **C290** (2026-10-23; L14ac's stop, under D132, C285 and AGENTS.md's
+  "an op's fold is its meaning, which the e-graph reads"). The folds
+  idr-constants applied that make an attribute or read structure (a
+  constructor's and a closure's construction and their reads, string
+  packing and concatenation, numerals, a big past the small range, the
+  platform, a force, a cast of a cast, tie_shape, a reindex) are each
+  written once over `fold::Where`, as the runtime folds and the guards
+  are: the attribute fold and the e-graph ask the same template. The
+  graph's values gain a constructor constant and a closure constant
+  (a tag with its fields' values, a label with its captures' values),
+  made into `ConAttr` and `ClosureAttr` only at the write-back, so no
+  attribute is made on a worker. A reindex's fold returns its new value
+  and type rather than editing in place. Calling each op's attribute fold
+  from the graph (it makes attributes while the graph is built) and
+  folding only at the write-back (the graph does not know the value until
+  its next run) are refused.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
@@ -3501,7 +3517,7 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   dataflow framework's storage is patched first (P1, carried), and Ranges
   and Borrows are measured on it (bytes per anchor on all four targets,
   the scale fixtures, stage 1); it keeps the per-value solves inside one
-  function: idr-constants, narrowing's Copy, Ranges per function with
+  function: narrowing's Copy, Ranges per function with
   callees-first return and callers-first argument summaries (without them
   it loses today's interprocedural precision, `Ranges.cpp:67`). Returned
   needs no measurement: it is deleted as a re-derivation (C18). Borrows
@@ -6093,7 +6109,7 @@ is settled:
 
 - **Upstream's framework**, its storage patched upstream and measured
   first (bytes per anchor on all four targets), used where a fact is per
-  value inside one function (idr-constants, narrowing's per-loop copy,
+  value inside one function (narrowing's per-loop copy,
   Ranges per function with callees-first return and callers-first
   argument summaries); Returned deleted, its fact carried per result
   field path on the function (C18, C32).

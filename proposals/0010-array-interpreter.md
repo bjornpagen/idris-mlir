@@ -512,8 +512,7 @@ last text at 77eaa5b1), checked against the code there; none of it is
 built unless it says so.
 
 - §13's second question closes on its default for this reason: the folders
-  call the runtime, and constants cross blocks by idr-optimize's
-  `createConstants` over `SummarizedConstantPropagation`
-  (`lib/Analysis/Constants.cpp`; upstream's `sccp` is not in the
-  pipeline). A3 emits `idr.constant` and `arith.constant` arguments.
+  call the runtime, and constants cross blocks by the e-graph's region
+  rules and the callee constants it reads (D132 deleted idr-constants;
+  upstream's `sccp` is not in the pipeline). A3 emits `idr.constant` and `arith.constant` arguments.
 - A5's hooks follow 0009's tileable generating ops.
