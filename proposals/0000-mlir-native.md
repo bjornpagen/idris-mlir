@@ -2983,6 +2983,258 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   literal match on a computed value is decided by folding the key test
   its carrier builds, so which comparison a key uses is stated once, as
   that op.
+- **C310** (2026-10-23; the rederivation plan's carrier C1,
+  `audits/p0/rederive/plan.md`, under C286; for the owner's review)
+  (amended by C298: before counting, a `many` value cast into a
+  quantity-1 position claims where every other use is a read ending
+  before the cast, the claim on the cast's `once` result, asked by
+  idr-in-place). A value Emit builds for one consumer is built at that
+  consumer's uses: a region yield at the uses Emit already passes into
+  the arms, a matched literal or natural scrutinee at its own grade, so
+  the multiplicity Idris proved at the consumer is never dropped. A
+  `many` value's in-place obligation is C298's: the claim on the cast's
+  `once` result, never on the `many` value, so C286 stands.
+  Rejected: Emit grading `once` an ω `let` it sees used once (the sharing report's extension), which would make Emit
+  count uses, an analysis on the Idris side. The function result's grade
+  is C291's. Deletes `flowsLinearly`, Emit's casts of every yield and
+  scrutinee to `many` (`plain`), and idr-in-place's own use walks over
+  `many` values and its writer's grading of them: under C298 the one rule
+  (`ownership::entryOf`, 710b73f10) answers for idr-in-place, the
+  verifier and idr-unique-results alike. Emit's half and `flowsLinearly`
+  landed with C286 (f392a02e4).
+- **C311** (2026-10-23; the rederivation plan's carrier C2, under C75
+  and AGENTS.md's "generate the second copy from the first"; for the
+  owner's review). QTT's product rule is held once: a field of a value
+  used `u` times is used `u * q` times, a verified property of
+  `data.con` generated from the specification's `times`, as
+  `ResultUsesMaxOf` is, and a closure or suspension is `once` exactly
+  when a capture is, its grade made by the generated builder. Emit builds
+  fields at the product and imports the rule (C75: grade rules are typed
+  data, printed to the C++ and imported by Emit). Before it lands, the
+  multiplicities report's soundness note is checked against
+  `LinCastOp::fold`. Deletes `fieldReadOnce` (one `hasOneUse` at its two
+  readers), `LazyForceOp::fold`'s use test (the whole fold goes with
+  `idr.lazy.delay` if K12 lands first), `usedOnce`'s Enter arm and
+  Emit's `holding`, which matched its own printed MLIR types.
+- **C312** (2026-10-23; the rederivation plan's carrier C5, under
+  AGENTS.md's "a fact is computed once and kept" and "a fact that can be
+  numbered once is not recomputed per query", and the families' own
+  statement that layout facts are computed once, when the type is made;
+  for the owner's review). A type's computed facts are kept in its
+  storage: the per-constructor substitution and each field's placement
+  `classify` computes are kept as plain arrays in `LayoutFacts`. Two
+  types' parameters change: a refined data type is checked against its
+  base's stored possible constructors, the full check staying where a
+  type is normalized; and a reuse token carries its cell's size, written
+  by counting from the analysis it has. Deletes `classAt`, the
+  `Unfolding` enum, Repacks' recomputing arms, `solvedBinders`, the
+  second `possibleAt` and `determined` on every get of a refined type,
+  and the whole `Layouts` the program verifier builds per verification
+  of a program holding a recycle. The refined type landed (U08,
+  d73d79c20).
+- **C313** (2026-10-23; the rederivation plan's carrier C7, under
+  AGENTS.md's "nothing else names a resource, reads effects its own way",
+  every reader asking through one query API; for the owner's review).
+  Effects are read through the one query while the row is on our ops:
+  the lowering judges whether a loop may run for ever from each op's row,
+  not from LLVM's `willreturn`, which crash, IO and exit withhold too,
+  nor by counting `idr.may_loop` ops; the specializer's raise asks
+  `mayMoveAcross` whether a consumer may move before the callee, not its
+  own reading of bare row atoms, coarser than the tree. Deletes both
+  second readings and, with them, crash and IO taken for divergence at a
+  loop's latch. Landed: U02 (7b260b721), U03 (112e30705).
+- **C314** (2026-10-23; the rederivation plan's carrier C8, under C64
+  and AGENTS.md's "an analysis lives in the analysis manager and survives
+  every pass that does not change it" and build-time facts "generated
+  from the dialect's Idris specification"; resolves the cull's pipeline
+  7 the other way for `GraphEffect`; for the owner's review). What a pass
+  does to the program graph is declared once, in its specification
+  record's `GraphEffect`, and generated into `StagedPass`: the graph is
+  preserved across a `Keeps` pass and thawed and frozen around an `Edits`
+  pass, as the row writes are placed from `adds`. The records found wrong
+  are corrected (`defunctionalize`, `inline`, `columns`, and tail loops,
+  recorded `Keeps` though it deletes calls). The rows are rewritten by
+  the writer C64 seeds with what changed, its share of compile time
+  measured before any speedup is claimed. Deletes the passes' hand
+  `markAnalysesPreserved` calls, `InlinePass.cpp:64-68`, six to eight of
+  the eight to ten whole-program graph builds per compile, and nine of
+  the twelve full row derivations. The cull's `PassKind` half stands
+  (K04, 6d8120090).
+- **C315** (2026-10-23; the rederivation plan's carrier C9, its interim,
+  under AGENTS.md's "a tail call the compiler fails to make is an
+  internal error, never a silent call"; for the owner's review). Before
+  C294 makes a tail call its own op: idr-trmc's guard, which can never
+  fire, goes, `idr.call`'s verifier deciding after every pass whether a
+  `modulo_context` call has a context the rule admits (U10, ba3606ff2);
+  and the label solve ties a direct tail call's results to its caller's,
+  reading which calls stand at a tail from the body's shape, since every
+  call is `nontail` when it runs and a conversion after the call lost the
+  tail call silently (U09, a3de7d9ea). The verifier's move rides on
+  C294; a self call's destination form is deferred.
+- **C316** (2026-10-23; the rederivation plan's carrier C10 without
+  CB-1, extending C129 under AGENTS.md's "the TTC keeps every fact a
+  reader would otherwise rebuild", its never-line on a block's parent
+  kept as printed text, and "a name is text for a human"; for the owner's
+  review). The checker's TTC keeps what the checker computed. A nested
+  definition's parent is typed, `Nested (parent : Name) (ordinal :
+  Nat)`, and a pattern variable holds its function's name, as `CaseBlock`
+  and `WithBlock` already are, where today another session's entry
+  number is followed into an unrelated definition (CB-8). Each
+  escape-hatch reference and hole the elaborator resolved in a user
+  module is kept beside `pragmaUses` (CB-6). `refersTo`, kept and read by
+  nothing, covers the type's references and is what the boundary reads
+  (CB-5). Deletes the frontend's climb through `Nested` and its
+  whole-program walk inventing parents and ordinals, the profile's
+  re-read and re-lex of every user source, and `termRefs`, `treeRefs`,
+  `patRefs` and `references`. Solved metavariables (CB-1) are the plan's
+  Q5, which waits (C295).
+- **C317** (2026-10-23; the rederivation plan's carrier C11, under C281,
+  C289 and AGENTS.md's "the frontend reads each once, at the boundary,
+  into a typed table"; for the owner's review). What the boundary read
+  once rides in `DefinitionRead`: a definition's type in normal form,
+  which eleven sites normalise again today (CB-3), and its references,
+  which the profile and the growth model read in place of re-decoding and
+  looking up by name (CB-5); the frozen context decodes an entry when it
+  is read, C289's "each definition is read once from the frozen context"
+  (CB-4); `parampos` alone, without `dataParams`' fallback for a case the
+  checker fixed (CB-9); erasure read once, on C281's annotated tree. The
+  array language's snoc field is read from the type constructor's
+  natness, not guessed a numeral, and the family declaration gains no
+  shape field: identity is content, and a field derivable from the
+  declaration is a copy held in step, so the C++'s `shapeOf`, run once
+  per family made, stays. The translation emits the reindex where it
+  reads a variable at a refined type, since the refinement is first known
+  at the case; if it cannot place it without a type-indexed core term,
+  that goes to the owner then. Deletes the re-normalisations, re-decodes
+  and by-name lookups, `dataParams`' fallback, the snoc's guess and
+  Emit's `fitting`.
+- **C318** (2026-10-23; the rederivation plan's carrier C12, under
+  AGENTS.md's "one thing, one representation" and the char conversions'
+  "one meaning in one C++ template", and C75's "a lookup that can miss is
+  a missing index"; for the owner's review). Emit writes the dialect's
+  fact, not its own restatement. Whether a type holds references is the
+  C++'s fact per application: the boundary's `GradedType` builder drops a
+  hold the carrier cannot have, and the array op is chosen in C++ by the
+  element's `holdsReferences`, where Emit's per-group answer writes a
+  hold on a quantity-1 closed `Vect` of words that the verifier refuses.
+  A family reference in `Ty`, `ITerm` and `Sort` is resolved at
+  registration. The Integer-to-Char bound is one op whose meaning is the
+  template's `toChar`. Deletes Emit's per-group "holds references", its
+  thirteen family lookups with their `Nothing` arms (three of them silent
+  fallbacks) and its hand-written scalar bound.
+- **C319** (2026-10-23; the rederivation plan's carrier C13, under
+  AGENTS.md's "what the compiler knows about a program goes into the
+  program as a constant" and its never-line on a known fact written as
+  text to be parsed back, and the dialect's own statement that a closed
+  natural's type is that natural; for the owner's review). A known
+  constant is held at its type: a parameter a key fixes is `!idr.nat<k>`
+  in the instance's signature, a reindex of a constant folds to the
+  constant, and a literal is built at its slot's type; bigs cross between
+  `APInt` and the runtime as words, never as decimal text;
+  `ranges::ofType` seeds the e-graph's leaves as it seeds Ranges; a
+  numeral constant is held as its number. Which of the type and the
+  `#idr.big` attribute stops holding a closed natural's value is
+  deferred. Deletes a keyed copy's predecessor chain computed at run
+  time, the decimal round trips and `numeralValue`'s walk of successor
+  cells. The bigs landed (U06, bb0f7384e; U07, a8d860583).
+- **C320** (2026-10-23; the rederivation plan's carrier C14, under
+  AGENTS.md's "a name is text for a human ... a missing type" and
+  upstream first; for the owner's review). Identities at the module
+  boundary are typed: an op's properties are carried by position in
+  MLIR's own property encoding, the op number from the specification's
+  op index, not written by name and string-compared back per op per
+  compile; a type names its family group by a `FamilyId` numbered once,
+  not by carrying the group's whole attribute; an instance symbol's
+  discriminator is a function of its link. Deletes the name-keyed
+  property path and its name literals, MLIR's per-op ladders and
+  dictionary sort at run time, the walk of a group's closure at every
+  type occurrence, `keyLinks` and `sameName`. U11 (3f8ff9726) landed the
+  group and deleted `OpIndex.h.inc`, which nothing read; the properties
+  have not landed.
+- **C321** (2026-10-23; the rederivation plan's carrier C15, under
+  AGENTS.md's "computed once and kept", MLIR's global and reference
+  model, and "delete before you optimize" for the attribute; for the
+  owner's review). Content identity is computed once: a digest is kept in
+  the storage of what it digests, uniqued identity serving in-process
+  buckets; a static datum's global is named once, when it is made, and
+  every reference names it, never found again by digesting its content.
+  "Gives back" has one copy, the optimizer's `CalleeFacts`, keyed by
+  `FunctionId`, and `#idr.given_back` goes with the cull (C18 as
+  amended). Deletes `stableDigest`'s re-encoding of a whole value on
+  every call, the digests and name lookups at every static reference, and
+  the callee table's reads by name. Landed: the statics (U07,
+  a8d860583), the storage digests (U08, d73d79c20), the consumer bucket
+  as upstream's `OperationEquivalence` hash (U03, 112e30705).
+- **C322** (2026-10-23; the rederivation plan's carrier C16 without the
+  type guarantees, under the specification's rule that a partial
+  primitive is a guard and a total op, a proof the absence of the guard,
+  and C285; for the owner's review). A literal case's facts are the
+  frontend's refinement, and `specGuarded` writes no guard a refinement
+  decides. A refuted guard gives no value, so `guardsHold` goes from both
+  its instances and `NatPredOp::foldable` goes; `getSpeculatability`
+  shrinks only after a verifier rule or a proof that no pass builds a
+  total op on an unchecked operand. `io.exit` is total behind a status
+  guard. A guarantee as a type parameter of our own types (a non-empty
+  string, a non-zero big) is deferred. Deletes Ranges' restatement of a
+  literal case's facts by `dyn_cast`, the run-time tests of guards a
+  refinement decides, `guardsHold`, `NatPredOp::foldable`, and the crash
+  on every exit's row. The exit landed (U04, 675fd966d; C299).
+- **C323** (2026-10-23; the rederivation plan's carrier C17, its first
+  finding, under AGENTS.md's "a fact is computed once and kept" and "a
+  solve's state is sized by the problem"; for the owner's review).
+  Narrow's per-function range solve is made once under the final
+  summaries and kept, read into its facts at the arguments phase, not
+  made three times under the same summaries on the same IR. Deletes the
+  repeated solves. Landed (U01, c6e4ed6a4): solves per function fall from
+  four to two, by reading.
+- **C324** (2026-10-23; the rederivation plan's carrier C18, under C282,
+  C286 and AGENTS.md's traits and tables generated from the
+  specification, its never-line on testing what types prove, and "a fact
+  that can be numbered once is not recomputed per query"; for the owner's
+  review). Claims are declared by the op and the specification:
+  `data.con` infers a constructor's fresh claim in one place,
+  `freshClaim`; a specification trait on `cell.init` and `memo.take`
+  says which ops admit more, so the local check re-runs no inference to
+  learn it; the claims' order is a generated table, `Unique` for `Asks`,
+  never an enum ordinal; a reuse token's nullness is not tested after the
+  uniqueness test decided it; flow edges are a per-body table in the
+  analysis manager, measured first; a quantity-1 `in_place` parameter's
+  obligation is written from its type. Deletes the second computation of
+  a fresh claim from flow edges, `LocalCheck`'s re-inference per
+  verification, the order restated by ordinals, the decided token's
+  run-time null test, the per-query rebuilds of flow edges, and
+  `boundaryAsks`. The token landed in part (U05, 212601684; C301).
+- **C325** (2026-10-23; the rederivation plan's carrier C19, under
+  AGENTS.md's no static fact paid for when the compiler runs and "a name
+  is text for a human", and `Libraries.idr`'s own "trust never follows
+  from a name"; for the owner's review). The registry is read once,
+  where it is static: validated against the pinned libraries when the
+  prefix is installed, not on every compile by printed-name shapes; its
+  `%foreign` entries held at their sites, not validated, thrown away and
+  searched again with their spec strings re-parsed; trust a typed `Lib`
+  from the package's place under the compiler's prefix, not its name
+  text; the registry's `Multiplicity` replaced by `Use`, which it
+  restates. Deletes the per-compile validation, the re-parse and search,
+  the trust by name and `Multiplicity`.
+- **C326** (2026-10-23; the rederivation plan's carrier C20, under
+  AGENTS.md's "a brittle test means a missing test API" and its
+  never-line on a known fact written as text to be parsed back, and
+  testing-by-search; for the owner's review). Tool and harness boundaries
+  are typed: the frontend writes its typed `Read` table as an artifact
+  beside its report, which the `covers` check reads in place of printing
+  and scanning the module and keeping two hand copies of the registry;
+  endings are compared by value; the dialects the frontend writes come
+  from the specification; runtime calls are told from program calls by
+  call before the link; the transform library is built once per context
+  by upstream's typed builders; `self.sh` reads the checker's
+  dependencies from the ipkgs. The quantities-kept contract keeps C130's
+  carrier and fails where a binder's identity is lost instead of
+  skipping; if that fires on legitimate passes, the carrier goes to the
+  owner then. Deletes the module scan, the registry's hand copies, the
+  text comparisons of endings, the hand list of dialects, the
+  runtime-name set and the text fragments of the transform library.
+  Landed: U12 (3dda81307; C303 settled its question), U13 (94e633f9a),
+  U14 (e5178828a).
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
@@ -3426,6 +3678,10 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   `test-convergence=true`. The compiler running out of memory ends through
   one handler with a named line, never a refusal. Deletes `kNoLimit`
   (`Pipeline.cpp:28-32`, `Optimize.cpp:64-66`) and LLVM's default abort.
+  Amended 2026-10-24 (K03, 0718e40a8): no analysis used a budget, so the
+  budgeted solve's type, written for several summary problems of which
+  only the row is left, goes with its test and the summary solve (C34 as
+  amended), under "delete before you optimize".
 - **C16** (DP-34: QL4, Q-llvm-6; L14 §2.5, L19 §2.5). Output is
   byte-identical at any thread count, tested whole (a `threads` scale
   fixture at one thread and on the pool) and per solver (frozen answers
@@ -3454,6 +3710,13 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   die with its run. Deletes the facts that cross passes outside the IR,
   the call copy of "gives back" and its verifier arm,
   `Transforms/Identity/` whole, the residue solve on lowered code.
+  Amended 2026-10-24 (K13, in flight): "gives back argument i" is the
+  optimizer's alone, as binding times are. Its two readers, the e-graph's
+  replacement of a call by the argument and the specializer's keying of a
+  copy's results, read the optimizer's callee table, and no pass after
+  the optimizer reads `#idr.given_back`, which was a second copy made at
+  the optimizer's end for no reader; so the attribute and everything
+  that keeps it in step go, and the fact dies with the optimizer's run.
 - **C19** (DP-37: QL2, ops-Q1; corrected, L04 §2.5, L09 §2.4, I6). Each
   case region binds its scrutinee refined to a constructor set, a case
   the singleton and the default the complement (none when it is empty).
@@ -3686,7 +3949,17 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   (D44). Deletes six numberings, pointer-keyed solver maps, dead
   worklists, `MonotoneWorklist`, `FiniteLattice`, `bool backward`, the
   solvers' `function_ref`s and every gate callback, the hand
-  `isInvalidated`s.
+  `isInvalidated`s. Amended 2026-10-24 (K03, 0718e40a8): of the
+  vocabulary written for several clients, what has one client or none
+  goes, under "delete before you optimize". The row is the one summary
+  problem left, and its transfer is a union, whose fixpoint needs no
+  rounds, so `summarize`, `Lattice` and `Summary` give way to one join
+  per component, callees first (`rows::joinComponents`, the rule the
+  optimizer's components already used); exclusivity marks no gates, so
+  `GatedCsr`, its builder and the gated marking go; and the
+  extract-solve-link template (`Offsets`, `extract`, `Open`, `Question`)
+  had no caller, every solver numbering its function and walking it in
+  order.
 - **C35** (DP-54: QA3, Q-opt-4, hist-Q3; corrected, L06 I11, L14 I4, L18
   §1.1). Patches 06, 28 and 63 reach nothing in the tree and are retired
   (AGENTS.md). The per-function `remove-dead-values` is measured in the
@@ -4633,7 +4906,12 @@ C137.
   `io.unsafe_run` a region op (D20); `os` is `target.os`, folded from the
   target's entry; `buffer.*` are memory ops, not IO. 189 ops become 166
   by L13's count (14 deleted, 14 merged, four new), before the ops other
-  entries add (C39, C65, C82, C83, C90).
+  entries add (C39, C65, C82, C83, C90). Amended 2026-10-24 (K10, in
+  flight): `io.unsafe_run` goes, since nothing writes it. A trusted
+  library's forged world is the frontend's `NewWorld`, which Emit makes
+  the world value, and D20's derived row carries its `io` atom after
+  Emit, so its effects happen where the value is demanded with no region
+  op; D20 is not reversed.
 
 *Analyses and the C++*
 - **C114** (L14 §1.2, I1, I5). Two carried upstream patches: an
@@ -4921,7 +5199,13 @@ C137.
   `cursor` that calls a `room` copy writes `idr.lifetime.reserve %l, n`
   (one check of n bytes and a bump, `Allocate` on `heap` when it takes a
   chunk), its own op, never an implicit conversion at the call. Reason:
-  a conversion at a call would hide an effect.
+  a conversion at a call would hide an effect. Amended 2026-10-24 (K11,
+  in flight): `idr.lifetime.reserve` goes, since nothing writes it. The
+  decide step keeps a call in a cursor's or a home's lifetime only where
+  the callee has a copy of that lifetime's own mode, and counts it
+  otherwise, so a caller holding a `cursor` never calls a `room` copy and
+  this decision has no case; if such a call is wanted, the op returns
+  with its writer.
 - **C147** (2026-10-21; D93; lowering.md §4.6). `.stack` and `.chain`
   give one kind, `cursor`, and the difference stays in the opener. The
   discipline check (K5) treats a cursor parameter as possibly
@@ -5066,6 +5350,8 @@ C137.
   derived result is defined inside its operand's region, so none can
   outlive what it came from. D93's "the one op whose result is a
   lifetime" reads as "the one op whose result is its operand's view".
+  Amended 2026-10-24 (K11, in flight): `idr.lifetime.reserve` goes (C146
+  as amended), so `idr.lifetime.forget` is the one derived result.
 - **C161** (2026-10-21; L05's finding on D88). `count.dup` and
   `count.drop` take a `counted` operand only, by a generated constraint:
   a `scoped` value is a view of counted memory or a cell of an arena,
@@ -5359,7 +5645,9 @@ C137.
   caller holding a null type, which without assertions is undefined
   behaviour, not a refusal. It is carried as an `upstream/` patch with
   its check and PINS entry (AGENTS.md: the change we need is carried),
-  and lets upstream passes edit `idr.func` safely.
+  and lets upstream passes edit `idr.func` safely. Amended 2026-10-24
+  (K13, in flight): `given_back` goes from the positional facts (C18 as
+  amended), leaving `lives_in` and the bounds.
 - **C188** (2026-10-21; L08's finding E1; amends C185's "at the
   boundary"). The frontend writes no sharing claim on a parameter: a
   call's argument must equal its parameter's type, grade included, and
@@ -5427,7 +5715,9 @@ C137.
   cell is a continuation step; and a generating op (`array.tabulate`,
   `array.update`) whose body holds such a call is lowered to a join-point
   loop (`idr.loop`) before frames, which splits join regions already.
-  No valid program then reaches frames' internal error.
+  No valid program then reaches frames' internal error. Amended
+  2026-10-24 (K10, in flight): `io.unsafe_run` goes (C113 as amended),
+  so `memo.run` and the generating ops are the ops this decision names.
 - **C195** (2026-10-22; L07's finding; amends C119). C119's `Exclusive`
   handle goes: a value's exclusivity is its grade, in its type, which the
   lowering reads for a free with no count and the dup verifier reads to
@@ -6353,9 +6643,10 @@ is settled:
   packed into a linear value before the push and opened afresh at the
   resume (D95). Views read the lending region's row (C85). The rest is
   `design/lifetimes/`'s (`lowering.md` for D93 to D96).
-- **The runtime**: one entry per kind of word (cell, maybe-cell, big;
-  C40), counts over runs of slots, two token frees and `is_unique` as
-  "count is 1" for counted values (C39); one generated ending and one
+- **The runtime**: one increment and one decrement per kind of word
+  (cell, maybe-cell, big and their join, any; C40), called once for each
+  counted word of a value, two token frees and `is_unique` as "count is
+  1" for counted values (C39); one generated ending and one
   program record (C101); one out-of-memory path through snmalloc's
   failure continuation and a limit range in its pipe (C103, D65),
   snmalloc's fatal errors as internal errors (C8); a heap span with a
@@ -6508,6 +6799,91 @@ lists (each document's section 7) hold the symbols; the largest:
   (06, 28, 63), retired (C35); the bench's raised `ulimit -s`, the stale
   "1 MiB" test comments, `defunc-tag-limit`'s awk generator (L19 §2.9);
   `LLVM_ENABLE_ASSERTIONS=OFF` and our `NDEBUG` (D115).
+
+Recorded 2026-10-24 (recheck 8, at 0c05843ef): what landed deletions
+removed that the lists above do not name, each gone from the tree by
+C251's count unless a stale sentence is noted.
+- D132 (177aefcca): idr-constants, `SummarizedConstantPropagation`, its
+  summaries and hand folds.
+- C285 (d378e120e): `GuardOpInterface`'s `decide` method and the ops'
+  `holds`.
+- C286 (f392a02e4): `givenClaim` and the per-op readings of a source's
+  uses, placement's `forgetClaims`, `flowsLinearly`, `readsPart`, Emit's
+  `plain`.
+- C279 (2d7ee52de): the driver's own `addPass`, `moduleKindOf`'s
+  lowered-module target refusals, `--idr-target` in tests.
+- C271 (fc306c2c3): the checker's `addTransform`, its stored transforms
+  and the TTC's transform section.
+- C233 (0a40aec1e): `compiler/idris` as a fork (the checker is
+  `compiler/checker`, our code), `tools/extract-idris.sh`, the
+  `upstream/fork-*` records, `tests/frontend-imports`.
+- C246 (f19fb4503): the harness's shell and awk libraries but
+  `harness.sh`, `run.sh`, `tests/runtime-effects/*.awk`.
+- K01 (316b10a6e, cc30db644): `tests/{file-size, build-preset, commands,
+  bench-records, determinism-threads-rbtree}`, `bench/regex-dna`,
+  `harness/templates`, the `--trace-totals` and `--trace-units` modes,
+  eleven `tests/upstream-*` of reports that carry no patch.
+- K02 (b17aceabd, e0836112f): `GraphNumbering`, `FunctionNumbering`,
+  `Expect/CrashSites.cpp`, results-as-given's lost-to-layout branch and
+  `@rejoins`, the universal properties of nothing and of the whole
+  module.
+- K03 (0718e40a8): `Summarize.h`, `SummarizeImpl.h`, `Lattice.h` and the
+  budget test, `GatedCsr`, `layOutGuarded` and the gated marking,
+  `Extraction.h`'s `Offsets`, `extract`, `Openness`, `Question` and
+  `Open`, `FunctionNames`, `Analysis/Inline.h`, the recoverable path out
+  of a broken invariant, three copies of `repeated()`.
+- K04 (6d8120090): `RuleScope`, `VerifyOrder`, `Struct`, `CustomParams`,
+  `Declarations.tables`, `PassKind`, `SetOf`, `Typed`, four laws,
+  `PowerOfTwo` (the field; the meanings by a power of two stay),
+  `RootedAtUpstream`, `PerClass`, two traits, `AnyBlocks`, `OnAttribute`,
+  `TakesBool` (`Conversion/Runtime.h:43-45` still speaks of a `Bool`
+  parameter).
+- K05 (98ddd09fe, e52203f62): ten Idris reports that hold no patch,
+  PINS.md's `upstream:` and `status:` fields and `upstream/README.md`'s
+  table, the `PIN` markers and `tests/pin-sites`, retired history, the
+  port licence machinery; patches 76 and 97 no longer carried.
+- K06 (9d7d3bc14): `tools/upstream-idris`, `tools/compile-times.sh` and
+  the runner's timing record, `tools/bisect.sh`, `tools/lanes`, the
+  lock's accept series, `tests/configure-gate`.
+- K07 (b0eefed21): the runtime's `inc_run_*` and `dec_run_*` entries,
+  three of its five cell kinds, `idris_rt_flush`, its `PIN` markers.
+- K08 (8a4140d79): `Term.idr`'s `hmap`, `cata` and three aliases,
+  `contentHash`, `contentName`, the frontend's `--check` task.
+- K09 (04193cfe6): the 87 entries of `ownership.json` that named
+  nothing in the tree.
+- K15 (08c59751e): `idr-lower-runtime`, now idr-lower's phase 0 (C300),
+  `Lower/Declarations.cpp`, `Runtime.cpp`'s `incOf` and `decOf`.
+- U01 (c6e4ed6a4): idr-narrow-words' re-solve, the versioning solve and
+  the second whole analysis after a version, `Ranges::Solved`, `Facts`'
+  own numbering and bounds table.
+- U02 (7b260b721): the lowering's reading of loop progress from LLVM's
+  `willreturn` (`keepsFromEnding`) and its count of `idr.may_loop` ops.
+- U03 (112e30705): the specializer's raise's second classifier over
+  bare row atoms.
+- U04 (675fd966d): `io.exit`'s crash, `LowerExit`'s comparison, the
+  unreportable ending (`Crash.Unreportable`, `idris_rt_unreportable_at`).
+- U05 (212601684): `LowerTakeInto` and Expand's guard on `take_into`.
+- U06 (bb0f7384e): the fold's decimal text for bigs (`Fold/Scope.cpp`'s
+  print, string cell and calls of `big.from_str` and `big.show`).
+- U07 (a8d860583): `idr-lower-statics` with `StaticNames.cpp`, the
+  digests at every static reference, the lowering's decimal round trip
+  of a big.
+- U08 (d73d79c20): a refined type's unification on every get
+  (`possibleAt` and `determined` in its verify), a content digest
+  re-encoded on every ask.
+- U09 (a3de7d9ea): the label solve's `tailCallOf` test and
+  `tailResults`' climb.
+- U10 (ba3606ff2): idr-trmc's second admission test of a
+  `modulo_context` call.
+- U11 (3f8ff9726): `OpIndex.h.inc` and its generator, the integer
+  attributes' text fallbacks in `MLIR.idr` and `MLIR/Bytecode.idr`, the
+  walk of a family group's closure at every type occurrence.
+- U12 (3dda81307): endings compared as text (`statusWords`,
+  `Observed.status`), quantities-kept's silent skip of a lost binder.
+- U13 (94e633f9a): `registerHandoff` with its hand list of dialects, the
+  runtime-name set and its lookups after the link.
+- U14 (e5178828a): the schedule library's text fragments and their
+  parse.
 
 ## 7. Execution: one cutover, in dependency order
 

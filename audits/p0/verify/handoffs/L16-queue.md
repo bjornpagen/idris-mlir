@@ -1045,7 +1045,8 @@ to L16ev. Waiting:
 - K17 (the harness's specification modules into `compiler/spec`) after
   L18ad and L19ad release `harness/`.
 - K18, K19, K20 wait on the cull's measurements M1 to M6 (the owner's
-  machine); K21 and K22 are the owner's (§4's third question; QB).
+  machine); K21 is the owner's (§4's third question, QA); K22 waits on
+  K16 alone, QB being settled by C297 (`perror` is the one renderer).
 - From U11 (3f8ff9726): properties written natively (id 3) stopped on
   the row's wire format and D50's builders (§4's third question).
 - From U08 (d73d79c20): `KeptDigest` is filled on first ask, not in the
