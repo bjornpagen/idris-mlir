@@ -1092,3 +1092,14 @@ to L16ev. Waiting:
   whether an erased computation makes the site look polymorphic, which
   would be a wrong refusal, or the recursion is megamorphic). The frontend
   self-compile's 14.9 GB peak is a measure to keep (INT).
+- From L08z (710b73f10): upstream's `insideMutuallyExclusiveRegions`, as
+  the carried early-exits work leaves it, misses nested breaking
+  terminators; `Facts.h`'s `alternatives` works around it (to L06k: the
+  patch upstream, the workaround deleted; `Bufferize/Releases.cpp:188`
+  asks it too). Emit passes a case block's whole environment to its join,
+  so a pattern `let` after a rebuild passes the rebuilt value after the
+  cast and is refused (by reading: `in-place-borrowed-read-ends`,
+  `in-place-unused-read-ends`, `uniqueness-shared-rebuild/near`; to
+  L16ey). Borrows under the finer `runsAfter` (a join's body runs before
+  its join regions) may borrow more across calls in join regions,
+  untested (L07, INT).
