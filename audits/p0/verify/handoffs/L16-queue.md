@@ -823,3 +823,15 @@ askers in callersOf, Settle's removed proof). Waiting:
   `Narrow/Ops.cpp:125-133` (L12), `IdrDialect.h:173-187` (L03); after the
   running specification lanes (L16en, L01s) land. D49 and D51 are this
   machine's (INT-25), not the owner's.
+- From recheck 6 (C1 to C130), waiting: C127 in the checker (`Repeated`
+  in `Searched`, `Core/Unify.idr:186-188`, returned from
+  `abandonIfCycle`, `Core/AutoSearch.idr:696-708`; the depth-limited
+  quote returns `TooDeep` without throwing, `QuoteTooDeep` and its arms
+  deleted), after L17bd releases `Core/Unify.idr` (L17); C82 (`Term.idr:365`'s
+  `Unreachable` justified; an arm Idris proved impossible kept, not
+  dropped as `Dead`, `Translate/Cases.idr:258-284`) and C228 (the slot's
+  type carried so Emit's `Mismatch`, `Unfit` and `EmitFailed` go;
+  `Terms.idr:802, 1636`), after L16ep releases `Frontend/` (L16); C23,
+  C50, C80 dispatched (L16eq); C12's five prose `expected-error`s and
+  C66's test dispatched (L19aa). Recheck 6 struck as done: queue lines
+  468, 471, 479, 481, 483, 492, 583, 599, 635-638 and 749.
