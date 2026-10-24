@@ -1266,3 +1266,42 @@ to L16ev. Waiting:
 - From L03af (0c316511e): seams dispatched as L03ai (the result side's
   pairing, `functionsOf` reading `Taken`, `Outputs.idr:364`'s name compare,
   the crash operand's pairing).
+- From L12ad (C268): nothing reads an admitted record's stage bounds
+  (C137's stage-legality reader was never built; L03: build it, as C137
+  decides, reading the bounds at each pass's end in the verifier); our code
+  names upstream ops no admitted list holds (`memref.cast`,
+  `Conversion/Memrefs.cpp:144`; `memref.global`, `memref.get_global`;
+  `scf.execute_region`), which C137's reader would refuse (L03 with L12,
+  L21: admit them with their stages); `Frontend/Translate/Shapes.idr:8`
+  calls the op `idr.tie_shape` (L16). The transpose column pattern landed
+  with C268 (`Columns/Tensors.cpp`); concat and pad have none, Emit writes
+  neither.
+- From L18af (c82832e1b): a call keyed again after its operands were
+  lowered, whose new key's results claim more than an earlier restated key
+  gave, keeps the lower hold and is refused, as at HEAD (L18: the redirect
+  sharing down a stronger copy result, or a claim regrade cannot raise);
+  `Arena.cpp`'s header ("a request interns its key once, after it is
+  judged") is untrue for pattern and signature keys (L18).
+- INT-26 (0a5e44c5c against 1f225b6b9, the 31 commits of the cull and
+  rederivation batch): no new refusal, internal error or C++ root; sweep
+  387 compiled, 65 refused, 0 internal errors at both (450 modules
+  byte-identical, exit-with and harness-cases differing by U04's
+  `idr.check.byte`); the frontend reaches specgen's stop in 661 to 673 s
+  user against 1553 s. Regressions: mlir-layout and no-fuel's
+  `setMaxIterations` (fixed, 581fe849d); `tests/checker-tuple-type-reading-fits`
+  lacks `import Prelude` under the harness's `--no-prelude` (to L17bg).
+  Self-host five at HEAD: syntax-samples and knowngen write programs;
+  frontend R-META at `Driver.idr:397` (L16ev); specgen an Emit internal
+  error at `Prelude.Types:222:10`, Applicative Maybe's `<*>` (C272's class,
+  to L16ey with C228); runner `held` lacks `Filling` (L16ev's rewrite).
+  The rebuilt Idris (`.toolchain/idris2.new`) is swapped in when the
+  running lanes' builds drain, since a swap makes every export rebuild its
+  checker.
+- From L05ab: `Narrow/Facts.cpp`'s `givenSmall` is a third source walk,
+  through `ResultCarriesOperand`, with no loop guard: it hangs on a cast of
+  itself in an unreachable block (L12: `definitionChain`, or the walker);
+  `builtStateHolds` answers false for a cast of a memo cell
+  (`Ops/Folds.h:103, 126`, `takenByFacts`' tag path), conservative (L14:
+  read through `throughLinear`, a decision change); `linearPositionOf`'s
+  uses-differ test can never fire (`lin.cast`'s verifier requires it,
+  L05).
