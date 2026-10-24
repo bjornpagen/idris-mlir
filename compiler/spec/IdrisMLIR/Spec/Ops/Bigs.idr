@@ -13,6 +13,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Effects.Declaration
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Control.Flow
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Ops.Numeric
 import IdrisMLIR.Spec.Ops.Shapes
 import IdrisMLIR.Spec.Ops.Values
@@ -483,16 +484,23 @@ bigFromInt sign = MkOp
     runtime : RuntimeFunction 1 1
     runtime = MkRuntimeFunction (fromIntSymbol sign) [extended sign "value"] (Returns GivesBig)
 
+||| A small's grade: static data, which nothing frees and no count writes,
+||| used any number of times. `big.small` fixes it on its result, and the
+||| frontend's value of the op is held at it.
+public export
+smallGrade : FixedGrade
+smallGrade = MkFixedGrade Many Static
+
 ||| The big or natural of a word proved to fit the small range: idr-narrow
 ||| writes it where values it proved small meet a big. A small is a word
 ||| with no cell: it holds no reference and acquires nothing, so its type
-||| is static data's, which nothing frees and no count writes, and a use
-||| that asks for a value its count frees is given it by a share. Its one
-||| builder takes the carrier, the big or the natural, and gives it that
-||| grade, so no writer states the type. A word outside the range has no
-||| big here, as an overflowing nsw add has no sum: the pass that writes
-||| the op is the proof, so its fold, the runtime's function of a word it
-||| holds, meets only words that fit.
+||| is static data's (`smallGrade`), and a use that asks for a value its
+||| count frees is given it by a share. Its one builder, the C++ one and
+||| the frontend's alike, takes the carrier, the big or the natural, and
+||| gives it that grade, so no writer states the type. A word outside the
+||| range has no big here, as an overflowing nsw add has no sum: the pass
+||| that writes the op is the proof, so its fold, the runtime's function of
+||| a word it holds, meets only words that fit.
 public export
 bigSmall : Op 1 1 0 0
 bigSmall = MkOp
@@ -517,6 +525,7 @@ bigSmall = MkOp
   , specializations = [bigOfInteger Signed]
   , laws = []
   , doc = says "the small big or natural of a word that fits"
+  , typing = CarriersAt [smallGrade]
   }
   where
     runtime : RuntimeFunction 1 1

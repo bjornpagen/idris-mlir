@@ -391,11 +391,13 @@ nonEmptyTraits op =
 ||| generates their inference, one per result its rule reads off an operand:
 ||| the operand's own type, or its element type or itself as MLIR's
 ||| `getElementTypeOrSelf` gives it. A fixed type is the result's own
-||| constraint, which ODS builds, so it needs none.
+||| constraint, which ODS builds, so it needs none; nor does a carrier at
+||| the grade the op fixes, which its declared builder is given.
 typingTraits : Op i o a r -> List String
 typingTraits op = case op.typing of
   StatedTypes => []
   InferredTypes rules => concatMap matching (toList (zip op.outs rules))
+  CarriersAt _ => []
   where
     matchWith : String -> Operand -> Result -> String -> String
     matchWith what x y transform =

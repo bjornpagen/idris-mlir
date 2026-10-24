@@ -21,6 +21,7 @@ import IdrisMLIR.Spec.Core.Ods
 import IdrisMLIR.Spec.Core.Admitted
 import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Spec.Effects.Declaration
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Ops.Numeric
 
@@ -372,12 +373,39 @@ data TypeRule : (i : Nat) -> Type where
   ElementTypeOf : Fin i -> TypeRule i
   FixedType : Buildable -> TypeRule i
 
-||| How an op's result types are known: given to it when it is built, or
-||| each fixed by its rule.
+||| That a grade of a carrier that holds references is not the carrier's
+||| bare one (used any number of times, counted, claiming nothing), which
+||| is the carrier itself and no grade: used once, or held otherwise.
+public export
+data NotBare : Uses -> Hold -> Type where
+  OnceUsed : NotBare Once h
+  ClaimsOwn : NotBare u (Counted Self)
+  ClaimsAll : NotBare u (Counted Deep)
+  FreedByLifetime : NotBare u (Scoped c)
+  NeverFreed : NotBare u Static
+
+||| The grade an op fixes on a result it is built from the carrier of, a
+||| carrier that holds references: how often the value may be used, and
+||| its hold. Never the bare grade, so the graded type around the carrier
+||| is the canonical form, the one the C++ `graded` gives.
+public export
+record FixedGrade where
+  constructor MkFixedGrade
+  uses : Uses
+  hold : Hold
+  {auto 0 graded : NotBare uses hold}
+
+||| How an op's result types are known: given to it when it is built; each
+||| fixed by its rule; or each the carrier it is given when it is built, at
+||| the grade the op fixes, which its builder puts around it (a small,
+||| static data used any number of times), so no writer states a grade the
+||| op fixes: the frontend's printed builder takes the carrier, as the
+||| op's declared C++ builder does.
 public export
 data ResultTyping : (i, o : Nat) -> Type where
   StatedTypes : ResultTyping i o
   InferredTypes : Vect o (TypeRule i) -> ResultTyping i o
+  CarriersAt : Vect o FixedGrade -> ResultTyping i o
 
 ||| The group names of an op, every one.
 public export

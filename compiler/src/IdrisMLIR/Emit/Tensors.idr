@@ -30,6 +30,7 @@ import IdrisMLIR.Ids
 import IdrisMLIR.Loc
 import IdrisMLIR.MLIR
 import IdrisMLIR.Spec.Grades.Grade
+import IdrisMLIR.Spec.Ops.Bigs
 import IdrisMLIR.Syntax.Arith
 import IdrisMLIR.Term
 import IdrisMLIR.Types
@@ -65,11 +66,12 @@ coordinate ix l n = do
   mlirValue l IndexType (Arith.indexCastuiOp w)
 
 ||| A coordinate as a natural, the variable `binder` bound to it: the small
-||| of its word, which has no cell, so it is held as static data is.
+||| of its word, which has no cell, held at the grade `idr.big.small` fixes,
+||| which its builder puts around the natural it is given.
 natural : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Value -> E Val
 natural ix l i = do
   w <- mlirValue l (IntegerType 64) (Arith.indexCastuiOp i)
-  heldValue {binder} ix l Hold.Static (NatT IOpaque) (Idr.bigSmallOp w)
+  carriedValue {binder} ix l smallGrade (NatT IOpaque) (\c => Idr.bigSmallOp c w)
 
 ||| A natural as the extent of an array to be made: past every allocation
 ||| either target can make, it is the allocation's failure.

@@ -297,6 +297,7 @@ ourOps = filter isOurs allOps
 typingRefusals : Op i o a r -> List String
 typingRefusals op = case op.typing of
   StatedTypes => []
+  CarriersAt _ => []
   InferredTypes rules =>
     concatMap (\(y, rule) => refused y rule) (toList (zip op.outs rules))
     ++ concatMap handInference op.interfaces

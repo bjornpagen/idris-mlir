@@ -15,6 +15,7 @@ import IdrisMLIR.Spec.Core.Vocabulary
 import IdrisMLIR.Spec.Generator.Render
 import IdrisMLIR.Spec.Generator.Ods
 import IdrisMLIR.Spec.Generator.Wire
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Runtime.Endings
 
@@ -273,20 +274,62 @@ typeByRule ins (OperandType g) = primed (index g ins).name ++ ".type"
 typeByRule ins (ElementTypeOf g) = "elementTypeOrSelf " ++ primed (index g ins).name ++ ".type"
 typeByRule _ (FixedType b) = builtIdris b
 
-||| The result groups an op's builder is given, and its results' types: each
-||| group's binder where they are stated; none, where every type is fixed by
-||| its rule, which computes it.
-resultsOf : Op i o a r -> (List Result, String)
-resultsOf op = case op.typing of
-  StatedTypes => (toList op.outs, concatList (map resultList (toList op.outs)))
-  InferredTypes rules => ([], concatList (map (\rule => "[" ++ typeByRule op.ins rule ++ "]") (toList rules)))
+||| The module of the grade's parts, which a builder that writes a grade
+||| imports: it declares how often a value may be used, and re-exports the
+||| hold's, which declares the hold.
+gradeHome : String
+gradeHome = "IdrisMLIR.Spec.Grades.Grade"
 
-||| An op's builder: one argument per required attribute, operand group,
-||| region group and result group whose types are stated, in that order,
-||| each attribute that may be left out a named argument, nothing unless
-||| given; and the op it makes. A partial op's builder gives its guards with
-||| it, each before the op as a guard to write and what follows given its
-||| result, so it is never placed without them.
+||| How often a value may be used, by its full name, as the printed module
+||| writes a grade the op fixes.
+usesIdris : Uses -> String
+usesIdris Once = gradeHome ++ ".Once"
+usesIdris Many = gradeHome ++ ".Many"
+
+||| A hold, by its constructors' full names.
+holdIdris : Hold -> String
+holdIdris h = case h of
+  Counted u => "(" ++ hold "Counted" ++ " " ++ unique u ++ ")"
+  Scoped u => "(" ++ hold "Scoped" ++ " " ++ unique u ++ ")"
+  Static => hold "Static"
+  where
+    hold : String -> String
+    hold c = "IdrisMLIR.Spec.Grades.Hold." ++ c
+    unique : Unique -> String
+    unique None = hold "None"
+    unique Self = hold "Self"
+    unique Deep = hold "Deep"
+
+||| The types of a result group given as its carriers, each at the grade
+||| the op fixes: the graded type around it, the canonical form, since the
+||| grade is never the carrier's bare one.
+carriedList : (Result, FixedGrade) -> String
+carriedList (y, g) =
+  let grade = usesIdris g.uses ++ " (Just " ++ holdIdris g.hold ++ ")"
+  in case y.arity of
+       Single => "[Idr (GradedType " ++ grade ++ " " ++ primed y.name ++ ")]"
+       _ => "map (Idr . GradedType " ++ grade ++ ") (" ++ resultList y ++ ")"
+
+||| The result groups an op's builder is given before its other groups and
+||| after them, and its results' types: each group's type, last, where they
+||| are stated; none, where every type is fixed by its rule, which computes
+||| it; each group's carrier, first, as the C++ builder takes it, where the
+||| op fixes their grades, which the builder puts around them. Given first,
+||| the builder of an op on its operands is the op, never a function of a
+||| type that a writer could hand a type already graded.
+resultsOf : Op i o a r -> (List Result, List Result, String)
+resultsOf op = case op.typing of
+  StatedTypes => ([], toList op.outs, concatList (map resultList (toList op.outs)))
+  InferredTypes rules => ([], [], concatList (map (\rule => "[" ++ typeByRule op.ins rule ++ "]") (toList rules)))
+  CarriersAt grades => (toList op.outs, [], concatList (map carriedList (toList (zip op.outs grades))))
+
+||| An op's builder: one argument per result group given as its carriers,
+||| required attribute, operand group, region group and result group whose
+||| types are stated, in that order, each attribute that may be left out a
+||| named argument, nothing unless given; and the op it makes. A partial
+||| op's builder gives its guards with it, each before the op as a guard to
+||| write and what follows given its result, so it is never placed without
+||| them.
 export
 builder : Op i o a r -> Lines
 builder op =
@@ -294,14 +337,16 @@ builder op =
       attrs = toList op.attrs
       ins = toList op.ins
       regions = toList op.regions
-      (outs, resultTypes) = resultsOf op
+      (carriers, outs, resultTypes) = resultsOf op
       required = filter (not . optionalAttr) attrs
       optional = filter optionalAttr attrs
       binders = map (\x => "{" ++ primed x.name ++ "}") optional
+                ++ map (\x => primed x.name) carriers
                 ++ map (\x => primed x.name) required ++ map (\x => primed x.name) ins
                 ++ map (\x => primed x.name) regions ++ map (\x => primed x.name) outs
       implicits = map (\x => "{default Nothing " ++ primed x.name ++ " : " ++ attrType x ++ "}") optional
-      types = implicits ++ map attrType required ++ map (\x => operandType x.arity) ins
+      types = implicits ++ map (\x => resultType x.arity) carriers
+              ++ map attrType required ++ map (\x => operandType x.arity) ins
               ++ map (\x => regionType x.arity) regions ++ map (\x => resultType x.arity) outs
       made = "MkOp " ++ opNameOf op ++ " (" ++ concatList (map operandList ins) ++ ") ("
              ++ concatList (map attrPair attrs ++ segmentPairs op) ++ ") (" ++ concatList (map regionList regions) ++ ") [] ("
@@ -332,14 +377,19 @@ typeWritten (SomeType t) = writes t.stages
 attrWritten : AnyAttrDef -> Bool
 attrWritten (SomeAttr x) = writes x.stages
 
-||| The modules an op's enum properties' closed sets live in, and its
-||| guards' causes', as its builder names their types and values.
+||| The modules an op's enum properties' closed sets live in, its guards'
+||| causes', and the grade's, where it fixes its results' grades, as its
+||| builder names their types and values.
 propertyHomes : AnyOp -> List String
 propertyHomes (SomeOp op) =
   concatMap homes (toList op.attrs)
   ++ (case op.guards of
         [] => []
         _ => homesOf causeEnum)
+  ++ (case op.typing of
+        StatedTypes => []
+        InferredTypes _ => []
+        CarriersAt _ => [gradeHome])
   where
     homesOf : ImportedEnum -> List String
     homesOf e = [moduleName e.source.typeHome, moduleName e.source.setHome]

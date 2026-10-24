@@ -133,8 +133,9 @@ builtType BuiltNone = NoneType
 ||| one per group, with the guards the specification declares for it, so no
 ||| partial op is written without them. Its results are of the types `ts`
 ||| where it states them; where it infers them, each is its rule's, from
-||| the operands it is written on, and `ts` is not read, so no type the op
-||| fixes is stated.
+||| the operands it is written on, and `ts` is not read; where it fixes
+||| their grades, `ts` are their carriers, each put at its grade; so no
+||| type or grade the op fixes is stated.
 specOp : Spec.Op i o 0 0 -> Vect i Value -> List MlirType -> Guarded
 specOp op vs ts = specGuarded op.guards vs (\ws => MkOp (specName op) (toList ws) [] [] [] (typed ws op.typing))
   where
@@ -144,9 +145,14 @@ specOp op vs ts = specGuarded op.guards vs (\ws => MkOp (specName op) (toList ws
     ruled ws (ElementTypeOf g) = elementTypeOrSelf (index g ws).type
     ruled ws (FixedType b) = builtType b
 
+    -- A carrier at the grade the op fixes, never its bare one.
+    carried : FixedGrade -> MlirType -> MlirType
+    carried g t = Idr (GradedType g.uses (Just g.hold) t)
+
     typed : Vect k Value -> ResultTyping k n -> List MlirType
     typed ws StatedTypes = ts
     typed ws (InferredTypes rules) = toList (map (ruled ws) rules)
+    typed ws (CarriersAt grades) = zipWith carried (toList grades) ts
 
 ------------------------------------------------------------------------------
 -- Writing ops
@@ -213,6 +219,15 @@ heldValue : {default Nothing binder : Maybe Binding} -> Index -> Loc -> Hold -> 
 heldValue ix l h t build = do
   r <- mlirValueAt (madeAt binder l Many) (gradedType ix Many h t) build
   pure (val r.name t Many h)
+
+||| A total op with one result, of a Core type, built from the type's
+||| carrier, at the grade `g` the op fixes, which its builder puts around
+||| the carrier, the variable `binder` bound to it: a small.
+export
+carriedValue : {default Nothing binder : Maybe Binding} -> Index -> Loc -> FixedGrade -> Ty -> (MlirType -> Op) -> E Val
+carriedValue ix l g t build = do
+  r <- numbered (madeAt binder l g.uses) (build (mlirType ix t))
+  pure (val (Bound r 0) t g.uses g.hold)
 
 ||| A partial op with one result, of a Core type, after its guards, used
 ||| many times and held as `held` says, the variable `binder` bound to it,

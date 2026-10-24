@@ -15,6 +15,7 @@ import IdrisMLIR.Spec.Pipeline.Stage
 import IdrisMLIR.Spec.Functions.Tail
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Ops.Values
+import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Spec.Ops.Platform
 import IdrisMLIR.Spec.Runtime.Clocks
 import Data.Fin
@@ -437,9 +438,9 @@ bigFromUintOp value' result' =
 
 ||| `idr.big.small`: the small big or natural of a word that fits
 export
-bigSmallOp : Value -> MlirType -> Op
-bigSmallOp value' result' =
-  MkOp (MkOpName Dialect.Idr "big.small") ([value']) ([]) ([]) [] ([result'])
+bigSmallOp : MlirType -> Value -> Op
+bigSmallOp result' value' =
+  MkOp (MkOpName Dialect.Idr "big.small") ([value']) ([]) ([]) [] ([Idr (GradedType IdrisMLIR.Spec.Grades.Grade.Many (Just IdrisMLIR.Spec.Grades.Hold.Static) result')])
 
 ||| `idr.big.to_int`: a big or a natural as an integer, wrapped to its width
 export
