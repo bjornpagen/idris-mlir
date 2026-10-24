@@ -2994,7 +2994,8 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   the multiplicity Idris proved at the consumer is never dropped. A
   `many` value's in-place obligation is C298's: the claim on the cast's
   `once` result, never on the `many` value, so C286 stands.
-  Rejected: Emit grading `once` an ω `let` it sees used once (the sharing report's extension), which would make Emit
+  Rejected: Emit grading `once` an ω `let` it sees used once (the
+  sharing report's extension), which would make Emit
   count uses, an analysis on the Idris side. The function result's grade
   is C291's. Deletes `flowsLinearly`, Emit's casts of every yield and
   scrutinee to `many` (`plain`), and idr-in-place's own use walks over
@@ -3959,7 +3960,9 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   `GatedCsr`, its builder and the gated marking go; and the
   extract-solve-link template (`Offsets`, `extract`, `Open`, `Question`)
   had no caller, every solver numbering its function and walking it in
-  order.
+  order. The `Graph` concept, which nothing used, and `Csr`'s
+  `predecessors`, which nothing called, go with them; `Csr<Tag>` keeps
+  its sentinel root row and `GraphTraits`.
 - **C35** (DP-54: QA3, Q-opt-4, hist-Q3; corrected, L06 I11, L14 I4, L18
   §1.1). Patches 06, 28 and 63 reach nothing in the tree and are retired
   (AGENTS.md). The per-function `remove-dead-values` is measured in the
@@ -4619,7 +4622,13 @@ C137.
   per-function bound `B(f) = S(f) + max_p (T(p) + W(p))` is kept as a
   running maximum and reported as a pass statistic nothing reads to
   decide, checked by two differential tests (reuse, borrows); its proof
-  sketch follows Lorenzen and Leijen, Def. 3 and Thms 4 and 5.
+  sketch follows Lorenzen and Leijen, Def. 3 and Thms 4 and 5. Amended
+  2026-10-24 (K07, b0eefed21): no pass combines drops into a run, so the
+  runtime's run entries, kept alive only by their table, go, under
+  "delete before you optimize"; each counted word of a value is counted
+  by its own kind's entry, and a loop over a value's words is the same
+  code once the runtime's bitcode joins the program. A run entry returns
+  only with a pass that makes runs.
 - **C89** (L07 §1.3, I13). `in_place` is admitted only on a family with
   exactly one constructor that has a cell, checked when the registry's
   table is built.
@@ -6370,19 +6379,18 @@ is settled:
   check only facts whose subject is C++, and a hand function only against
   its printed table (C76).
 - **The shared vocabulary**: typed dense ids and `IndexVector` (raw
-  index access deleted); compressed-row graphs with a sentinel root row
-  modelling one `Graph` concept, `NodeRef` carrying its graph, wired into
-  LLVM's graph algorithms through the carried `scc_iterator` patch
-  (C114); `Lattice` and `Summary` concepts, an exact solve and a budgeted
-  one two types (C15); direction and every other choice as a type, never
-  a `bool` (C120); one fold over each closed sum (libc++'s `std::visit`
-  cliff above eleven alternatives, `wave1/5.5-cxx26.md`,
-  `libcxx/include/variant:1596-1607`; `TypeSwitch` banned with the
-  ladders, C52); transfer functions and every callback as constrained
-  template parameters; each summary problem one explicit instantiation
-  behind `extern template`, the marking ordinary functions compiled once,
-  its gates data (C34; B §2.9, C §2's table); quantity handles where
-  counting builds IR (C119).
+  index access deleted); compressed-row graphs with a sentinel root row,
+  `NodeRef` carrying its graph, wired into LLVM's graph algorithms
+  through the carried `scc_iterator` patch (C114); one summary problem, a
+  function's row, joined once per component callees first, a union
+  needing no rounds and no budget (C34 and C15 as amended); direction and
+  every other choice as a type, never a `bool` (C120); one fold over each
+  closed sum (libc++'s `std::visit` cliff above eleven alternatives,
+  `wave1/5.5-cxx26.md`, `libcxx/include/variant:1596-1607`; `TypeSwitch`
+  banned with the ladders, C52); transfer functions and every callback as
+  constrained template parameters; the marking ordinary functions
+  compiled once, with no gates (C34 as amended; B §2.9, C §2's table);
+  quantity handles where counting builds IR (C119).
 - **At run time**: nothing static built per function; no attribute or
   type made on a worker's hot path (C116); no pointer-keyed map per node;
   no per-query recomputation of a fact that can be numbered once (the
@@ -6550,15 +6558,18 @@ is settled:
   client.
 - **Three solve shapes**: per function (upstream's framework, summaries
   at calls); summaries over the call graph's SCCs, callees first and
-  callers first; extract, solve, write back (the label solve,
-  exclusivity, allocation into a lifetime, deduplication). Every answer
+  callers first; extract, solve, write back, a shape the solvers keep
+  with no template of its own: each reads what it solves into numbered
+  arrays in one walk order and writes its answer back in the same order
+  (the label solve, exclusivity, allocation into a lifetime,
+  deduplication; C34 as amended). Every answer
   is then carried (a type, a property, the op), and the first question
   is whether the dialect can carry a fact so that no pass solves for it
   (L14 §1.2).
-- **The solver layer as shared types, not one engine**: exclusivity's
-  gates, the label solve's growing graph and the optimizer's merges each
-  fail to fit a single engine (B §3.2); the marking's four clients share
-  one compiled loop with gates as data (C34). The e-graph is equality
+- **The solver layer as shared types, not one engine**: the label
+  solve's growing graph and the optimizer's merges each fail to fit a
+  single engine (B §3.2); the marking's four clients share one compiled
+  loop, with no gates (C34 as amended). The e-graph is equality
   saturation's alone, a C++ pass with its own typed tables, our own
   solver in this layer (§5.3; C153, D107), not a solver for every
   analysis; nothing optimizes on the Idris side (D109).
@@ -6581,8 +6592,9 @@ is settled:
   types are counting's ABI; placement, exclusivity, reuse and the take's
   expansion, in that order (C1); one reverse walk per function places
   dups and drops over quantity-many values (C87); drop specialization and
-  reuse written into the IR where they are decided; runs and coalescing
-  within D26 (C88).
+  reuse written into the IR where they are decided, each counted word
+  counted by its own entry, and reuse keeping each function's frame
+  bound, which D26 limits (C88 as amended).
 - **Uniqueness a two-region match**: `idr.match_unique`, folded by grade
   (`counted unique deep` to its unique region, a value `scoped` to this
   call's lifetime to its shared one), so only an unproved `counted`
@@ -6602,8 +6614,8 @@ is settled:
 - **Four marking clients, one template** (C34): exclusivity (by context
   mask, its domain what QTT and freshness do not settle; C36, C92),
   allocation into a lifetime (per function, callees first), borrows (C1)
-  and the obligation closure (C90), over compressed-row graphs, gates as
-  data.
+  and the obligation closure (C90), over compressed-row graphs, with no
+  gates (C34 as amended).
 - **Lifetimes** (D39, D63, D88 to D90, D93 to D96; L05 §2): a lifetime
   is a value of type `!idr.lifetime<view | room | cursor | home k>`,
   its kind what it is at run time (`view` no value, nothing allocates
