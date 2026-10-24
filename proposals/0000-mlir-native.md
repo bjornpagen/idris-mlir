@@ -2771,6 +2771,18 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   registered op an operation is. The version keeping both entry points is
   refused: three ways to ask one question, and a guard of a computed
   constant decided only after a later run.
+- **C286** (2026-10-23; L05y's question, under C282, C277 and AGENTS.md's
+  "make illegal states unrepresentable"). Before references are counted, a
+  value graded `many` claims nothing: a stage fact of the specification's
+  table, held by the grade's verifier at every stage before counting, and
+  the frontend writes no claim on a `many` value. C282's reading of a
+  part's uses then follows from the types, so `givenClaim` and every
+  per-op reading of a source's uses go (a part gives what its type claims,
+  at every stage); a whole move of a `many` value (a share, a cast, a call's
+  argument) cannot carry a claim it does not hold, with no reading at the
+  site. Claims before counting live on values used once and fresh results
+  used once, as C282 already left them; exclusivity after counting raises
+  the rest.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
