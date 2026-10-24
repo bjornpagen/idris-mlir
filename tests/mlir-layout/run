@@ -4,24 +4,32 @@
 # foreign/idr is an in-tree MLIR dialect in upstream's layout: every
 # library one add_mlir_library (add_mlir_dialect_library for the dialect),
 # linted by the clang-tidy of stage 2, the one LLVM. No state outlives a
-# call but four: the dialect's count of the cells the folders left live
+# call but five: the dialect's count of the cells the folders left live
 # (a member the ODS declares), the command-line option objects of the
 # driver and the tools, an action's function-local type identity, a
-# constant, and the footprint ledger (idr/Support/Footprint.h), the bytes
+# constant, the footprint ledger (idr/Support/Footprint.h), the bytes
 # the one allocator of the shared containers holds on each thread: per
 # thread, so a run counts only what its own thread holds, with no shared
 # counter between threads, and constant-initialized, so the allocator
-# reaches it with no guard. Where the C++ is and in which extensions, and
-# that none of it is a C++20 module, is tests/zones'; the flags the build
+# reaches it with no guard; and the content digest a family, a data type
+# or a constant constructor keeps in its storage (KeptDigest,
+# idr/IR/Families/FamilyStorage.h), two atomic words and a flag written
+# the first time it is asked and read with no lock after, the deviation
+# PINS.md's entry kept-digest records: MLIR gives a storage its kind only
+# after constructing it, and gives a type's storage no hook that runs
+# then, under the uniquer's lock, so no storage can make its digest
+# before it is shared. Where the C++ is and in which extensions, and that
+# none of it is a C++20 module, is tests/zones'; the flags the build
 # compiles it with are tests/language-profile's, read from the build's own
 # commands.
 #
 # The rule is `mlir_layout ROOT`, run on the repository and on the planted
 # trees (Planted.idr): witness/ breaks it once per way (presets that
 # lint with another clang-tidy, a plain add_library, the dialect as a plain
-# add_mlir_library, a static mutable, a std::atomic, a thread_local, and a
-# thread_local beside the ledger in the ledger's own header);
-# near-miss/ holds what is allowed: the four kinds of state, a constant, a
+# add_mlir_library, a static mutable, a std::atomic, a thread_local, a
+# thread_local beside the ledger in the ledger's own header, and a
+# std::atomic beside the kept digest in the kept digest's own header);
+# near-miss/ holds what is allowed: the five kinds of state, a constant, a
 # static function, and the words in comments and strings.
 . "$IDRIS_MLIR_ROOT/harness/testutils.sh"
 
@@ -42,16 +50,18 @@ mlir_layout() (
     xargs grep -qE '\(IdrIR([[:space:]]|$)' < "$work/lists" || say "$idr: no library IdrIR"
   fi
   # State: nothing thread_local or std::atomic in a unit but the footprint
-  # ledger, at its one declaration (the folders' count is the ODS's), and no
-  # static variable that is neither constant nor an option or an action's
-  # type identity. A static variable is defined by an `=` or ended by a `;`
-  # before any parenthesis; a static function has its parameters first, on
-  # its line or the next. Comments and literals are no code.
+  # ledger and the kept digest, each at its one declaration (the folders'
+  # count is the ODS's), and no static variable that is neither constant
+  # nor an option or an action's type identity. A static variable is
+  # defined by an `=` or ended by a `;` before any parenthesis; a static
+  # function has its parameters first, on its line or the next. Comments
+  # and literals are no code.
   find "$idr" -name build -prune -o -type f \( -name '*.cpp' -o -name '*.h' \) -print | LC_ALL=C sort > "$work/units"
   # shellcheck disable=SC2046
   [ -s "$work/units" ] && cpp_lex $(cat "$work/units") > "$work/code"
   grep -E '^[^:]*:[0-9]+:.*(\bthread_local\b|std::atomic\b)' "$work/code" 2> /dev/null |
     grep -vE '^foreign/idr/include/idr/Support/Footprint\.h:[0-9]+:[[:space:]]*(inline[[:space:]]+)?constinit[[:space:]]+thread_local[[:space:]]+Ledger[[:space:]]+ledger;[[:space:]]*$' |
+    grep -vE '^foreign/idr/include/idr/IR/Families/FamilyStorage\.h:[0-9]+:[[:space:]]*mutable[[:space:]]+std::atomic<uint64_t>[[:space:]]+low\{0\},[[:space:]]*high\{0\};[[:space:]]*$' |
     sed 's/^\([^:]*:[0-9]*\):.*/\1: state shared between calls or threads/'
   grep -E '^[^:]*:[0-9]+:[[:space:]]*static[[:space:]][^(]*[=;]' "$work/code" 2> /dev/null |
     grep -vE '\bstatic[[:space:]]+(inline[[:space:]]+)?(const|constexpr|constinit)\b' |
@@ -66,6 +76,6 @@ if [ -s "$work/found" ]; then
 else
   say "CMakePresets.json: lint with the stage-2 clang-tidy"
   say "every library is an add_mlir_library, IdrIR an add_mlir_dialect_library"
-  say "no thread_local, static mutable or std::atomic but the four"
+  say "no thread_local, static mutable or std::atomic but the five"
 fi
 planted mlir_layout

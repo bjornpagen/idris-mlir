@@ -199,7 +199,7 @@ FailureOr<Head> parseTermHead(AsmParser &parser, SmallVectorImpl<TermNode> &out,
       // is added up, so any order and any repetition is made one normal
       // form.
       NatSum sum;
-      do {
+      auto readLevel = [&]() -> ParseResult {
         StringRef keyword;
         uint32_t level;
         if (parser.parseKeyword(&keyword) || !keyword.consume_front("v") ||
@@ -209,8 +209,13 @@ FailureOr<Head> parseTermHead(AsmParser &parser, SmallVectorImpl<TermNode> &out,
         if (succeeded(parser.parseOptionalStar()) && parser.parseInteger(times))
           return failure();
         sum.addLevel(level, times);
-        if (failed(parser.parseOptionalPlus()))
-          break;
+        return success();
+      };
+      if (readLevel())
+        return failure();
+      // Each round reads a `+`, so the rounds end with the input at the
+      // latest.
+      while (succeeded(parser.parseOptionalPlus())) {
         uint64_t count;
         OptionalParseResult counted = parser.parseOptionalInteger(count);
         if (counted.has_value()) {
@@ -219,7 +224,9 @@ FailureOr<Head> parseTermHead(AsmParser &parser, SmallVectorImpl<TermNode> &out,
           sum.addCount(count);
           break;
         }
-      } while (true);
+        if (readLevel())
+          return failure();
+      }
       write.sum(sum);
       return Head::Whole;
     }

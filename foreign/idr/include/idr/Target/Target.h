@@ -94,13 +94,6 @@ inline constexpr llvm::StringLiteral vectorWidthKey = "max_vector_op_width";
 inline constexpr llvm::StringLiteral vectorizeSchedule = "idr.vectorization";
 void registerScheduleLibrary(mlir::DialectRegistry &registry);
 
-// The library's cleanup of the unit dimensions vectorizing left, within its
-// rounds, on the ops its handle holds. The schedule includes it with a
-// spent budget suppressed; run alone, as a test does with
-// `--transform-interpreter=entry-point=idr.vectorization.cleanup`, a spent
-// budget is an error, so a cycle among its patterns fails the test.
-inline constexpr llvm::StringLiteral cleanupSchedule = "idr.vectorization.cleanup";
-
 // The size a bin of the optimized program aims at, in LLVM instructions. A
 // bin's fixed cost (its context, machine and bitcode read) is per bin and
 // its code generation linear in its instructions, so bins are as large as

@@ -1,6 +1,6 @@
 units: found
 CMakePresets.json: lint with the stage-2 clang-tidy
 every library is an add_mlir_library, IdrIR an add_mlir_dialect_library
-no thread_local, static mutable or std::atomic but the four
+no thread_local, static mutable or std::atomic but the five
 witness: each planted file is found
 near miss: nothing found

@@ -65,9 +65,11 @@ using mlir::ArrayRef;
 // it is first asked, never computed again. Not in the storage's
 // constructor: MLIR gives a storage its kind only after constructing it,
 // and the digest is what the kind's dialect writes of it, so no digest can
-// be made there; and most parts are never digested. Two workers that ask
-// at once each compute the one digest and keep it; a reader that sees it
-// marked kept sees it whole.
+// be made there. An attribute's storage has a hook that runs once its kind
+// is set, still under the uniquer's lock, but a type's has none, and a data
+// type keeps its digest too; and most parts are never digested. Two
+// workers that ask at once each compute the one digest and keep it; a
+// reader that sees it marked kept sees it whole.
 class KeptDigest {
 public:
   std::optional<llvm::XXH128_hash_t> read() const {

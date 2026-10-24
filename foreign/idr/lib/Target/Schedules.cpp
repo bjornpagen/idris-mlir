@@ -65,7 +65,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <concepts>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -77,28 +76,6 @@
 using namespace mlir;
 
 namespace {
-
-// The rounds the greedy driver may take to clean the vectors of one
-// function: a size policy, which bounds the cleanup and never what is
-// lowered. A cleanup that spends it leaves unit dimensions the lowering
-// takes as they are, so the function is less optimized and nothing else.
-constexpr unsigned cleanupRounds = 10;
-
-// A named sequence of the library, under a name Target.h holds once, on one
-// handle it only reads: the ops `body` builds, then the yield. Its location
-// is its name, for what the interpreter reports at its ops.
-template <std::invocable<OpBuilder &, Location, BlockArgument> Body>
-transform::NamedSequenceOp sequence(OpBuilder &builder, llvm::StringRef name, Body &&body) {
-  MLIRContext *context = builder.getContext();
-  auto named = transform::NamedSequenceOp::create(
-      builder, NameLoc::get(StringAttr::get(context, name)), name, transform::AnyOpType::get(context),
-      TypeRange(), [&](OpBuilder &inner, Location loc, BlockArgument handle) {
-        body(inner, loc, handle);
-        transform::YieldOp::create(inner, loc);
-      });
-  named.setArgAttr(0, transform::TransformDialect::kArgReadOnlyAttrName, UnitAttr::get(context));
-  return named;
-}
 
 // The widest word the generic computes, in bits, as the module's data
 // layout sizes it: its operands' elements and its body's values, the
@@ -248,37 +225,41 @@ struct ScheduleLibrary : DialectExtension<ScheduleLibrary, transform::TransformD
   void apply(MLIRContext *context, transform::TransformDialect *dialect) const final {
     ModuleOp library = dialect->getLibraryModule();
     auto builder = OpBuilder::atBlockEnd(library.getBody());
-    // The cleanup: the unit dimensions dropped through shape casts, within
-    // its rounds.
-    transform::NamedSequenceOp cleanup = sequence(
-        builder, idr::target::cleanupSchedule, [](OpBuilder &b, Location loc, BlockArgument functions) {
-          auto patterns =
-              transform::ApplyPatternsOp::create(b, loc, functions, [](OpBuilder &p, Location at) {
-                transform::ApplyDropUnitDimWithShapeCastPatternsOp::create(p, at);
-              });
-          patterns.setMaxIterations(cleanupRounds);
-        });
-    // The schedule: the loops over arrays computed on lanes; then what the
+    // The schedule, under the name Target.h holds once, which is also its
+    // location, for what the interpreter reports at its ops; on one handle it
+    // only reads. The loops over arrays computed on lanes; then what the
     // vector dialect's conversion cannot take made what it can (the last
     // tile's masked region made the masked transfer it holds, a transfer
     // that permutes or broadcasts made a minor-identity one and a transpose
-    // or broadcast), which ends with no budget, since each rewrite removes a
-    // mask region or a permutation and none makes one, and must, since an op
-    // left would not lower; then the cleanup, a spent budget suppressed.
-    sequence(builder, idr::target::vectorizeSchedule, [&](OpBuilder &b, Location loc,
-                                                          BlockArgument root) {
-      llvm::StringRef generic = linalg::GenericOp::getOperationName();
-      Value loops = transform::MatchOp::create(b, loc, root, generic);
-      Value vectorized =
-          idr::target::VectorizeLanesOp::create(b, loc, transform::AnyOpType::get(context), loops);
-      transform::ApplyPatternsOp::create(b, loc, vectorized, [](OpBuilder &p, Location at) {
-        transform::ApplyLowerMaskedTransfersPatternsOp::create(p, at);
-        transform::ApplyTransferPermutationPatternsOp::create(p, at);
-      });
-      transform::IncludeOp::create(b, loc, TypeRange(), FlatSymbolRefAttr::get(cleanup),
-                                   transform::FailurePropagationMode::Suppress, vectorized,
-                                   /*arg_attrs=*/ArrayAttr(), /*res_attrs=*/ArrayAttr());
-    });
+    // or broadcast), which must run to its end, since an op left would not
+    // lower; then the unit dimensions vectorizing left dropped through shape
+    // casts. Each runs upstream's patterns to their fixpoint, with no count
+    // of rounds or rewrites, because each set's rewrites decrease a measure
+    // no rewrite of the set increases: the lowering removes a mask region or
+    // a permutation and makes none; the cleanup replaces an elementwise op, a
+    // transpose or a loop's carried vector that has a fixed unit dimension by
+    // one with those dimensions gone, which the set no longer matches, and
+    // the shape casts it adds are none of the three.
+    llvm::StringRef name = idr::target::vectorizeSchedule;
+    auto schedule = transform::NamedSequenceOp::create(
+        builder, NameLoc::get(StringAttr::get(context, name)), name,
+        transform::AnyOpType::get(context), TypeRange(),
+        [&](OpBuilder &b, Location loc, BlockArgument root) {
+          llvm::StringRef generic = linalg::GenericOp::getOperationName();
+          Value loops = transform::MatchOp::create(b, loc, root, generic);
+          Value vectorized = idr::target::VectorizeLanesOp::create(
+              b, loc, transform::AnyOpType::get(context), loops);
+          transform::ApplyPatternsOp::create(b, loc, vectorized, [](OpBuilder &p, Location at) {
+            transform::ApplyLowerMaskedTransfersPatternsOp::create(p, at);
+            transform::ApplyTransferPermutationPatternsOp::create(p, at);
+          });
+          transform::ApplyPatternsOp::create(b, loc, vectorized, [](OpBuilder &p, Location at) {
+            transform::ApplyDropUnitDimWithShapeCastPatternsOp::create(p, at);
+          });
+          transform::YieldOp::create(b, loc);
+        });
+    schedule.setArgAttr(0, transform::TransformDialect::kArgReadOnlyAttrName,
+                        UnitAttr::get(context));
     // No pass runs on the library module, so nothing else verifies it: its
     // being well formed is this builder's invariant.
     assert(succeeded(mlir::verify(library)) && "the schedule library is well formed");

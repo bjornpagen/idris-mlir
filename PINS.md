@@ -705,7 +705,11 @@ every target, the full suites green on each, and this file's sweep.
   type, and through it its dialect) only after constructing it:
   `StorageUniquer::get` runs the init function after `construct`. A deep
   part's content digest is what its dialect's bytecode writes of it, so no
-  storage can compute its digest when it is made
+  storage can compute its digest when it is made. An attribute's storage
+  gets a hook once its kind is set, still under the uniquer's lock
+  (`AttributeStorage::initialize(MLIRContext *)`), but a type's gets none
+  (`TypeUniquer` sets only its abstract type), and a data type keeps a
+  digest too
 - sites: foreign/idr/include/idr/IR/Families/FamilyStorage.h (`KeptDigest`,
   in the storages of a family and a constant constructor),
   foreign/idr/lib/IR/Types.cpp (in a data type's storage), and

@@ -448,26 +448,37 @@ public:
   Holding(const Record &record, std::span<const FactsView> callees)
       : record(record), callees(callees), runs(record.values, Range{}) {
     // Every run only grows from one round to the next (a value holds the
-    // union of what it reads, and an argument's reach only weakens), so the
-    // rounds end; a record no value of which is entered from later in the
-    // walk takes one.
-    for (;;) {
-      Grew grew = Grew::No;
-      for (ValueId value : record.values.ids()) {
-        previous = runs[value];
-        Range now = heldBy(value);
-        if (!llvm::equal(at(now), at(previous)))
-          grew = Grew::Yes;
-        runs[value] = now;
-      }
-      if (entered == Entered::InOrder || grew == Grew::No)
-        return;
-    }
+    // union of what it reads, and an argument's reach only weakens), and a
+    // run holds each argument once, at one of two reaches, so the rounds
+    // end: each round but the last grows a run, and no run grows past every
+    // argument at the weaker reach. A record no value of which is entered
+    // from later in the walk takes one.
+    Grew grew = round();
+    while (entered == Entered::Later && grew == Grew::Yes)
+      grew = round();
   }
 
   std::span<const Held> of(ValueId value) const { return at(runs[value]); }
 
 private:
+  // Whether a round grew any run; whether any value is entered from later
+  // in the walk, which the first round finds.
+  enum class Grew : std::uint8_t { No, Yes };
+  enum class Entered : std::uint8_t { InOrder, Later };
+
+  // One round: each value's run read again, in the walk's order.
+  Grew round() {
+    Grew grew = Grew::No;
+    for (ValueId value : record.values.ids()) {
+      previous = runs[value];
+      Range now = heldBy(value);
+      if (!llvm::equal(at(now), at(previous)))
+        grew = Grew::Yes;
+      runs[value] = now;
+    }
+    return grew;
+  }
+
   std::span<const Held> at(Range range) const {
     return std::span<const Held>(table).subspan(range.first, range.count);
   }
@@ -523,11 +534,6 @@ private:
   }
 
   Range heldBy(ValueId value);
-
-  // Whether a round grew any run; whether any value is entered from later
-  // in the walk, which the first round finds.
-  enum class Grew : std::uint8_t { No, Yes };
-  enum class Entered : std::uint8_t { InOrder, Later };
 
   const Record &record;
   std::span<const FactsView> callees;
