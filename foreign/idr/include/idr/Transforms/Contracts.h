@@ -6,7 +6,7 @@
 // unnoticed until something downstream miscompiles. MLIR's pass
 // instrumentation sees every pass at its boundary: before a pass on the
 // module or on its idr.program it records, per function, the facts the
-// relations read (each parameter's and result's uses, whether its row may
+// relations read (how each parameter and result stands, whether its row may
 // crash), never a copy of the module; after the pass it checks the
 // relations no correct pass breaks between that record and the module, and
 // what the module after it holds alone (every cycle of calls Idris did not
@@ -36,12 +36,19 @@ namespace idr {
 // crash.
 enum class MayCrash : std::uint8_t { No, Yes };
 
+// What a position of a function stands for after a pass that keeps the
+// function: Once, a run of positions used once, never an empty one;
+// OnceOrNone, such a run, or none where the pass dropped the position;
+// Many, a run of positions used many times, or none where the pass dropped
+// it.
+enum class StandsFor : std::uint8_t { Once, OnceOrNone, Many };
+
 // One function's facts before a pass: what the relations compare with the
 // function of its symbol after it.
 struct FunctionRecord {
   mlir::StringAttr symbol;
-  llvm::SmallVector<Uses> parameters;
-  llvm::SmallVector<Uses> results;
+  llvm::SmallVector<StandsFor> parameters;
+  llvm::SmallVector<StandsFor> results;
   MayCrash crash;
 };
 

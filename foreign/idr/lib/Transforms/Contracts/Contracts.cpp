@@ -102,11 +102,28 @@ MayCrash mayCrash(FuncOp fn) {
   return fn.getRow().contains(effects::Atom::crash) ? MayCrash::Yes : MayCrash::No;
 }
 
+// What a pass may make of a parameter of `type`: one used once stands, since
+// Idris checked that it is used and each pass that drops a dead parameter
+// holds it read.
+StandsFor parameterStandsFor(Type type) {
+  return usesOf(type) == Uses::Once ? StandsFor::Once : StandsFor::Many;
+}
+
+// What a pass may make of a result of `type`: one used once by its type (a
+// cell, a destination, a package) stands, its one use what fills it or gives
+// it back; one used once by its grade alone is the one reference its callee
+// hands its caller, which a caller that never reads it leaves unused, so it
+// may go.
+StandsFor resultStandsFor(Type type) {
+  if (isLinearByType(type))
+    return StandsFor::Once;
+  return usesOf(type) == Uses::Once ? StandsFor::OnceOrNone : StandsFor::Many;
+}
+
 // The facts of one function the relations compare.
 FunctionRecord recordOf(FuncOp fn) {
-  auto uses = [](TypeRange types) { return llvm::map_to_vector(types, [](Type t) { return usesOf(t); }); };
-  return {fn.getSymNameAttr(), uses(fn.getArgumentTypes()), uses(fn.getResultTypes()),
-          mayCrash(fn)};
+  return {fn.getSymNameAttr(), llvm::map_to_vector(fn.getArgumentTypes(), parameterStandsFor),
+          llvm::map_to_vector(fn.getResultTypes(), resultStandsFor), mayCrash(fn)};
 }
 
 // The record of every idr.func of the module's program. Once lowered, the
@@ -174,11 +191,10 @@ LogicalResult quantitiesKept(const After &after) {
 // What a pass may make of a function it keeps, position by position: each
 // position its record holds stands for a run of positions after it, in
 // order, each at that position's uses. The run is empty where the pass
-// dropped a dead position (Demand, Captures, Results), which only one used
-// many times can be: Idris checked that one used once is used, and each of
-// those passes holds it read. It is longer than one where the pass holds a
-// value as its parts, each at the whole's grade (idr-columns). No pass
-// adds a position to a function it keeps: a stack, a destination or a
+// dropped a dead position (Demand, Captures, Results), which only one that
+// need not stand can be (StandsFor). It is longer than one where the pass
+// holds a value as its parts, each at the whole's grade (idr-columns). No
+// pass adds a position to a function it keeps: a stack, a destination or a
 // lifetime is a parameter of a function it makes. So a list after the pass
 // is compared with the runs its record stands for, whatever its length,
 // and where it parts from them is one of three places.
@@ -196,45 +212,57 @@ struct Unrecorded {
   unsigned now;
   Uses is;
 };
-// A position of the record used once that stands for none after the pass.
+// A position of the record that must stand, standing for none after the
+// pass.
 struct Gone {
   unsigned recorded;
 };
 using Parting = std::variant<ManyForOnce, Unrecorded, Gone>;
 
-// The first position at or after `from` of `before` used once, if any.
-std::optional<unsigned> nextOnce(ArrayRef<Uses> before, unsigned from) {
-  for (unsigned at = from; at != before.size(); ++at)
-    if (before[at] == Uses::Once)
-      return at;
-  return std::nullopt;
+// The uses of each position a recorded one stands for.
+constexpr Uses usesAt(StandsFor position) {
+  return position == StandsFor::Many ? Uses::Many : Uses::Once;
 }
+
+// The first position at or after `from` of `before` that `is` holds of, if
+// any.
+template <std::predicate<StandsFor> Is>
+std::optional<unsigned> firstFrom(ArrayRef<StandsFor> before, unsigned from, Is is) {
+  const StandsFor *found = llvm::find_if(before.drop_front(from), is);
+  if (found == before.end())
+    return std::nullopt;
+  return static_cast<unsigned>(found - before.begin());
+}
+
+constexpr bool usedOnce(StandsFor position) { return usesAt(position) == Uses::Once; }
+constexpr bool mustStand(StandsFor position) { return position == StandsFor::Once; }
 
 // Where `now` parts from the runs `before` stands for, or nothing where it
 // is those runs. A reading of `now` so far is the count i of before's
 // positions whose runs are exactly the positions read, the last of them
 // able to stand for more; each next position of `now` goes on the last
 // run, or begins the run of a later position, those between standing for
-// none, which each must be used many times to do.
-std::optional<Parting> partingOf(ArrayRef<Uses> before, ArrayRef<Uses> now) {
+// none, which none of them that must stand may do.
+std::optional<Parting> partingOf(ArrayRef<StandsFor> before, ArrayRef<Uses> now) {
   const auto count = static_cast<unsigned>(before.size());
   llvm::BitVector readings(count + 1);
   readings.set(0);
   for (auto [at, is] : llvm::enumerate(now)) {
     llvm::BitVector next(count + 1);
     for (unsigned i : readings.set_bits()) {
-      if (i != 0 && before[i - 1] == is)
+      if (i != 0 && usesAt(before[i - 1]) == is)
         next.set(i);
       for (unsigned k = i; k != count; ++k) {
-        if (before[k] == is)
+        if (usesAt(before[k]) == is)
           next.set(k + 1);
-        if (before[k] == Uses::Once)
+        if (mustStand(before[k]))
           break;
       }
     }
     if (next.none()) {
       auto position = static_cast<unsigned>(at);
-      std::optional<unsigned> once = nextOnce(before, static_cast<unsigned>(readings.find_last()));
+      std::optional<unsigned> once =
+          firstFrom(before, static_cast<unsigned>(readings.find_last()), usedOnce);
       if (is == Uses::Many && once)
         return ManyForOnce{position, *once};
       return Unrecorded{position, is};
@@ -242,11 +270,11 @@ std::optional<Parting> partingOf(ArrayRef<Uses> before, ArrayRef<Uses> now) {
     readings = std::move(next);
   }
   for (unsigned i : readings.set_bits())
-    if (!nextOnce(before, i))
+    if (!firstFrom(before, i, mustStand))
       return std::nullopt;
-  // Every reading leaves a position used once standing for none; the first
-  // after the furthest reading is left by every reading.
-  return Gone{*nextOnce(before, static_cast<unsigned>(readings.find_last()))};
+  // Every reading leaves a position that must stand standing for none; the
+  // first after the furthest reading is left by every reading.
+  return Gone{*firstFrom(before, static_cast<unsigned>(readings.find_last()), mustStand)};
 }
 
 // linear-kept: every parameter and every result of a function the pass
@@ -254,7 +282,7 @@ std::optional<Parting> partingOf(ArrayRef<Uses> before, ArrayRef<Uses> now) {
 LogicalResult linearKept(const After &after) {
   bool held = true;
   for (Kept k : after.kept) {
-    auto compare = [&](StringRef what, ArrayRef<Uses> before, TypeRange types) {
+    auto compare = [&](StringRef what, ArrayRef<StandsFor> before, TypeRange types) {
       SmallVector<Uses> now = llvm::map_to_vector(types, [](Type t) { return usesOf(t); });
       std::optional<Parting> parting = partingOf(before, now);
       if (!parting)
@@ -332,33 +360,27 @@ LogicalResult cycleDivergenceKept(const After &after) {
   return success(held);
 }
 
-// linear-kept, broken: every function no symbol use names drops each of
-// its results used many times and gives back each of its linear results
-// unrestricted, its one use the cast to many at the return. No call sees
-// the new signature; the root is no such function, since the program
-// names it outside its body. A function that gave linear results alone
-// keeps its shape, and one that gave both changes it, as a pass that drops
-// a dead result and weakens another would.
+// linear-kept, broken: every function no symbol use names gives back each
+// of its results used once by its grade unrestricted and claiming nothing,
+// its one use the cast to many at the return: the one reference a callee
+// hands its caller, and what it claims, are lost. No call sees the new
+// signature; the root is no such function, since the program names it
+// outside its body.
 void breakLinearKept(ProgramOp program, AnalysisManager) {
   for (FuncOp fn : program.getOps<FuncOp>()) {
     if (fn.isRoot() || !SymbolTable::symbolKnownUseEmpty(fn, program))
       continue;
     SmallVector<Type> results = llvm::to_vector(fn.getResultTypes());
-    llvm::BitVector dropped(static_cast<unsigned>(results.size()));
     for (unsigned i = 0; i != results.size(); ++i) {
-      if (!isLinear(results[i])) {
-        dropped.set(i);
+      if (resultStandsFor(results[i]) != StandsFor::OnceOrNone)
         continue;
-      }
-      results[i] = atUses(results[i], Uses::Many);
+      results[i] = shared(atUses(results[i], Uses::Many));
       fn.walk([&](ReturnOp ret) {
         OpBuilder builder(ret);
         ret->setOperand(i, LinCastOp::create(builder, ret.getLoc(), results[i], ret->getOperand(i)));
       });
     }
     fn.setFunctionType(FunctionType::get(fn.getContext(), fn.getArgumentTypes(), results));
-    fn.walk([&](ReturnOp ret) { ret->eraseOperands(dropped); });
-    (void)fn.eraseResults(dropped);
   }
 }
 

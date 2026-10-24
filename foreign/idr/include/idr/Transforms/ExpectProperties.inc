@@ -156,8 +156,10 @@ IDR_CONTRACT_RELATION("quantities-kept", QuantitiesKept, quantitiesKept, breakQu
 // Every parameter and every result of a function the pass kept is
 // where its record says, at its uses: each position the function had
 // stands for a run of positions after the pass, in order, each at its
-// uses, none only where the pass dropped one used many times.
-IDR_CONTRACT_RELATION("linear-kept", LinearKept, linearKept, breakLinearKept, "drop each result used many times and give each linear result back unrestricted")
+// uses, none only where the pass dropped one used many times or a
+// result used once by its grade alone, the one reference a callee hands
+// a caller, which the caller may leave unread.
+IDR_CONTRACT_RELATION("linear-kept", LinearKept, linearKept, breakLinearKept, "give each result used once by its grade back unrestricted, claiming nothing")
 
 // A function the pass kept whose row could not crash before it cannot
 // crash after it: its row, which covers each place of its body that may

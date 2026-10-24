@@ -5,16 +5,23 @@
 // eager; the e-graph that runs after deletes what of it is total and
 // unused.
 //
-// A result is read where a call gives it to anything but its caller's
-// return, through what forwards it unchanged (a region's rejoin, a jump
-// into a join region); a value its caller returns at a result that is read
-// is read in turn. A least fixpoint over the program's results whose bits
-// only rise, so it ends by construction. The program's root keeps its
-// results, which its caller outside reads, and a result of quantity one is
-// read, as Idris checked. A tail call's results are its caller's, so the
-// functions tail calls join return one type: their results at a position
-// are one class, read when any member is, dropped from every member or
-// from none.
+// A result is read where a call gives it to anything but its caller's return,
+// through what forwards it unchanged (a region's rejoin, a jump into a join
+// region) and what keeps its value at other uses (a cast into or out of a
+// linear position, which gives it on as the cast's result: a cast nothing
+// reads reads nothing, and where its result is read the result stands, at its
+// uses and with its claim); a value its caller returns at a result that is
+// read is read in turn. A least fixpoint over the program's results whose
+// bits only rise, so it ends by construction. The program's root keeps its
+// results, which its caller outside reads, and so does a result its type uses
+// exactly once (a cell, a destination, a package), whose one use is what
+// fills it or gives it back. A result used once by its grade is the one
+// reference its callee hands its caller, which a value used once may leave
+// unused, so it is read only where its callers read it, as any result is;
+// dropped, the value its return gave is unused, which counting gives up. A
+// tail call's results are its caller's, so the functions tail calls join
+// return one type: their results at a position are one class, read when any
+// member is, dropped from every member or from none.
 //
 // A function that loses a result returns it no more, and each op a tail
 // passes through (a match, a join group: an op a break crosses, which does
@@ -73,9 +80,9 @@ private:
 };
 
 // The positions of its function's return `value` reaches through what
-// forwards it unchanged; none when anything else takes it, which reads it.
-// A loop's join regions forward a value around again: each is followed
-// once in the question.
+// forwards it unchanged and what keeps its value at other uses; none when
+// anything else takes it, which reads it. A loop's join regions forward a
+// value around again: each is followed once in the question.
 std::optional<SmallVector<unsigned, 1>> returnsOf(Value value, Followed &followed) {
   SmallVector<unsigned, 1> positions;
   SmallVector<Value> work{value};
@@ -85,12 +92,19 @@ std::optional<SmallVector<unsigned, 1>> returnsOf(Value value, Followed &followe
     if (!followed.first(at))
       continue;
     for (OpOperand &use : at.getUses()) {
-      if (isa<ReturnOp>(use.getOwner())) {
+      Operation *user = use.getOwner();
+      if (isa<ReturnOp>(user)) {
         positions.push_back(use.getOperandNumber());
         continue;
       }
+      // An op that keeps its operand's value (Idr_SameValue) gives it on as
+      // its result, which is read where that is.
+      if (user->hasTrait<SameValue>() && use.getOperandNumber() == 0) {
+        work.push_back(user->getResult(0));
+        continue;
+      }
       bool forwarded = false;
-      forwardedValues(use.getOwner(), [&](OpOperand &operand, Value input) {
+      forwardedValues(user, [&](OpOperand &operand, Value input) {
         if (&operand != &use)
           return;
         forwarded = true;
@@ -184,9 +198,9 @@ void dropDeadResults(Schedule &schedule) {
   joined.compress();
   auto classOf = [&](FunctionId fn, unsigned result) { return joined[slot(fn, result)]; };
 
-  // Read: the root's results and those of quantity one, and every result a
-  // call gives to anything but its caller's return; a result a caller
-  // returns at a position read makes its own read.
+  // Read: the root's results and those a type uses exactly once, and every
+  // result a call gives to anything but its caller's return; a result a
+  // caller returns at a position read makes its own read.
   llvm::BitVector read(joined.getNumClasses());
   footprint::Vector<SmallVector<unsigned, 1>> feeds(joined.getNumClasses());
   footprint::Vector<unsigned> work;
@@ -201,7 +215,7 @@ void dropDeadResults(Schedule &schedule) {
     if (!fn)
       continue;
     for (auto [r, type] : llvm::enumerate(fn.getResultTypes()))
-      if (fn.isRoot() || isLinear(type))
+      if (fn.isRoot() || isLinearByType(type))
         mark(classOf(self, static_cast<unsigned>(r)));
     Followed followed(fn);
     fn.getBody().walk([&](CallOp call) {
