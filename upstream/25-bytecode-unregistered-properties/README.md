@@ -184,9 +184,5 @@ request covers it: searched llvm/llvm-project for the reader's
   then-current main and is clang-format clean; `check-mlir`, which runs
   `MLIRIRTests`, is the pull request's pre-merge CI's (upstream/README.md,
   **CI decides**).
-- A check that the pinned tools still have the bug,
-  `tests/upstream-bytecode-unregistered-properties`, is to run the
-  two-tool reproducer above and expect `idris-mlir-opt` to fail; when the
-  pin has the fix it reads the file, the check fails, and this directory
-  and the check go.
+- When the pin has the fix, this directory goes.
 - Nothing in this repository depends on it.

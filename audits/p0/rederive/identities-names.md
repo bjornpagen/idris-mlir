@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Rederivation audit: identities and names
 
 Family: every place a thing (a function, an op, a property, a data type, a

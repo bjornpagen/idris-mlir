@@ -1511,7 +1511,7 @@ step_simdutf() {
 # Chez Scheme, with the host's C compiler. Idris 2 runs on it and bench/
 # times Idris's Chez backend on it, so it is one pinned release on every
 # host, not whichever the host packages. Idris's support library is
-# loaded into its process. PIN(idris-support-host-cc) — see PINS.md
+# loaded into its process.
 step_chez() {
   begin chez "Chez Scheme $chez_tag, with the host's C compiler" || return 0
   need git make "$host_cc"
@@ -1540,7 +1540,7 @@ step_chez() {
 
 # Idris 2 on the pinned Chez Scheme. Its C support library is a shared
 # object in the Chez process, a host program, so the host's C compiler
-# builds it. PIN(idris-support-host-cc) — see PINS.md
+# builds it.
 # It is built in a copy of the checkout, with its patches applied, which is
 # no checkout of its own: Idris's Makefile is told the version it would
 # read from the checkout's git, nothing at a tagged release, else the

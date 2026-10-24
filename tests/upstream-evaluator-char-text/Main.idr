@@ -3,9 +3,8 @@ module Main
 -- The elaborator computes a primitive applied to constants with the
 -- primitive itself, so a Char's text is the Char, whatever it is: no
 -- escape, as `show` would write. Each proof is checked by computing it.
--- The stock Idris still has the bug (upstream/20-evaluator-char-text); the
--- type checker (compiler/checker) fixes it as its own code, and this test
--- checks that fix.
+-- The stock Idris still has the bug; the type checker (compiler/checker)
+-- fixes it as its own code, and this test checks that fix.
 
 import Prelude
 

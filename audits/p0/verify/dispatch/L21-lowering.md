@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L21 (lowering): the lowering to LLVM, and the target
 
 **Exclusive write:** `foreign/idr/lib/Conversion/Lower/` (new, for new code), `foreign/idr/lib/Conversion/{Counting,Cells,Entry,Facts,Fields,FuncToFunc,Lower,Mangle,MemoCells,PassThroughMemory,ReturnRegisters,Runtime,RuntimeCalls,RuntimeCells,StaticBytes,StaticData,StaticNames}.cpp`,

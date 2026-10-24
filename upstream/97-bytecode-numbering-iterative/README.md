@@ -16,18 +16,16 @@ The rest of the writer is iterative: operations and regions are numbered
 from a worklist, and an entry is written with its nested values as
 indices.
 
-What reaches it in this repository is the toolchain's `mlir-opt`
-writing bytecode: `tests/upstream-bytecode-deferred-quadratic` converts
-an array nested 32,000 deep to bytecode before it times reading it back,
+What reached it in this repository was the toolchain's `mlir-opt`
+writing bytecode: `tests/upstream-bytecode-deferred-quadratic` converted
+an array nested 32,000 deep to bytecode before it timed reading it back,
 and with `upstream/10-recursive-attribute-parser` carried, the writer's
-numbering is the one recursion on the depth left on that path. The check
-ran with the shell's stack raised as far as the system allows; that
-raise is gone (proposals/0000 §6), and this patch is what lets it run on
-a small stack. The compiler itself writes no MLIR bytecode: the frontend
-writes it, and the driver reads it. A value nested this deep is ordinary
-input for an MLIR tool: a list of 20,000 elements is a constant nested
-20,000 deep, and a chain of call-site locations is as deep as the
-inlining that built it.
+numbering was the one recursion on the depth left on that path when the
+test wrote on the tools' small stack. The compiler itself writes no MLIR
+bytecode: the frontend writes it, and the driver reads it. A value nested
+this deep is ordinary input for an MLIR tool: a list of 20,000 elements is
+a constant nested 20,000 deep, and a chain of call-site locations is as
+deep as the inlining that built it.
 
 ## Reproduce
 
@@ -39,9 +37,9 @@ on the depth: no overflowing depth is measured). Its text parses from an
 explicit stack only with `upstream/10-recursive-attribute-parser`, which
 applies before this patch; on main, the parser overflows first.
 
-## Patch
+## The fix
 
-`llvm.patch`: the dummy writer records the components it reaches, in
+`pull-request.diff`: the dummy writer records the components it reaches, in
 the order it reaches them (each nested attribute and type, the dialect
 resources a value references, the group name a writer callback chooses),
 and `numberNested` numbers them from an explicit stack, one group of
@@ -55,9 +53,20 @@ the bytecode written, byte for byte. What a failed writer callback
 reached is still numbered, and a callback's group name is still applied
 after the components its writing reached. Not built.
 
+## Why there is no patch
+
+It was carried so that the toolchain's `mlir-opt` could write the input
+of `upstream/03-bytecode-deferred-quadratic`'s check on the tools' small
+stack. No tool of ours writes bytecode through MLIR's writer, so nothing
+in the tree reaches the recursion, and that check writes its input on
+the shell's stack and reads it on the small one. The report stays as a
+submission, its pull request as `pull-request.diff`, which the bootstrap
+does not apply.
+
 ## Upstreaming plan
 
-Status: carried (2026-10-21); not filed.
+Status: not carried since 2026-10-23 (no tool of ours writes bytecode
+through MLIR's writer); not filed.
 
 - Where: one pull request, `[mlir][bytecode]`, after the RFC on
   Discourse for the family of MLIR's recursions on input size
@@ -67,5 +76,5 @@ Status: carried (2026-10-21); not filed.
   attribute and a type nested a few thousand deep through
   `-emit-bytecode`, with the output compared to the text round trip; and
   the existing bytecode tests, whose output does not change.
-- The patch goes when the pin numbers nested attributes and types
+- The report goes when the pin numbers nested attributes and types
   without recursion on their depth.

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L04 (families): data types as the inductive families Idris checked
 
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Families/`,

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Rederivation audit: multiplicities and uses
 
 Family: Idris's quantities (0, 1, ω) on binders, arguments, fields and

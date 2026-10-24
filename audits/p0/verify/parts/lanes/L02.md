@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L02 (effects-rows): rows, derivation, functions and calls
 
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Functions/`,

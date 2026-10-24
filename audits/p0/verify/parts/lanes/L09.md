@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L09 (control-flow): regions, matches, join points
 
 **Exclusive write:** `foreign/idr/lib/IR/Control/` and `foreign/idr/include/idr/IR/Control/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Control/`,

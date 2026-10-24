@@ -5,9 +5,10 @@ module Main
 -- Idris splits it first in their case trees, finds `A :: _` and `B :: _`
 -- unmatched, and cannot see that `All IsF (A :: _)` is empty, so it reports
 -- `fp` and `fp3` not covering and refuses the module.
--- The stock Idris still has the bug (upstream/50-erased-coverage-nested-
--- match); the type checker fixes it as its own code, with the order of
--- upstream/52-relevant-implicit-split, and this test checks that fix.
+-- The stock Idris still has the bug; the type checker fixes it as its own
+-- code (a checked clause marks the arguments it leaves to unification, and
+-- a case tree splits them after what it writes), and this test checks
+-- that fix.
 
 import Prelude
 

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L07 (counting): placement, reuse, the space promise
 
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Counting/`, `foreign/idr/lib/IR/Counting/`, `foreign/idr/include/idr/IR/Counting/` (new: the counting ops dup, drop, share, take, unpack, cell.new, cell.init and the reuse ops, their spec, C++ and custom directives), `foreign/idr/lib/Analysis/Ownership/{Captures,Reuses,Uses,Values}.cpp`,

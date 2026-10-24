@@ -1,4 +1,6 @@
 #!/bin/sh
+# SPDX-License-Identifier: 0BSD
+# Copyright (c) 2026 Bjorn Pagen
 # Checks the cutover packet: every dispatch carries the required sections
 # and the six rules; no two writers' paths meet; every tracked file of
 # the tree has exactly one writer, or is one the cutover never touches.

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L17 (fork): the fork of Idris's compiler and its elaborator
 
 **Exclusive write:** `compiler/idris/`.

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L19 (tests): tests, harness, benchmarks, qualification
 
 **Exclusive write:** `tests/`, `harness/`, `bench/`,

@@ -42,7 +42,6 @@ unchanged-call.mlir:0:0: error: Composite pass "CompositeFixedPointPass"+ didn't
 `--remove-dead-values --mlir-print-ir-after-all --mlir-print-ir-after-change`
 prints the module after the pass. With `@inc` public, or with a call that
 has no result, the composite pass converges after one run.
-`tests/upstream-remove-dead-values-unchanged-call` checks the reproducer.
 
 Where it comes from: the module of the dialect fixture `pipeline/fixpoint.mlir` (deleted since), which
 `idr-dead-values` keeps as it is while `remove-dead-values` does not (each
@@ -210,6 +209,5 @@ block arguments; it does not touch `eraseOpResults`).
 - Independent of 06 (`remove-dead-values-unreachable`) and 22
   (`remove-dead-values-poison-operand`): neither changes a file this one
   changes, and any of them can land first.
-- When the pin includes the fix (or an equivalent one in the pass),
-  `tests/upstream-remove-dead-values-unchanged-call` fails, and this
-  directory and that check go.
+- When the pin includes the fix (or an equivalent one in the pass), this
+  directory goes.

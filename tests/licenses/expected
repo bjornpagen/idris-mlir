@@ -1,5 +1,4 @@
 licenses: every file in scope names its licence
-ports: each named by PINS.md with its part's attribution
-texts: 0BSD Apache-2.0 BSD-3-Clause LLVM-exception
+texts: 0BSD BSD-3-Clause
 witness: each planted file is found
 near miss: nothing found

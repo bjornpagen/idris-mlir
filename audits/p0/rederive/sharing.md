@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Rederivation audit: sharing and ownership claims
 
 Family: the grade's hold and claim (`static`, `counted`, `scoped`; nothing,

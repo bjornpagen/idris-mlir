@@ -16,7 +16,6 @@ moves a pin (PINS.md records the pins).
 | simdutf | UTF work in the runtime | Apache-2.0 OR MIT | `third_party/simdutf/LICENSE-*` |
 | GMP | big integers (`%lib`-free: the runtime's `idr.big`) | LGPL-3.0-or-later OR GPL-2.0-or-later | `third_party/gmp/COPYING*` |
 | LLVM/MLIR (pinned toolchain) | linked into our tools; runtime bitcode joins programs | Apache-2.0 WITH LLVM-exception | `LICENSES/Apache-2.0.txt`, `LICENSES/LLVM-exception.txt` |
-| Modular's Mojo compiler (ported files, each named in PINS.md) | `idr-deduplicate`, linked into our tools | Apache-2.0 WITH LLVM-exception | `LICENSES/Apache-2.0.txt`, `LICENSES/LLVM-exception.txt` |
 | Idris 2 (`third_party/Idris2`, unmodified pin) | host side only: builds the checker and the frontend | BSD-3-Clause | `third_party/Idris2/LICENSE` |
 | Chez Scheme (pinned toolchain) | host side only: runs Idris 2 and the test runner | Apache-2.0 | the pin's tree under `.toolchain/` |
 

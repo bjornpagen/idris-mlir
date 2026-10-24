@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Rederivation audit: the boundary between the checker and the frontend
 
 Family: every fact the checker knows about a definition (its type and that

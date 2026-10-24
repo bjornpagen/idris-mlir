@@ -5,9 +5,9 @@ module Main
 -- the definition's case tree, as in a definition that runs, where an erased
 -- argument cannot be matched: it reports `h _` unreachable, reduces `h 5`
 -- to 1, and refuses `hFive` and `five` below.
--- The stock Idris still has the bug (upstream/54-erased-constant-
--- pattern); the type checker fixes it as its own code, with 53's fix, and
--- this test checks that fix.
+-- The stock Idris still has the bug; the type checker fixes it as its own
+-- code (at quantity 0 a constant or type written on an erased argument
+-- splits), and this test checks that fix.
 
 import Prelude
 

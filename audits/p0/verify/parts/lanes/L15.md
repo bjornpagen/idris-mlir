@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L15 (cxx): the compile-time C++ vocabulary
 
 **Exclusive write:** `foreign/idr/lib/Support/{Actions,Profile,Scc}.cpp`,

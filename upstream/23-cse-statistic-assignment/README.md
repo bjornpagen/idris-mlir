@@ -70,12 +70,12 @@ request as `pull-request.diff`, which the bootstrap does not apply.
 `pull-request.diff`, a `git diff` against 7208ba24: CSE accumulates
 (`numCSE += cseCount`, `numDCE += dceCount`), and a new test,
 `mlir/test/Transforms/cse-statistics.mlir`, checks the accumulated
-total under one thread and under many. `tests/upstream-cse-statistic-assignment`
-checks the reproducer with the pinned tools.
+total under one thread and under many.
 
 ## Upstreaming plan
 
-Status: not sent. Send as one pull request to llvm/llvm-project,
+Status: not sent; `pull-request.diff` applies to main at 7a83be39.
+Send as one pull request to llvm/llvm-project,
 `[mlir] Accumulate CSE pass statistics over nested runs`, with
 `pull-request.diff` as its diff and the texts in `submission.md`. No issue is
 needed: the reproducer is three functions. Mention ControlFlowSink's

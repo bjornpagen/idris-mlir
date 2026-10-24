@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L12 (arrays): arrays, bufferization, columns, lanes
 
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Arrays/`,

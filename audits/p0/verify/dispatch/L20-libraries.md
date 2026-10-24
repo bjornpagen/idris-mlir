@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L20 (libraries): our Idris libraries, reshaped for the use case
 
 **Exclusive write:** `libs/`.

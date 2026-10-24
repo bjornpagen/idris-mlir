@@ -16,9 +16,9 @@ cases in a private function) took 10.9, 30.9 and 87 s at n = 1k, 2k, 4k
 ## Reproduce
 
 A private function returning an `scf.index_switch` of n cases, each adding
-its constant to an argument, called from a public one (the awk program in
-tests/upstream-liveness-trivially-dead). remove-dead-values takes 0.12,
-0.44 and 1.62 s at n = 1000, 2000, 4000 with the pinned mlir-opt.
+its constant to an argument, called from a public one (`switch.sh CASES`).
+remove-dead-values takes 0.12, 0.44 and 1.62 s at n = 1000, 2000, 4000
+with the pinned mlir-opt.
 
 ## Why there is no patch
 
@@ -45,8 +45,6 @@ Tested on a private build of the pinned source with every carried patch
 (Release, assertions, AArch64, Apple clang): check-mlir passes 4101, 0
 failed; the reproducer takes 0.02, 0.03, 0.05 s at n = 1000, 2000, 4000,
 its output byte-identical to the unpatched tool's.
-tests/upstream-liveness-trivially-dead checks the pinned mlir-opt by the
-growth of the time from n = 2000 to n = 8000.
 
 ## Upstreaming plan
 

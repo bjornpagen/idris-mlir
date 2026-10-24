@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Cull audit: the runtime and the lowering's references to it
 
 HEAD at start: `363dcc0d` (AGENTS.md: delete before you optimize).

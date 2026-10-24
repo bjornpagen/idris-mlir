@@ -161,8 +161,7 @@ the three test-dialect cases (`@simple_produced_operand`, `@inplace_fold`,
 patched `SCCP.cpp` from main passes `clang-format` and `-fsyntax-only`
 against main's headers. `one.mlir` converges with `max-iterations=1`,
 keeps the constant's location, and `-mlir-print-ir-after-change` prints
-nothing after `sccp`. `tests/upstream-composite-fixed-point-sccp` checks
-the reproducer.
+nothing after `sccp`.
 
 ## Testing on main
 
@@ -205,6 +204,4 @@ configurable).
   found that remakes an operation in place.
 - Upstream test: the second RUN line in `mlir/test/Transforms/sccp.mlir`
   (see Testing on main).
-- When the pin includes the fix to `sccp`,
-  `tests/upstream-composite-fixed-point-sccp` fails, and this directory
-  and that check go.
+- When the pin includes the fix to `sccp`, this directory goes.

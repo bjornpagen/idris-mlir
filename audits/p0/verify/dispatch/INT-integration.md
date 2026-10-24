@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane INT (integration): wire, generate, build, qualify
 
 **Exclusive write:** the hub files in `ownership.json` under `INT`: every

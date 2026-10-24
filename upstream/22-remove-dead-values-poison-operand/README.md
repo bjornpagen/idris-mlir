@@ -37,8 +37,7 @@ poison-operand.mlir:1:1: error: Composite pass "CompositeFixedPointPass"+ didn't
 ```
 
 (With the pass's canonicalization the loop loses its dead iteration value,
-a real change.) `tests/upstream-remove-dead-values-poison-operand` checks
-the reproducer. Found by this compiler's simplify round (the
+a real change.) Found by this compiler's simplify round (the
 `foreign/idr/lib/Simplify/Round.cppm` of the time, which the pipeline
 cutover deleted), which ran the pass and `cse` in a fixed point:
 the fixture `vectorize/rows-aarch64` (now `tests/vectorize-rows`) hit its round budget with 26 ops in
@@ -128,6 +127,4 @@ renumbers the cleanup's steps).
 - Upstream test: `mlir/test/Transforms/remove-dead-values-poison-operand.mlir`.
 - Touches `RemoveDeadValues.cpp`, as 06 does, in other hunks; independent
   of 16.
-- When it goes: when the pin has the fix,
-  `tests/upstream-remove-dead-values-poison-operand` fails, and this
-  report and that check go.
+- When it goes: when the pin has the fix.

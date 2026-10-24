@@ -1,5 +1,5 @@
-/* SPDX-License-Identifier: 0BSD */
-/* Copyright (c) 2026 Bjorn Pagen */
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* An object that calls each entry of the account of what a call holds, and
  * nothing else: the names this target's object format gives the three, as
  * a reference reads, and the reader shown to find a reference where there

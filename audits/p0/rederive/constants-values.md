@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Rederivation audit: constants and statically known values
 
 Family: literals, computed constants, guards' decisions, intervals and

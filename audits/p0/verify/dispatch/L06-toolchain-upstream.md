@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L06 (toolchain-upstream): the toolchain, carried patches, pins
 
 **Exclusive write:** `tools/`, `upstream/`, `PINS.md`,

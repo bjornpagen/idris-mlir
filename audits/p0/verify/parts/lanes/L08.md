@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L08 (exclusivity): exclusivity, the in-place promise, knots
 
 **Exclusive write:** `foreign/idr/lib/Analysis/Ownership/{Borrows,Exclusivity,ExclusivityAnalyses,ExclusivityGraph}.cpp`,

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Rederivation audit: effects and termination
 
 Family: the effect row on `idr.func` and `idr.call`; divergence and what

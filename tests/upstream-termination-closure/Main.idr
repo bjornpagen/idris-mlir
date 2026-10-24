@@ -9,10 +9,9 @@ import Prelude
 -- over every path of the chain, for each of the 25 again; the type checker
 -- searches only the calls inside components, of which the chain has none,
 -- and settles the chain at the first.
--- The stock Idris still has the bug (upstream/21-termination-closure); the
--- type checker fixes it as its own code, with which it checked these in
--- about a second (arm64 macOS), where the pinned checker takes minutes,
--- and this test checks that fix.
+-- The stock Idris still has the bug; the type checker fixes it as its
+-- own code, with which it checked these in about a second (arm64 macOS),
+-- where the pinned checker takes minutes, and this test checks that fix.
 
 %default covering
 

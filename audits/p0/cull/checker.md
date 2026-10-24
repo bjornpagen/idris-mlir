@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Cull audit: the type checker (`compiler/checker/`)
 
 - HEAD at start: `d378e120ee0813b9c170fa5b85c294bc49a45b6d`.

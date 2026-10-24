@@ -35,10 +35,7 @@ exists, replace `#<issue>` in the body.
   within 80 columns.
 - [ ] Bjorn decides whether to see the new test pass with the change and
   fail without it before posting. Neither was observed: no `mlir-opt`
-  with the change was built (upstream/README.md, **CI decides**). The
-  reproducer's failure without the change is
-  `tests/upstream-remove-dead-values-poison-operand`'s expected output at
-  the pin.
+  with the change was built (upstream/README.md, **CI decides**).
 - [ ] Show Bjorn the issue, the pull request and each command; one "yes,
   post it" per command. File the issue, put its number in the body, push
   to their fork, open the pull request against `main`.

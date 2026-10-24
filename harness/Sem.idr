@@ -185,9 +185,9 @@ eqName f = spellingText (MkSpelling "eq" [fixedTy f])
 ------------------------------------------------------------------------------
 
 ||| An Idris expression of type t with value v: an Int literal, cast to t.
-||| A builtin applied to literals reaches this compiler as written
-||| (upstream/18-elaboration-primitive-folding), so every case is this
-||| compiler's arithmetic.
+||| A builtin applied to literals reaches this compiler as written (the
+||| type checker folds no primitive while it elaborates), so every case is
+||| this compiler's arithmetic.
 lit : FixedTy -> Integer -> String
 lit f v = fromInt f (intText v)
 

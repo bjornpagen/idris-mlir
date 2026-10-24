@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Cull audit: verifiers, contracts, expect properties, stage facts
 
 HEAD at start 363dcc0d. HEAD at finish d378e120. Between the two, 927f82e8

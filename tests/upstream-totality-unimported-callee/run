@@ -1,10 +1,10 @@
 #!/bin/sh
 # SPDX-License-Identifier: 0BSD
 # Copyright (c) 2026 Bjorn Pagen
-# The type checker (compiler/checker) fixes
-# upstream/51-totality-unimported-callee as its own code: a termination
-# check that follows a call out of what a module imports reads the callee
-# from the modules its imports reach, which the elaborator never sees.
+# The type checker (compiler/checker) fixes a bug the stock Idris still
+# has, as its own code: a termination check that follows a call out of
+# what a module imports reads the callee from the modules its imports
+# reach, which the elaborator never sees.
 # Main.idr imports neither Loop nor Count. Its `caller` reaches Loop.loop,
 # which never returns, through ViaLoop.viaLoop, and is refused as not
 # total; its `counted` reaches the total Count.count through

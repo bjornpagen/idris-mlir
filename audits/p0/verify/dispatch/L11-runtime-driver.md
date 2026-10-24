@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L11 (runtime-driver): the runtime, endings, memory, the driver
 
 **Exclusive write:** `runtime/`, `compiler/spec/IdrisMLIR/Spec/Runtime/`,

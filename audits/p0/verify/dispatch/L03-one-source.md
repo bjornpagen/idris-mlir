@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L03 (one-source): the Idris specification, its generator, the pipeline
 
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Core/`,

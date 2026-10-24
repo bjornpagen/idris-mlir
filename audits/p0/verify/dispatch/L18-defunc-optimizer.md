@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L18 (defunc-optimizer): defunctionalization, specialization, the optimizer
 
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Closures/` (new: the closure ops closure, suspend, delay, force, apply, memo.run), `foreign/idr/lib/IR/OpsClosures.cpp`,

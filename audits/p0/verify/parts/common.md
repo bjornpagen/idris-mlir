@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 ## Common obligations (every lane)
 
 **What this swarm is.** The P0 cutover itself: the implementation of

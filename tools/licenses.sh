@@ -7,26 +7,20 @@
 # type checker's, Idris's checker copied into compiler/checker, is
 # BSD-3-Clause, and each of its files names its own holder: Idris's (Edwin
 # Brady and the Idris contributors) on a file copied from Idris, ours on
-# one written here. A port's is the expression of its upstream's licences,
-# Apache-2.0 WITH LLVM-exception among them, with its upstream header kept.
-# This script is the one place that knows the scope, which is every file
-# git tracks or would track, less the exclusions below, each with its
-# reason: a file of a new kind is in scope at once, and named until its
-# kind's comment syntax is here.
+# one written here. This script is the one place that knows the scope,
+# which is every file git tracks or would track, less the exclusions
+# below, each with its reason: a file of a new kind is in scope at once,
+# and named until its kind's comment syntax is here.
 #
 #   tools/licenses.sh           check: name every file in scope without its
 #                               lines, or with a wrong one; exit 1 if any
 #   tools/licenses.sh --apply   write the missing lines, ours (a file with
 #                               none was written here), and correct the
 #                               holder of a part that has one; a holder a
-#                               file names itself is never written, nor a
-#                               port's header: a file copied from another
-#                               party arrives with its header
+#                               file names itself is never written
 #
 # Besides: the text of every licence an identifier in use names is in
-# LICENSES/, and a port is one PINS.md names, carries the note of what
-# changed that Apache-2.0 asks of a modified file, and keeps the
-# attribution of the part its PINS.md entry says it is a port of.
+# LICENSES/.
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
 
@@ -47,12 +41,13 @@ sources/* -- the research library: each item is its party's, its provenance besi
 LICENSE LICENSES/*.txt compiler/checker/LICENSE -- the licence texts themselves
 NOTICE -- the attribution notices, which quote the parties' own
 *.json *.tsv *.svg -- a kind with no comment syntax
+foreign/idr/generated.manifest -- the generated files' fingerprints, one `hash path` line each, which the specification's generator writes and checks
 *.patch *.diff -- a patch or a diff, every line of which is applied
 */expected */expected-* */expected.* *.check *.expect *.expected -- what a test compares its output with
 */stdin */input */input-from *.in *.out -- what a test or a benchmark reads, byte for byte
 */packages */covers */heap-free */libm-lines */targets */suite */about -- a mark or a datum of a fixture or a benchmark, which its harness reads
 */allowlist */allowed */uncovered */without-fixture -- a list a spec test reads
-tests/*/*.idr tests/*.mlir harness/templates/*.idr harness/templates/*.mlir -- a fixture's source, whose line numbers reach its expected output
+tests/*/*.idr tests/*.mlir tests/*.ll -- a fixture's source, whose line numbers reach its expected output
 upstream/*/*.mlir upstream/*/*.ll upstream/*/*.sh upstream/*/*.idr upstream/*/*.c upstream/*/*.cpp -- a reproducer, which its report quotes and its upstream test copies
 tests/licenses/witness/* -- the files tests/licenses plants for this check to refuse, each without its line or with a wrong one
 bench/records/* -- a record of a measurement, kept as it was taken
@@ -84,16 +79,6 @@ compiler/checker/* -- BSD-3-Clause
 EOF
 }
 
-# What each part a port may come from keeps of its upstream's header, as
-# PINS.md names the part (`the port of <part>'s ...`): `part -- pattern`.
-port_parts() {
-  cat << 'EOF'
-Modular -- Copyright (c) 20[0-9][0-9], Modular Inc.
-LLVM -- Part of the LLVM Project
-MLIR -- Part of the LLVM Project
-EOF
-}
-
 git -c core.quotePath=false ls-files -co --exclude-standard | LC_ALL=C sort -u > "$work/tree"
 exclusions > "$work/exclusions"
 kinds > "$work/kinds"
@@ -103,8 +88,8 @@ parts > "$work/parts"
 # is ok, missing (TAB the line the header goes at TAB open TAB close TAB
 # identifier TAB holder), holder (TAB its line TAB the line it should be),
 # unnamed (TAB the line that names no holder), wrong (TAB the expression
-# TAB the identifier), nokind or port; and an `id TAB identifier` line for
-# each identifier a file in scope names.
+# TAB the identifier) or nokind; and an `id TAB identifier` line for each
+# identifier a file in scope names.
 awk -F'\t' -v ours="$ours" '
   # A shell pattern as an anchored regular expression.
   function glob(p,   out, j, c) {
@@ -175,7 +160,6 @@ awk -F'\t' -v ours="$ours" '
     for (j = 1; j <= m; j++)
       if (tokens[j] != "" && tokens[j] != "AND" && tokens[j] != "OR" && tokens[j] != "WITH")
         print "id\t" tokens[j]
-    if (expr ~ /Apache-2\.0/) { print "port\t" f; next }
     if (expr != id) { print "wrong\t" f "\t" expr "\t" id; next }
     lead = substr(head, 1, k - 1) "Copyright (c) "
     tail = shut == "" ? "" : " " shut
@@ -248,42 +232,11 @@ while IFS= read -r id; do
   [ -s "LICENSES/$id.txt" ] || { echo "LICENSES/$id.txt: missing, and $id is in use"; bad=1; }
 done < "$work/ids"
 
-# Each port: named by PINS.md, its changes noted, and its part's
-# attribution kept, the part its PINS.md entry names.
-port_parts > "$work/port-parts"
-awk -F'\t' '$1 == "port" { print $2 }' "$work/found" > "$work/ports"
-while IFS= read -r file; do
-  entry=$(awk -v path="$file" '
-    /^## / { if (found) exit; text = "" }
-    { text = text "\n" $0 }
-    index($0, path) { found = 1 }
-    END { if (found) print text }' PINS.md)
-  if [ -z "$entry" ]; then
-    echo "$file: a port that PINS.md does not name"
-    bad=1
-    continue
-  fi
-  grep -q 'Modified by Bjorn Pagen' "$file" || { echo "$file: a port without the note of what changed"; bad=1; }
-  named=
-  while IFS= read -r rule; do
-    name=${rule%% -- *}
-    case $entry in *"port of $name's"*) named=$rule; break ;; esac
-  done < "$work/port-parts"
-  if [ -z "$named" ]; then
-    echo "$file: a port whose PINS.md entry names no part it is a port of"
-    bad=1
-  elif ! grep -q "${named#* -- }" "$file"; then
-    echo "$file: a port of ${named%% -- *}'s without its attribution, ${named#* -- }"
-    bad=1
-  fi
-done < "$work/ports"
-
 if [ "$bad" -eq 0 ]; then
   if [ "$apply" -eq 1 ]; then
     echo "licenses: SPDX lines written"
   else
     echo "licenses: every file in scope names its licence"
-    echo "ports: $(wc -l < "$work/ports" | tr -d ' '), each named by PINS.md with its part's attribution"
     echo "texts: $(tr '\n' ' ' < "$work/ids" | sed 's/ $//')"
   fi
 fi

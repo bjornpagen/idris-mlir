@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L14 (solver-egraph): the solver layer and the e-graph pass
 
 **Exclusive write:** `foreign/idr/lib/Analysis/{BindingTimes,CallCycles,Constants,Identities,IdentitiesRebuilds,IdentitiesRecord,Inline,Labels,LabelSites,Ranges,Recursion}.cpp`,

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L01 (effects-ops): the effect tree and its one source
 
 **Exclusive write:** `foreign/idr/lib/IR/Effects/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Effects/`,

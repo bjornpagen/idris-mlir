@@ -6,9 +6,8 @@ module Main
 -- pinned Idris checks the block at the delayed type and delays each
 -- alternative instead, which computes the scrutinee where the argument is
 -- built: here a crash.
--- The stock Idris still has the bug (upstream/55-lazy-case-scrutinee);
--- the type checker (compiler/checker) fixes it as its own code, and this
--- test checks that fix.
+-- The stock Idris still has the bug; the type checker (compiler/checker)
+-- fixes it as its own code, and this test checks that fix.
 
 import Prelude
 

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Cull audit: the dialect as the specification declares it
 
 Area: `compiler/spec/IdrisMLIR/Spec/` (ops, types, attributes, interfaces,

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Cull audit: the analyses and the solver layer
 
 Area: `foreign/idr/lib/Analysis/`, `foreign/idr/include/idr/Analysis/`

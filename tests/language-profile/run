@@ -4,9 +4,9 @@
 # The build follows the project's profile: every C++ unit of ours
 # (foreign/idr and the runtime) is compiled as C++26, without exceptions or
 # RTTI, with warnings as errors, and without -freflection (the pinned
-# clang's reflection is a stub: PINS.md clang-no-reflection). Read from the
-# compile commands the dev build ran, the flags actually used, not from
-# how CMakeLists.txt spells them.
+# clang's reflection is a stub). Read from the compile commands the dev
+# build ran, the flags actually used, not from how CMakeLists.txt spells
+# them.
 #
 # The rule is `profiled COMMANDS`, a compile_commands.json, run on the dev
 # build's and, through `profiled_tree ROOT`, on the planted trees

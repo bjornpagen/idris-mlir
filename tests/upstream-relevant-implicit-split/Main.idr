@@ -9,9 +9,8 @@ module Main
 -- definition keeps is the program that runs, and it splits `ws` as before:
 -- `sumF` reads at run time the `w` that only `ws` holds, and `fp4` passes on
 -- its tail.
--- The stock Idris still has the bug (upstream/52-relevant-implicit-split);
--- the type checker fixes it as its own code, and this test checks that
--- fix.
+-- The stock Idris still has the bug; the type checker fixes it as its own
+-- code, and this test checks that fix.
 
 import Prelude
 

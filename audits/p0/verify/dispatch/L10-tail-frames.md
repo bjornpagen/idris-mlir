@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L10 (tail-frames): proper tail calls, frame stacks, TRMC
 
 **Exclusive write:** `compiler/spec/IdrisMLIR/Spec/Tail/`, `foreign/idr/lib/IR/Tail/` (new: `!idr.dest` and `dest.write`, TRMC's destinations), `foreign/idr/lib/IR/Tail.cpp`,

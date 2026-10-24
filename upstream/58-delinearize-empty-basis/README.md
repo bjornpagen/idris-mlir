@@ -49,10 +49,8 @@ passes and patterns the pipeline runs, none builds one from an empty
 basis. idr-structure-loops once built one for such a domain, and stopped
 because the domain has one cell, which is the problem's case, not a
 workaround: with the fix, an op with no result is still one the verifier
-refuses. So the fix is kept as a submission, and
-tests/upstream-delinearize-empty-basis checks that the pinned mlir-opt
-still has the bug: when it fails, upstream has fixed it, and this
-directory and the check go.
+refuses. So the fix is kept as a submission, and this directory goes when
+the pin has upstream's fix.
 
 ## Testing at the pin
 

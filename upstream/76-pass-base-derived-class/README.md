@@ -16,16 +16,27 @@ on an undocumented splice is relying on an accident.
 
 Nothing to run: documentation (*read*).
 
-## Patch
+## The fix
 
-`llvm.patch`, documentation only: the field's comment in PassBase.td and
-a paragraph with an example in PassManagement.md. Not built (nothing to
-build).
+`pull-request.diff`, documentation only: the field's comment in
+PassBase.td and a paragraph with an example in PassManagement.md. Not
+built (nothing to build).
+
+## Why there is no patch
+
+It was carried for the staged passes, which rest on the splice it
+documents. The diff changes only a comment in PassBase.td and the text of
+PassManagement.md, so nothing the toolchain builds or generates differs
+with it, and the build of every staged pass already shows the splice.
+Nothing in the tree reaches what it changes; the report stays as a
+submission, its pull request as `pull-request.diff`, which the bootstrap
+does not apply.
 
 ## Upstreaming plan
 
-Status: carried (2026-10-21); not filed.
+Status: not carried since 2026-10-23 (it changes no built file); not
+filed.
 
 - Where: one NFC pull request to llvm/llvm-project, `[mlir][Pass]`.
 - Upstream test: none (documentation).
-- The patch goes when the pin documents it.
+- The report goes when the pin documents it.

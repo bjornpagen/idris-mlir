@@ -59,12 +59,6 @@ rebased, and that measurement is recorded here either way. The report
 stays a submission, with the pull request as `pull-request.diff`, which
 the bootstrap does not apply.
 
-## The check
-
-tests/upstream-liveness-non-forwarded-terminator runs the reproducer with
-the pinned tools and expects the bug: the element replaced by poison. When
-the pin has upstream's fix it fails, and this report and the check go.
-
 ## Upstreaming plan
 
 An issue and a PR to llvm/llvm-project, `[mlir][dataflow]`, with a test in
@@ -73,4 +67,5 @@ An issue and a PR to llvm/llvm-project, `[mlir][dataflow]`, with a test in
 terminator forwards nothing; the test is to be written against a build of
 mlir-opt with the test dialect, which the toolchain's does not have.
 Status: not filed; not carried since 2026-10-21 (Why there is no patch);
-the upstream test not written; check-mlir not run.
+the upstream test not written; check-mlir not run. The report goes when
+the pin has upstream's fix.

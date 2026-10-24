@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L05 (lifetimes-grades): the grade, lifetimes, linearity verification
 
 **Exclusive write:** `foreign/idr/lib/IR/Lifetimes/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Grades/`,

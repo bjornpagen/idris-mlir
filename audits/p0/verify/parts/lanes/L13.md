@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: 0BSD -->
+<!-- Copyright (c) 2026 Bjorn Pagen -->
 # Lane L13 (ops-primitives): ops, the numeric template, rules as data
 
 **Exclusive write:** `foreign/idr/include/idr/IR/Ops/` (new, your skeleton rule classes), `foreign/idr/lib/IR/Ops/` (new, for new code), `compiler/spec/IdrisMLIR/Spec/Ops/`,

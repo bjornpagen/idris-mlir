@@ -26,7 +26,7 @@ measured with a harness of the solver's types (A4), not kept.
 
 ## Patch
 
-`llvm.patch`, applying after 76 (05 touched the same header): an
+`llvm.patch`, applying after 05, which touched the same header: an
 anchor's map is a `SmallDenseMap<TypeID, ..., 2>`, a state's dependents a
 `SetVector` with 4 inline elements, and the solver's uniquer is told it
 runs on one thread (`disableMultithreading`): about 0.2 KB per state,

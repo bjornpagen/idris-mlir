@@ -1,5 +1,5 @@
-/* SPDX-License-Identifier: 0BSD */
-/* Copyright (c) 2026 Bjorn Pagen */
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 Bjorn Pagen
 /* A test of the runtime that runs as a compiled program runs: its main
  * hands its body to idris_rt_start, which checks the machine, runs the
  * body on the stack the program states and ends the process as the ending
