@@ -1161,3 +1161,37 @@ to L16ev. Waiting:
   `idr.lifetime.reserve` (C146)"; when K13 lands: C20's two mentions of
   "gives back" (the coordinator, a second upkeep pass after K10, K11 and
   K13 land). C305 to C309 are unused numbers.
+- From L10aa (K13 landed with C303's Contify fix): C294 with C305 (the
+  call as three ops: ordinary, tail terminator, self call modulo a
+  context; the decider rewrites the op; `tail_kind` deleted) touches about
+  96 files across 12 lanes, the 37 tests naming `tail_kind` among them:
+  dispatched as one lane once L05aa (`Counting/*`), L18ac (`Families/`,
+  Emit's reindex), L18af (`Specialize/*`), L16ey (Emit) and L12ac
+  (`Bufferize/*`) land. Readers: `lastActOf` (`PlacementUses.cpp:52,74`,
+  `Counting/Borrows.cpp:307`, `Lifetimes/Plan.h:343`, `EGraph/Build.cpp`),
+  `returnsToCaller` through `runsOnFrame` (`Ownership/Borrows.cpp:313`,
+  `Lifetimes/Read.cpp`, `Write.cpp`), `contextCallOf` (`Trmc.cpp:112,161`),
+  the verifier (`IR/Tail.cpp:300-324`). With it: `Tail.cpp`'s walk into
+  `idr.index.assume` (a call whose result enters one at the same layout
+  and is yielded back to the return is left a non-tail call: `tailsOf`
+  and `givenBy` stop at block arguments, `passageOf` at region ops), the
+  `musttail` lowering checked to leave nothing between the call and the
+  return.
+- From L18ag (8cfa23bf9): Emit casts constants and capture-less closures
+  into quantity-1 positions instead of building them at that grade, as
+  C286 has it build constructors (217 arguments of otherwise closed calls,
+  `fib 15`'s `15` among them; L16, with L16ey's Emit); no fold reads a
+  constructor through a linear cast (`LinCastOp`'s meaning folds only a
+  cast of a cast), so a match on a value cast into a quantity-1 position
+  never folds (L14); `Calls.h`'s `usedOnce` re-walks what `shapeOf` just
+  walked, which could hand back its steps (L18, after L18af).
+- From L12ab: the generated non-empty variadic has no lit fixture of the
+  empty group's refusal (a generic-form `.mlir` test, L19).
+- From L18ac (K12): C293 stopped (§4's fourth question: the frontend
+  writes bytecode MLIR builds by op name, and only the C++ class rule
+  knows a type's layout); the three builders and `builds` as the
+  reindex's member wait on it. `DataReindexOp::fold` still edits its op
+  in place (`Refinement.cpp:117-125`), though C290 has a reindex's fold
+  return its new value and type (L04 with L14). L03ae's deferred
+  `namedBy` patch (`/tmp/l03ae/deferred.patch`) now lands: `Families/`
+  is free after K12.

@@ -3236,6 +3236,30 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   runtime-name set and the text fragments of the transform library.
   Landed: U12 (3dda81307; C303 settled its question), U13 (94e633f9a),
   U14 (e5178828a).
+- **C305** (2026-10-24; L10aa's stop on C294, under AGENTS.md's "an
+  operand, attribute or enum that changes what an op means or may do is a
+  flag, and the op is two" and D34; extends C294; for the owner's
+  review). The `tail_kind` enum holds three meanings, so a call is one of
+  three ops: an ordinary call; the tail call, a terminator that does not
+  return to the function, as `idr.io.exit` and `idr.crash.cause` are,
+  checked as a jump is to cross only ops that let a break through; and a
+  self call modulo a context, its own op, whose result only its context's
+  constructors take on the way to the return, which the verifier holds to
+  a context the rule admits after every pass, counting honours, and
+  idr-trmc consumes into its destination form. The decider rewrites a
+  call into the op its standing makes, and writes no enum. Keeping a
+  two-case enum for the context would be the flag the rule forbids, and
+  reading the context per query would lose a context a pass breaks.
+- **C306** (2026-10-24; L13z's stop under C299, AGENTS.md's "a
+  statically certain crash is a plain crash where evaluation reaches it,
+  with no run-time test" and "one op per semantics"). `idr.crash.cause`
+  takes exactly the operands its cause's line reads, held to the
+  generated ending table by its verifier: none for a cause that reads
+  nothing, the guarded operand for one that reads it. A guard the e-graph
+  decides becomes that crash with its operand, so a constant exit status
+  outside 0 to 255 is a plain crash that still names its status. Leaving
+  such a guard for the lowering would keep a run-time test of a known
+  fact, and a second crash op would split one meaning in two.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
@@ -3962,7 +3986,13 @@ improvements (`audits/p0/verify/`), each citing its lane and section.
   had no caller, every solver numbering its function and walking it in
   order. The `Graph` concept, which nothing used, and `Csr`'s
   `predecessors`, which nothing called, go with them; `Csr<Tag>` keeps
-  its sentinel root row and `GraphTraits`.
+  its sentinel root row and `GraphTraits`. Amended 2026-10-24 (recheck
+  8's upkeep, as built since 37e5c748e and f2a51b28e): the marking is one
+  template, `mark` over a `Csr<Tag>` and a direction, instantiated once
+  per graph type, as AGENTS.md's C++ rule asks, not ordinary functions
+  behind an inline wrapper; and it has a fifth client, the row writer's
+  marking of D61's writes through parameters, a call that passes a
+  parameter on to a written one marked from callee to caller.
 - **C35** (DP-54: QA3, Q-opt-4, hist-Q3; corrected, L06 I11, L14 I4, L18
   §1.1). Patches 06, 28 and 63 reach nothing in the tree and are retired
   (AGENTS.md). The per-function `remove-dead-values` is measured in the
@@ -4628,7 +4658,17 @@ C137.
   "delete before you optimize"; each counted word of a value is counted
   by its own kind's entry, and a loop over a value's words is the same
   code once the runtime's bitcode joins the program. A run entry returns
-  only with a pass that makes runs.
+  only with a pass that makes runs. Amended 2026-10-24 (recheck 8's
+  upkeep, as built in 2dbbb6d8a and 5a88178a2, under C177 and C186): the
+  bound is no statistic nothing reads. idr-rc-reuse keeps it on the
+  function as `frame_bound`, and the lowering tells the checked runtime's
+  account each point where what a call holds rises or falls, read off the
+  walk the bound was computed by, so an allocation made while a call
+  holds more than its bound ends the run as `FrameBoundExceeded`; the
+  shipped runtime's entries are empty. That check, not a differential
+  test (no test uses `%differential`), holds a program to the bound; the
+  statistic `frameBoundBytes` reports the largest bound and decides
+  nothing.
 - **C89** (L07 §1.3, I13). `in_place` is admitted only on a family with
   exactly one constructor that has a cell, checked when the registry's
   table is built.
@@ -6138,6 +6178,19 @@ or its decision in §3.
    attribute, a region or a variadic group, the generic `specOp` building
    the rest (about 825 lines deleted, one way to build an op), or keep
    D50 with a hand `writer` flag (582 lines, two ways). Waits on 2.
+4. Where the reindex's kind is chosen (L18ac's stop on C293, 2026-10-24).
+   C293 makes the reindex three ops, one per meaning (a free change of
+   type, a re-pack into another layout, a build), but the frontend hands
+   over bytecode, which MLIR builds by op name and verifies at once, and
+   only the C++ class rule (`Layout/Classes.cpp`) knows which layout a
+   type has, so the frontend cannot name the right op. (A) The class rule
+   moves into the specification and is generated for the C++ and the
+   frontend alike (layout computed from the type, one source; a large
+   move); (B) the frontend writes upstream's
+   `builtin.unrealized_conversion_cast` where types differ, and the first
+   pass resolves each into its op (readers before it accept the cast);
+   (C) one reindex op stays (C275), its meaning read off its types by the
+   one classifier, and C293 is reversed. Waits on 3.
 
 The last settled, the two folders (L14u's finding, 2026-10-23), is D132
 ((A): the e-graph alone folds; idr-constants goes).
@@ -6328,9 +6381,10 @@ In logical order:
   joined to readwrite, D61's writes `argmem` only; `willreturn` not with
   `io`, `exit`, `crash` or `divergence`; `mustprogress` not with
   `divergence`; `nofree` not with `free` or `exit`; `nounwind`; `nosync`
-  per atom; `noalias` on exclusive owned pointers, a buffer descriptor's
-  pointers included through a carried patch to upstream's FuncToLLVM
-  (C149).
+  per atom; `noalias` on exclusive owned pointers, attached by our
+  lowering, which builds `llvm.func` itself (C165), a buffer crossing a
+  call as its cell's pointer alone, so every access to it and its free
+  are based on that one argument.
 - **Allocation** (D23): `Allocate` on `heap` reports and orders nothing;
   reuse, stack cells and static data acquire nothing, a cell put into a
   lifetime acquires on `heap` and the lifetime's end frees there (L05
@@ -6388,9 +6442,9 @@ is settled:
   closed sum (libc++'s `std::visit` cliff above eleven alternatives,
   `wave1/5.5-cxx26.md`, `libcxx/include/variant:1596-1607`; `TypeSwitch`
   banned with the ladders, C52); transfer functions and every callback as
-  constrained template parameters; the marking ordinary functions
-  compiled once, with no gates (C34 as amended; B §2.9, C §2's table);
-  quantity handles where counting builds IR (C119).
+  constrained template parameters; the marking one template instantiated
+  once per graph type, with no gates (C34 as amended; B §2.9, C §2's
+  table); quantity handles where counting builds IR (C119).
 - **At run time**: nothing static built per function; no attribute or
   type made on a worker's hot path (C116); no pointer-keyed map per node;
   no per-query recomputation of a fact that can be numbered once (the
@@ -6568,8 +6622,9 @@ is settled:
   (L14 §1.2).
 - **The solver layer as shared types, not one engine**: the label
   solve's growing graph and the optimizer's merges each fail to fit a
-  single engine (B §3.2); the marking's four clients share one compiled
-  loop, with no gates (C34 as amended). The e-graph is equality
+  single engine (B §3.2); the marking's five clients share one loop, a
+  template instantiated once per graph type, with no gates (C34 as
+  amended). The e-graph is equality
   saturation's alone, a C++ pass with its own typed tables, our own
   solver in this layer (§5.3; C153, D107), not a solver for every
   analysis; nothing optimizes on the Idris side (D109).
@@ -6611,11 +6666,11 @@ is settled:
   use counts only if it may still hold the value at the rebuild (D79);
   a call the check cannot prove exclusive is refused at the user's
   call.
-- **Four marking clients, one template** (C34): exclusivity (by context
-  mask, its domain what QTT and freshness do not settle; C36, C92),
-  allocation into a lifetime (per function, callees first), borrows (C1)
-  and the obligation closure (C90), over compressed-row graphs, with no
-  gates (C34 as amended).
+- **Five marking clients, one template** (C34 as amended): exclusivity
+  (by context mask, its domain what QTT and freshness do not settle; C36,
+  C92), allocation into a lifetime (per function, callees first), borrows
+  (C1), the obligation closure (C90) and the row writer's writes through
+  parameters (D61), over compressed-row graphs, with no gates.
 - **Lifetimes** (D39, D63, D88 to D90, D93 to D96; L05 §2): a lifetime
   is a value of type `!idr.lifetime<view | room | cursor | home k>`,
   its kind what it is at run time (`view` no value, nothing allocates
@@ -6718,10 +6773,11 @@ is settled:
   the boundary and emitted as one constant of its representation, never
   a chain of `idr.big.add` (D105); a linear array's read gives back the
   array it threads (C150).
-- **The fork**: every count classified, those deciding acceptance gone
-  (D53 to D55, C66, C126 to C128); one POSIX path model (C125); its
-  carried diffs checked against the pin (C129); `WithBounds` a sum,
-  `Irrelevant val | Relevant val bounds`, in place of its `Bool` (D101).
+- **The checker**, our code (D118, C233): every count classified, those
+  deciding acceptance gone (D53 to D55, C66, C126 to C128); one POSIX
+  path model (C125); `WithBounds` a sum, `Irrelevant val | Relevant val
+  bounds`, in place of its `Bool` (D101); the stock host's carried Idris
+  patches checked against its pin (C129).
 - **The elaborator's union-find** (D69's O7): its own, in Idris, for
   unification and the constraint store, which merge and never search;
   R4 in P0 is no more than that (D107). It shares no rule with the
@@ -6738,10 +6794,10 @@ is settled:
   the subset both hosts compile; under D56 the whole is one change (L03
   §1.3, L16 §1.3).
 - **Its boundary** (L16 §2, L17 §2): the frontend reads checked TT
-  through the fork's TTC once into typed tables; growth admission is a
+  through the checker's TTC once into typed tables; growth admission is a
   value carrying an erased derivation over the code's `Template`, with no
-  run-time witness, the fork's normaliser covered by one stated trust in
-  `Idris.Host` (D68); Emit writes D48's families, index parameters and
+  run-time witness, the checker's normaliser covered by one stated trust
+  in `Idris.Host` (D68); Emit writes D48's families, index parameters and
   arguments (a run-time value in an index position keeping its term,
   D59), each quantity-1 value's uses as `once` (`!idr.graded<once, …>`,
   D90), refusal ops and the termination fact, with no world, no
@@ -6932,7 +6988,7 @@ on which lanes 13, 19, 20 and 21 converge, survives as that order:
   with its fixes (C35); the assertions' price, stage 1 against an
   assertions-off MLIR at the same commit (D115, perf-sources U8).
 - **S4. The solver layer's spine**: the shared types, the call graph as a
-  carried patch (C33, C114), the marking's four clients.
+  carried patch (C33, C114), the marking's five clients.
 - **S5. The dialect redesign from the Idris specification (D16) and its
   fixtures**, the effect system first (§5.1).
 - **S6. Pass redesigns** as decide, apply, restructure, in lane 13's
