@@ -33,8 +33,12 @@
 # With `typecheck` after either, the generator is make typecheck's
 # idris-mlir-tblgen, and MLIR's ODS is that of the patched tree its
 # bootstrap step reads (tools/bootstrap.sh typecheck), with the ODS that
-# step's build generates, where stage 2 is not built. The records are the
-# same, so are the modules.
+# step's build generates, where stage 2 is not built. The records, and so
+# the modules, are stage 2's only while that step's last build is of the
+# pinned tree. `make typecheck` runs the step first, so it rebuilds a tree
+# the pin has moved past; this script run alone reads the tree the step
+# built last, and writes the old pin's module wherever upstream's ODS has
+# changed since.
 #
 # The modules are committed, so that the Idris build needs no other step
 # and a change of upstream's ODS, or of what the specification admits,
