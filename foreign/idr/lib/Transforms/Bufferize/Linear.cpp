@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
-// Grades: a graded tensor is a tensor to One-Shot, and the cast between
-// grades is its operand.
+// Grades: a graded tensor is a tensor to One-Shot, and an op that changes
+// only a grade is its operand.
 //
 // A grade wraps any value, so whether a graded type is tensor-like is a
 // fact of the instance, which upstream's per-instance check reads: tensor-
@@ -10,8 +10,9 @@
 // linear array's wrapper, and every signature and region that carries one,
 // as it sees a tensor, and bufferizes it itself.
 //
-// idr.lin.cast changes a value's uses and nothing of its contents: it is
-// its operand, an equivalent alias that reads and writes nothing. A linear
+// idr.lin.cast changes a value's uses, and idr.count.share forgets its
+// claim, and neither anything of its contents: each is its operand, an
+// equivalent alias that reads and writes nothing. A linear
 // binder does not imply unique ownership, so the grade's uses decide
 // nothing here. What a grade claims of its sharing does: the in-place
 // promise and the local rule write their claims before bufferization, so a
@@ -59,7 +60,15 @@ struct GradedBufferLike : BufferLikeType::ExternalModel<GradedBufferLike, idr::G
   bool isBufferLike(Type type) const { return isa<BaseMemRefType>(idr::unrestricted(type)); }
 };
 
-struct CastModel : BufferizableOpInterface::ExternalModel<CastModel, idr::LinCastOp> {
+// An op whose result is its operand's value at another grade, by its trait.
+template <class Op>
+concept ChangesOnlyGrade =
+    requires { requires Op::template hasTrait<idr::ResultCarriesOperand>(); };
+
+// The value at the result's grade, its buffer the operand's: the same op
+// made again on the buffer.
+template <ChangesOnlyGrade Op>
+struct GradeModel : BufferizableOpInterface::ExternalModel<GradeModel<Op>, Op> {
   bool bufferizesToMemoryRead(Operation *, OpOperand &, const AnalysisState &) const {
     return false;
   }
@@ -91,7 +100,7 @@ struct CastModel : BufferizableOpInterface::ExternalModel<CastModel, idr::LinCas
     FailureOr<BufferLikeType> type = bufferization::getBufferType(op->getResult(0), options, state);
     if (failed(type))
       return failure();
-    replaceOpWithNewBufferizedOp<idr::LinCastOp>(rewriter, op, *type, *buffer);
+    replaceOpWithNewBufferizedOp<Op>(rewriter, op, *type, *buffer);
     return success();
   }
 };
@@ -103,5 +112,6 @@ void idr::bufferize::attachGradedModels(MLIRContext *ctx) {
 }
 
 void idr::bufferize::attachLinearModels(MLIRContext *ctx) {
-  idr::LinCastOp::attachInterface<CastModel>(*ctx);
+  idr::LinCastOp::attachInterface<GradeModel<idr::LinCastOp>>(*ctx);
+  idr::CountShareOp::attachInterface<GradeModel<idr::CountShareOp>>(*ctx);
 }
