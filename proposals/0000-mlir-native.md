@@ -1991,6 +1991,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   is folded by its meaning per result. Two propagators folding the same
   ops each round had already drifted (NaN; `math.sqrt` folded by one and
   left by the other; the byte budget binding one).
+- **D133** (2026-10-23; the owner). "we should not have any believe me in
+  our own codebase, we're better than that." No `believe_me` in our Idris
+  (the checker, the frontend, the specification, the harness, `libs/`,
+  the generators); only a test of its refusal holds one. Supersedes D68's
+  mechanism: the property D68 stated as a trust in `Idris.Host` (the
+  normaliser returns at a call the value the site's template reduces to)
+  and every other fact the two `Host` modules assert (primitive
+  comparisons, shifts, the evaluator's probes and bounds, the context's
+  one entry per name) is carried as evidence a function returns or made
+  unnecessary by the representation (C288).
 - **C236** (2026-10-22; recheck 3, L14's finding on §5.2). `IdrSolver`,
   the solver layer, is built over MLIR's own analyses and call graph
   (C33, C114), so it names MLIR; what it keeps is keyed by dense ids,
@@ -2792,6 +2802,17 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   time, the C ABI or a construct outside the language (`%foreign`,
   `%extern`, `%transform`, and the others the refusal tests name). Our own
   code keeps its 54 uses, which spare it name clashes.
+- **C288** (2026-10-23; how D133 is met, for the owner's review). The
+  normaliser D68 trusted becomes certifying: where a reader needs what a
+  reduction gives, the evaluator returns the value with its derivation in
+  the reduction relation the checker declares, so the frontend's lemma
+  rests on what the evaluator returns, never on a trust. A fact of a
+  host's primitive (Int, Char, String equality; a shift's descent) is
+  made unnecessary by representation: an identity the checker compares is
+  a structural index (a `Nat` or `Fin` whose equality decides by
+  construction), and a partial primitive is reached through a total
+  function returning its refusal. Where neither is possible the case goes
+  to the owner with its evidence; nothing is asserted meanwhile.
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:

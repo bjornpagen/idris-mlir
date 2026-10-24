@@ -466,9 +466,13 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   opposite: "we should strive to prove things rather than assert them,
   or refactor the represnetations such that invalid states are
   unrepresentable" (2026-10-22). An `internal` error, `assert_total`,
-  `assert_smaller` or `believe_me` of ours in Idris is a missing type or
-  a missing proof; one stays only for a fact not known until run time,
-  and says so.
+  `assert_smaller` of ours in Idris is a missing type or a missing proof;
+  one stays only for a fact not known until run time, and says so. No
+  `believe_me` at all: "we should not have any believe me in our own
+  codebase, we're better than that" (2026-10-23). What a host's primitive
+  gives, or what an evaluator computes, is carried as evidence a
+  function returns or made unnecessary by the representation, never
+  asserted; only a test of the refusal of `believe_me` holds one.
 - A choice is a type or an enum case, never a `bool`. Nothing static is
   built per function; no attribute or type is made on a worker's hot path;
   no pointer-keyed map holds per-node state; a fact that can be numbered
@@ -623,9 +627,9 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   idris-mlir may replace with a runtime op through the registry's `Faster`
   hook: the body is the one meaning, and removing the hook leaves the same
   result. A building stage may use either host, but neither is dropped.
-  Neither host is given an escape hatch to compile it: a trust the
-  frontend takes in the checker's evaluator is stated once, in the
-  checker, and one it takes in itself is `covering`, never asserted. Never: the hosts agreeing by coincidence (float text matched
+  Neither host is given an escape hatch to compile it: what the frontend
+  needs of the checker's evaluator is evidence the evaluator returns, and
+  what it needs of itself is `covering`, never asserted. Never: the hosts agreeing by coincidence (float text matched
   only because two printers happen to agree; 14 X01).
 - Anything of ours above the C++ is Idris: "our higher level spec should
   not be in a python dsl, opdsl, etc... it should just be idris.
