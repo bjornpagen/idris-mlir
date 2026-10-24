@@ -328,46 +328,52 @@ std::optional<Bindings> Function::matchAt(const table::Rule &rule, NodeId root) 
             .subspan(rule.conditions, rule.conditionCount);
     return llvm::all_of(conditions, [&](const table::Condition &c) { return holds(c, bindings); });
   };
+  // The pattern at `at` matched against the class next ahead: whether it
+  // matched, `at` then past it.
+  auto step = [&] {
+    ClassId cls = ahead.pop_back_val();
+    const table::PatternNode &pattern = generated::patterns[at];
+    switch (pattern.kind) {
+    case table::PatternKind::Var: {
+      std::optional<ClassId> &bound = bindings.vars[pattern.var];
+      if (bound && *bound != cls)
+        return false;
+      bound = cls;
+      ++at;
+      return true;
+    }
+    case table::PatternKind::Literal: {
+      std::optional<APInt> value = this->at(cls).facts.integer();
+      if (!value || value->getSignificantBits() > 64 || value->getSExtValue() != pattern.literal)
+        return false;
+      ++at;
+      return true;
+    }
+    case table::PatternKind::Node:
+      return take(this->at(cls).first);
+    }
+    return false;
+  };
+  // The patterns from `at` to the left side's end matched in turn: whether
+  // every one was. Each step that matches moves `at` toward the end.
+  auto advance = [&] {
+    while (at != end)
+      if (!step())
+        return false;
+    return true;
+  };
 
   // The root is the node, not its class: each member of a class is a root
-  // of its own.
+  // of its own. A search goes forward to the end of the left side or back
+  // to its latest choice, which then takes a later member of its class or
+  // is dropped: so it ends, at a match or with no choice left.
   if (!enter(root))
     return std::nullopt;
-  for (;;) {
-    if (at == end) {
-      if (conditionsHold())
-        return bindings;
-    } else {
-      ClassId cls = ahead.pop_back_val();
-      const table::PatternNode &pattern = generated::patterns[at];
-      switch (pattern.kind) {
-      case table::PatternKind::Var: {
-        std::optional<ClassId> &bound = bindings.vars[pattern.var];
-        if (!bound || *bound == cls) {
-          bound = cls;
-          ++at;
-          continue;
-        }
-        break;
-      }
-      case table::PatternKind::Literal: {
-        std::optional<APInt> value = this->at(cls).facts.integer();
-        if (value && value->getSignificantBits() <= 64 &&
-            value->getSExtValue() == pattern.literal) {
-          ++at;
-          continue;
-        }
-        break;
-      }
-      case table::PatternKind::Node:
-        if (take(this->at(cls).first))
-          continue;
-        break;
-      }
-    }
-    if (!retreat())
-      return std::nullopt;
-  }
+  do {
+    if (advance() && conditionsHold())
+      return bindings;
+  } while (retreat());
+  return std::nullopt;
 }
 
 // A side condition, read off the bound class's facts as the round found

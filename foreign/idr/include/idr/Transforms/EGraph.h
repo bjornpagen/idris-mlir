@@ -331,7 +331,9 @@ using KnownConstant = std::variant<llvm::APInt, const Text *, Real, const Big *>
 // in: an operand of its root, or a value a region of a producer yields
 // (the choice per arm reads each arm's). Each answer is the value's
 // class's, whatever member extraction chose: a fact any member gives holds
-// of the one value.
+// of the one value. A value cast into or out of a linear position is its
+// operand's at another grade, and each answer of it is its operand's: the
+// constant it is, and the op that built it.
 class OperandFacts {
 public:
   explicit OperandFacts(const detail::Function &function) : function(function) {}
@@ -359,8 +361,9 @@ public:
   numeric::Known decision(GuardOpInterface guard) const;
   // How the value is built, where a member of its class says so: the op of
   // the input of class `OpT` a member is (a constructor a known-case rule
-  // reads), one computable wherever the class is used; null where none is.
-  // A rule asks for the op it reads by its class, so the answer is typed.
+  // reads), one computable wherever the class is used, or else the one
+  // that built the value a member casts; null where none is. A rule asks
+  // for the op it reads by its class, so the answer is typed.
   template <class OpT>
   OpT builtBy(mlir::Value value) const;
   // What computing the value's chosen form costs, its operands included:

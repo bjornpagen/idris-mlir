@@ -407,9 +407,20 @@ std::optional<ConstantIntRanges> Function::intervalOf(Operation *op,
 // read with its own properties, or the kind's a rule built. What it
 // computes takes the runtime's memory for a string or a big past the small
 // range, within the bytes the function's constants may take; past them the
-// constant is not kept, and the op that computes it stays.
+// constant is not kept, and the op that computes it stays. A value kept at
+// another grade is the constant past an interval its operand's class
+// holds, shared with that class, its memory among those bytes already; an
+// integer it keeps is its interval's one value, which the op's own
+// interval carries.
 std::optional<Facts> Function::meant(const What &what, Type type,
                                      std::span<const ClassId> operands) {
+  if (std::optional<ClassId> kept = keptBy(what, operands)) {
+    const std::optional<Constant> &constant = at(*kept).facts.constant;
+    if (!constant)
+      return std::nullopt;
+    ++steps;
+    return Facts{std::nullopt, *constant};
+  }
   SmallVector<const Class *, 4> constants;
   for (ClassId operand : operands) {
     const Class &cls = at(forest.rootOf(operand));
@@ -660,16 +671,15 @@ ClassId Function::pay(const Owed &debt) {
 // Each class whose members grew, or whose facts or reach the last round's
 // rebuild moved, is repaired; a repair's unions are paid and their roots
 // repaired in turn, a chunk at a time, each chunk its classes' roots once,
-// until none is owed. A repair unites only congruent nodes or a class with
-// its constant, so each chunk after the first follows a union, which leaves
-// one class fewer: the rebuild ends.
+// while a class waits or a union is owed. A repair unites only congruent
+// nodes or a class with its constant, so each chunk after the first
+// follows a union, which leaves one class fewer: the classes are the
+// measure, and the rebuild ends.
 void Function::rebuild() {
   footprint::Vector<ClassId> work = std::exchange(carried, {});
-  for (;;) {
+  while (!work.empty() || !owed.empty()) {
     for (const Owed &debt : std::exchange(owed, {}))
       work.push_back(pay(debt));
-    if (work.empty())
-      break;
     footprint::Vector<ClassId> chunk = std::exchange(work, {});
     for (ClassId &c : chunk)
       c = forest.find(c);

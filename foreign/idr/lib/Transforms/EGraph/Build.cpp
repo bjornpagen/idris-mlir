@@ -169,8 +169,12 @@ void Function::build() {
           given = of.meaning->given;
         }
         Identity identity = entry == Entry::OwnIdentity ? Identity::Own : Identity::Shared;
-        classOf[numbering.at(result)] = insert(node::Input{op, of.kind, identity, meaning, given},
-                                               result.getType(), operands);
+        // Whether its result is its operand's value, a trait of its class,
+        // read once where its node is made, as its effects are.
+        Keeps keeps = op->hasTrait<SameValue>() ? Keeps::Operand : Keeps::Nothing;
+        classOf[numbering.at(result)] =
+            insert(node::Input{op, of.kind, identity, keeps, meaning, given}, result.getType(),
+                   operands);
         return;
       }
       // A skeleton op: its results are leaves. A repeated read with nothing

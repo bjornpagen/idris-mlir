@@ -20,7 +20,12 @@
 // operation its own fold applies, so no attribute is made. An op whose
 // fold gives the value of an operand, of its own or of the op that built
 // one (a field a constructor was given, a cast of a cast), is that value's
-// class, with no node of its own. A node a right
+// class, with no node of its own. An op that keeps its operand's value at
+// another grade (a cast into or out of a linear position) is a node of its
+// own, its grade the verifier's, whose value is its operand's: what it
+// says is the constant its operand is, and how it is built is how its
+// operand is (keptBy), so a fold or a skeleton rule reads a value cast into
+// a linear position as the value it is. A node a right
 // side builds has no op to ask and none is made for it: its interval is
 // its kind's range function over its operands' intervals, from the
 // generated table, and its constant its kind's runtime meaning over
@@ -207,6 +212,11 @@ struct Run {
 // shared; one whose result takes a fresh identity is its own.
 enum class Identity : std::uint8_t { Shared, Own };
 
+// Whether an op's result is a value it makes, or its first operand's value
+// at another grade, as an op that keeps its operand's value (SameValue)
+// says: read off the op once, where the walk makes its node.
+enum class Keeps : std::uint8_t { Nothing, Operand };
+
 // How the write-back writes an integer of a type: a word of the type, or
 // every element of a shaped value of a static shape the same word, each
 // arith's constant; or a big or a natural used any number of times, whose
@@ -305,12 +315,13 @@ struct Leaf {
   RegionId home;
 };
 // An op of the input, which stands for itself: its kind where a rule names
-// it, whether its result takes a fresh identity, and its runtime meaning
-// where it has one.
+// it, whether its result takes a fresh identity, whether that result is
+// its first operand's value, and its runtime meaning where it has one.
 struct Input {
   mlir::Operation *origin;
   std::optional<std::uint16_t> kind;
   Identity identity;
+  Keeps keeps;
   std::optional<MeaningOfInput> meaning;
   std::optional<GivenOfInput> given;
 };
@@ -638,7 +649,8 @@ public:
 
   // What the composite folds read of the graph as it is built: a class's
   // id, and the op of class `OpT` of the input a member of it is, one
-  // computable wherever the class is used, with its operands' classes.
+  // computable wherever the class is used, with its operands' classes, or
+  // the one the value a member keeps at another grade is built by.
   ClassId idOf(const Class &cls) const {
     return ClassId(static_cast<std::uint32_t>(&cls - classes.data()));
   }
@@ -671,6 +683,11 @@ private:
     return std::span<const ClassId>(children).subspan(node.children.first, node.children.count);
   }
   ClassId classOfNode(NodeId n) const { return nodeClass[n.index()]; }
+  // The class of the value an op of the input keeps at another grade, its
+  // first operand's root, where the op keeps its operand's value; none for
+  // any other node. The one statement of a cast's value, which what a node
+  // says (meant) and how a class is built (builtOf) each read.
+  std::optional<ClassId> keptBy(const What &what, std::span<const ClassId> operands) const;
 
   // Building.
   ClassId leaf(mlir::Value value, RegionId home);
@@ -714,7 +731,9 @@ private:
   // What a node's runtime meaning computes from its operands' classes,
   // where each is a constant; none where one is not, it has none, or it
   // does not admit them. A string or a big it computes past the bytes the
-  // function's constants may take is dropped.
+  // function's constants may take is dropped. A node that keeps its
+  // operand's value computes nothing: it is the constant that operand is,
+  // one the graph holds already, which takes no more of those bytes.
   std::optional<Facts> meant(const What &what, mlir::Type type,
                              std::span<const ClassId> operands);
   // What a node says of its value over its operands' facts as they are now:

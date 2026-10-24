@@ -112,15 +112,16 @@ void DataReindexOp::setStatedLifetime(Value made, Value lifetime) {
   lifetimes::stateOuter(*this, made, lifetime, 0);
 }
 
-// A cast to its operand's own type is the operand; a cast of a cast casts
-// the first operand.
+// A cast to its operand's own type is the operand. A cast of a cast is the
+// first operand cast once, so where that operand is of the type cast to, it
+// is that operand; a cast of it to any other type is no value the program
+// holds, and the fold gives none rather than edit the op into it.
 OpFoldResult DataReindexOp::fold(FoldAdaptor) {
   if (getValue().getType() == getType())
     return getValue();
-  if (auto inner = getValue().getDefiningOp<DataReindexOp>()) {
-    getValueMutable().assign(inner.getValue());
-    return getResult();
-  }
+  if (auto inner = getValue().getDefiningOp<DataReindexOp>();
+      inner && inner.getValue().getType() == getType())
+    return inner.getValue();
   return {};
 }
 

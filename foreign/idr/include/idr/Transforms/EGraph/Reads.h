@@ -60,28 +60,58 @@ inline std::optional<RegionId> Function::needs(const Node &node) const {
   return inner;
 }
 
+inline std::optional<ClassId> Function::keptBy(const What &what,
+                                               std::span<const ClassId> operands) const {
+  return match(
+      what,
+      [&](const node::Input &op) -> std::optional<ClassId> {
+        if (op.keeps == Keeps::Nothing)
+          return std::nullopt;
+        return forest.rootOf(operands.front());
+      },
+      [](const OneOf<node::Built, node::Leaf, node::Held, node::Integer, node::Known> auto &)
+          -> std::optional<ClassId> { return std::nullopt; });
+}
+
 // The first member of the value's class, in member order, that is an op of
 // the input of class `OpT` and can be computed wherever the class is used:
 // a member computable only inside the class's reach may stand where the
 // rule's root does not see it. An op a rule built has no op of the input
-// to read, and a leaf is the value a skeleton op or a region gives.
+// to read, and a leaf is the value a skeleton op or a region gives. Where
+// no member is one, a member so computable that keeps its operand's value
+// at another grade is built as that operand is (keptBy), and the search
+// goes on in the operand's class, whose reach holds the member's: so a
+// value cast into or out of a linear position, however many times, is
+// built by the op that made it. Each step reads a class of another type,
+// its operand's, and the walk takes at most a step per class the function
+// has.
 template <class OpT>
 std::optional<std::pair<OpT, llvm::SmallVector<ClassId, 4>>>
 Function::builtOf(const Class &cls) const {
-  for (std::optional<NodeId> member = cls.first; member; member = nextMember[member->index()]) {
-    const Node &node = at(*member);
-    if (needs(node) != cls.reach)
-      continue;
-    OpT op = match(
-        node.what, [](const node::Input &input) { return llvm::dyn_cast<OpT>(input.origin); },
-        [](const OneOf<node::Built, node::Leaf, node::Held, node::Integer,
-                       node::Known> auto &) { return OpT(); });
-    if (!op)
-      continue;
-    llvm::SmallVector<ClassId, 4> operands;
-    for (ClassId operand : childrenOf(node))
-      operands.push_back(forest.rootOf(operand));
-    return std::pair<OpT, llvm::SmallVector<ClassId, 4>>{op, std::move(operands)};
+  const Class *in = &cls;
+  for (std::size_t left = classes.size(); left > 0; --left) {
+    std::optional<ClassId> kept;
+    for (std::optional<NodeId> member = in->first; member; member = nextMember[member->index()]) {
+      const Node &node = at(*member);
+      if (needs(node) != in->reach)
+        continue;
+      OpT op = match(
+          node.what, [](const node::Input &input) { return llvm::dyn_cast<OpT>(input.origin); },
+          [](const OneOf<node::Built, node::Leaf, node::Held, node::Integer,
+                         node::Known> auto &) { return OpT(); });
+      if (!op) {
+        if (!kept)
+          kept = keptBy(node.what, childrenOf(node));
+        continue;
+      }
+      llvm::SmallVector<ClassId, 4> operands;
+      for (ClassId operand : childrenOf(node))
+        operands.push_back(forest.rootOf(operand));
+      return std::pair<OpT, llvm::SmallVector<ClassId, 4>>{op, std::move(operands)};
+    }
+    if (!kept)
+      return std::nullopt;
+    in = &at(*kept);
   }
   return std::nullopt;
 }
