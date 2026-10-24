@@ -914,3 +914,13 @@ askers in callersOf, Settle's removed proof). Waiting:
   `endsOwner` (`Counting/Declarations.idr`), `runsOnce`,
   `runsOnceGivingBack` and `givesLifetime` (`Lifetimes/Declarations.idr`)
   are `public export` (L03).
+- C50 (L16eq's stop): `typeText`/`attrText`'s dummy arms go in one change
+  with (a) the TableGen backend printing the generated arith, ub and linalg
+  syntax printers over the types that cross as text
+  (`idris-mlir-tblgen.cpp:1566-1569`) and the three modules regenerated,
+  and (b) `IntegerAttr` holding a builtin integer-or-index type in
+  `MlirAttr`, not any `MlirType` (settled, coordinator: the narrower type
+  makes the idr-typed integer attribute unrepresentable, as
+  `Bytecode.idr:699`'s fallback admits today; writing integers natively in
+  bytecode is not needed for it). After INT-25 lands the dialect modules
+  (L03 with L16).
