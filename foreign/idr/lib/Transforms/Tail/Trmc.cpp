@@ -103,19 +103,14 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
     SymbolTable &symbols = getAnalysis<SymbolTable>();
     solver::ProgramGraph &graph = getAnalysis<solver::ProgramGraph>();
     footprint::Vector<Plan> plans;
-    LogicalResult read = success();
     for (FuncOp fn : program.getOps<FuncOp>()) {
       Plan plan{fn, {}, {}};
+      // idr.call's verifier, run after every pass, refuses a call modulo a
+      // context whose context the rule does not admit, so each one's is
+      // there to read.
       fn.walk([&](CallOp call) {
-        if (!contextCallOf(call))
-          return;
-        std::optional<Context> context = contextOf(call);
-        if (!context) {
-          read = call.emitOpError("internal error: idr-trmc: a call modulo a context whose "
-                                  "context no longer holds");
-          return;
-        }
-        plan.contexts.push_back(std::move(*context));
+        if (contextCallOf(call))
+          plan.contexts.push_back(*contextOf(call));
       });
       if (plan.contexts.empty())
         continue;
@@ -123,8 +118,6 @@ struct Trmc : impl::IdrTrmcBase<Trmc> {
         return signalPassFailure();
       plans.push_back(std::move(plan));
     }
-    if (failed(read))
-      return signalPassFailure();
     if (plans.empty())
       return markAllAnalysesPreserved();
 
