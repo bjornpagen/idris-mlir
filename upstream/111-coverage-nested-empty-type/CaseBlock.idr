@@ -35,13 +35,13 @@ aloneKept x y eq one = case three x c y eq one of
 
 -- The frontend's Graph.landsInto: the equation inside a dependent pair,
 -- refining the function's argument `a` to `Closed x`; `Open` is proposed
--- as missing, refuted only by `Open = Closed x` inside the pair.
+-- as missing, refuted only by `Open = Closed x` inside the pair. The
+-- scrutinee is a call of an argument, a pair claimed for any `Landing`,
+-- which no closed function can give for `Open`.
 data Landing = Closed Nat | Open
 
-0 joined : (a : Landing) -> (k : Nat) -> (x : Nat ** (a = Closed x, LTE x k))
-joined (Closed x) k = believe_me ()
-joined Open k = believe_me ()
-
-0 closedBelow : (a : Landing) -> (k : Nat) -> Bring 1
-closedBelow a k = case joined a k of
+0 closedBelow : (a : Landing) -> (k : Nat) ->
+                ((l : Landing) -> (j : Nat) -> (x : Nat ** (l = Closed x, LTE x j))) ->
+                Bring 1
+closedBelow a k joined = case joined a k of
   (x ** (Refl, _)) => BringOne

@@ -7,14 +7,12 @@
 ||| variable, so what it computes is a fact of each host and of no
 ||| definition; and some primitives are declared partial, defined on values
 ||| a test the host's types cannot carry picks out. Each fact below is one
-||| primitive's (or one comparison's), with the reason both hosts keep it.
-||| Beside them stand the two exponents of what a primitive can give past
-||| its arguments' sizes, a fixed width's and the widest, which
-||| `Idris.Host` bounds the evaluator's table by; they are held here, by
-||| name, so that two to either is computed in no type outside this module.
-||| The checker's other trusts, of its evaluator and its context, are
-||| `Idris.Host`'s; that module imports this one, which imports nothing of
-||| the checker, so `Core.Primitives` reaches these facts too.
+||| primitive's, with the reason both hosts keep it. Beside them stands the
+||| widest exponent of what a primitive can give past its arguments' sizes,
+||| held here by name, so that two to it is computed in no type outside this
+||| module. The checker's other trusts, of its evaluator and its context,
+||| are `Idris.Host`'s; that module imports this one, which imports nothing
+||| of the checker, so `Core.Primitives` reaches these facts too.
 module Core.Primitives.Host
 
 import Data.Nat
@@ -22,49 +20,9 @@ import Data.Nat
 %default total
 
 -- The trust, at quantity 0, so it costs nothing when the checker runs. It
--- is applied only to the comparisons and the shift below, whose truth is
--- the host's.
+-- is applied only to the shift below, whose truth is the host's.
 0 trusted : a
 trusted = believe_me ()
-
-------------------------------------------------------------------------------
--- Comparisons
-------------------------------------------------------------------------------
-
--- Idris's equality of names compares an identifier's index, a machine
--- name's number, a resolved name's index and the like as the runtime's
--- integers, by `prim__eq_Int`, which a proof cannot evaluate at a
--- variable. That it is true of an integer and itself, and only of an
--- integer and itself, are facts of each host that runs this compiler and
--- of no definition: Chez compares two exact integers by `=`, and
--- idris-mlir two 64-bit words by `arith.cmpi eq`, each true exactly when
--- the two are one integer. Its symmetry follows from the two.
-export
-0 intEqualityReflexive : (x : Int) -> (x == x) = True
-intEqualityReflexive _ = trusted
-
-export
-0 intEqualitySound : (x, y : Int) -> (x == y) = True -> x = y
-intEqualitySound _ _ _ = trusted
-
--- A character is compared by `prim__eq_Char`: Chez's `char=?`, and
--- idris-mlir's `arith.cmpi eq` of the two code points, each true exactly
--- when the two are one character. It is trusted itself rather than through
--- `ord` and the comparison of integers, which would trust two facts of the
--- runtime in its place: that `prim__eq_Char` agrees with `prim__eq_Int` on
--- code points, and that `prim__cast_CharInt` gives two characters two code
--- points.
-export
-0 charEqualitySound : (x, y : Char) -> (x == y) = True -> x = y
-charEqualitySound _ _ _ = trusted
-
--- A string is compared by `prim__eq_String`: Chez's `string=?`, character
--- by character, and idris-mlir's runtime, which compares the two UTF-8
--- encodings byte by byte and their lengths, each true exactly when the two
--- are one string.
-export
-0 stringEqualitySound : (x, y : String) -> (x == y) = True -> x = y
-stringEqualitySound _ _ _ = trusted
 
 ------------------------------------------------------------------------------
 -- Shifts
@@ -87,39 +45,18 @@ shiftRightDescends _ = trusted
 ------------------------------------------------------------------------------
 
 -- The type checker computes naturals in unary, so a type that held two to
--- 64 or to 1024 would build that number wherever the type is normalised or
--- compared, past what any machine holds. Each exponent is exported by name
+-- 1024 would build that number wherever the type is normalised or
+-- compared, past what any machine holds. The exponent is exported by name
 -- alone: it unfolds nowhere outside this module, so two to it is stuck in
--- every type there, and a proof compares two such powers by their
--- exponents, through the facts stated below, where the exponents are the
--- small numbers they are. A program computes either as any other number.
--- The facts name the exponents in full: unqualified, a name in argument
--- position of a type is bound as a fresh implicit, and each fact would
--- hold of any number.
-
-||| 64: no fixed-width integer of either host is wider than 64 bits, so none
-||| wraps to a value at or past two to it.
-export
-widthExponent : Nat
-widthExponent = 64
+-- every type there. A program computes it as any other number.
 
 ||| 1024: neither a character's code nor a finite double's integer part
 ||| reaches two to it on either host, a double's largest finite value being
-||| below 2^1024. It is the widest exponent a primitive's bound names.
+||| below 2^1024. It is the widest exponent of what one primitive computes
+||| from literals, which the frontend's bound on a computed literal names.
 export
 widestExponent : Nat
 widestExponent = 1024
-
-||| A fixed width's exponent is at most the widest.
-export
-0 widthWithinWidest : LTE Host.widthExponent Host.widestExponent
-widthWithinWidest = lteAddRight {m = 960} 64
-
-||| Every exponent up to 1024 is at most the widest: a double's text's
-||| length among them.
-export
-0 withinWidest : (e : Nat) -> LTE e 1024 -> LTE e Host.widestExponent
-withinWidest e le = le
 
 ------------------------------------------------------------------------------
 -- Partial primitives

@@ -36,25 +36,14 @@
 ||| definitions: reduction is closed under every map of terms that keeps
 ||| what a step reads (`mappedReduces`), so under strengthening
 ||| (`reducesStrengthened`) and under putting values in for fresh names
-||| (`substitutes`); values put in for names that stand for a scope's
-||| variables are put in for the variables (`substitutesMarkers`), and node
-||| by node (`putIn`); and a name made full is the full name of the
-||| definition it names (`definedFullName`). Beside them stand facts of the
-||| context: that it makes one entry for each full name and records no
-||| resolved name as one, so that two resolved names name one entry exactly
-||| when their full names agree (`fullNameSameEntry`), that its entries are
-||| at non-negative indices, so that every name it defines has a place
-||| (`definedPlaced`), that none of its definitions names one of the
-||| frontend's probes (`probesFresh`) and it resolves none
-||| (`probesUnresolved`), and that what a reader read from the live context
-||| once the program was loaded (`readLive`) it defines at the same entry,
-||| of the same kind and body (`keptAt`); and that
-||| what the evaluator's table of primitives computes stays within a bound
-||| that grows with its arguments' sizes (`computedWithin`). What the hosts
-||| that run this compiler give their primitives is trusted in
-||| `Core.Primitives.Host`, below the evaluator, which applies them: from its
-||| facts of the runtime's equality of integers, Idris's equality of names
-||| is proved reflexive and symmetric here.
+||| (`substitutes`), and node by node (`putIn`). Beside them stand facts of
+||| the context: that its entries are at non-negative indices, so that every
+||| name it defines has a place (`definedPlaced`), that it resolves none of
+||| the frontend's probes (`probesUnresolved`), and that what a reader read
+||| from the live context once the program was loaded (`readLive`) it
+||| defines at the same entry, of the same kind and body (`keptAt`). What the
+||| hosts that run this compiler give their primitives is trusted in
+||| `Core.Primitives.Host`, below the evaluator, which applies them.
 module Idris.Host
 
 import Core.Case.CaseTree
@@ -98,13 +87,11 @@ import Libraries.Data.WithDefault
 -- The trust, at quantity 0, so it costs nothing when a program runs. It is
 -- applied only where a statement is a fact no proof here follows: of the
 -- evaluator, which runs in `Core`, to what the normalisers give (`reduct`)
--- and to a term's reducts and its normal form (`reachesNormalForm`); of
--- the context, which `Core` actions build, to the full names its entries
--- hold (`oneEntryPerName`, `fullNameUnresolved`), to the indices they are
--- at (`entryPlaced`), to the names its definitions hold (`probesFresh`),
--- to the names it resolves (`probesUnresolved`) and to what it keeps of
--- the entries read before it was frozen (`frozenContext`, `keeps`); and to
--- what the table of primitives computes (`computedWithin`).
+-- and to a term's reducts and its normal form (`reachesNormalForm`); and
+-- of the context, which `Core` actions build, to the indices its entries
+-- are at (`entryPlaced`), to the names it resolves (`probesUnresolved`) and
+-- to what it keeps of the entries read before it was frozen
+-- (`frozenContext`, `keeps`).
 0 trusted : a
 trusted = believe_me ()
 
@@ -1034,189 +1021,14 @@ markerName (Add _ old rest) (MkVar First) = Refl
 markerName (Add _ _ rest) (MkVar (Later v)) = markerName rest (MkVar v)
 markerName None (MkVar v) impossible
 
-0 falseWhereNotTrue : (b : Bool) -> Not (b = True) -> b = False
-falseWhereNotTrue False _ = Refl
-falseWhereNotTrue True no = absurd (no Refl)
-
--- The runtime's equality of integers is trusted to hold of an integer and
--- itself and only of it (`Core.Primitives.Host`); its symmetry follows.
--- Every instance that lifts it to names is public and structural, so from
--- it equality of names is proved reflexive and symmetric.
-0 intEqualitySymmetric : (x, y : Int) -> (x == y) = False -> (y == x) = False
-intEqualitySymmetric x y apart = falseWhereNotTrue (y == x) $ \same =>
-    uninhabited (trans (sym (replace {p = \z => (x == z) = False} (intEqualitySound y x same) apart))
-                       (intEqualityReflexive x))
-
-0 natEqualityReflexive : (k : Nat) -> (k == k) = True
-natEqualityReflexive Z = Refl
-natEqualityReflexive (S k) = natEqualityReflexive k
-
-0 natEqualitySymmetric : (j, k : Nat) -> (j == k) = False -> (k == j) = False
-natEqualitySymmetric Z Z same = same
-natEqualitySymmetric Z (S _) _ = Refl
-natEqualitySymmetric (S _) Z _ = Refl
-natEqualitySymmetric (S j) (S k) same = natEqualitySymmetric j k same
-
-0 identReflexive : (i : Ident) -> (i == i) = True
-identReflexive = identEqualityReflexive intEqualityReflexive
-
-0 identSymmetric : (i, j : Ident) -> (i == j) = False -> (j == i) = False
-identSymmetric = identEqualitySymmetric intEqualitySymmetric
-
-0 pairSymmetric : (p, q : (Int, Int)) -> (p == q) = False -> (q == p) = False
-pairSymmetric (a, b) (c, d) same
-    = bothFalse (a == c) (b == d) (c == a) (d == b) (intEqualitySymmetric a c) (intEqualitySymmetric b d) same
-
-0 userNameReflexive : (u : UserName) -> (u == u) = True
-userNameReflexive (Basic i) = identReflexive i
-userNameReflexive (Field i) = identReflexive i
-userNameReflexive Underscore = Refl
-
-0 userNameSymmetric : (u, v : UserName) -> (u == v) = False -> (v == u) = False
-userNameSymmetric (Basic i) (Basic j) same = identSymmetric i j same
-userNameSymmetric (Field i) (Field j) same = identSymmetric i j same
-userNameSymmetric Underscore Underscore same = same
-userNameSymmetric (Basic _) (Field _) _ = Refl
-userNameSymmetric (Basic _) Underscore _ = Refl
-userNameSymmetric (Field _) (Basic _) _ = Refl
-userNameSymmetric (Field _) Underscore _ = Refl
-userNameSymmetric Underscore (Basic _) _ = Refl
-userNameSymmetric Underscore (Field _) _ = Refl
-
-0 nameEqualityReflexive : (n : Name) -> (n == n) = True
-nameEqualityReflexive (NS ns n) = rewrite nameEqualityReflexive n in namespaceEqualityReflexive identReflexive ns
-nameEqualityReflexive (UN u) = userNameReflexive u
-nameEqualityReflexive (MN i k) = rewrite intEqualityReflexive k in identReflexive i
-nameEqualityReflexive (PV n k) = rewrite nameEqualityReflexive n in intEqualityReflexive k
-nameEqualityReflexive (DN _ n) = nameEqualityReflexive n
-nameEqualityReflexive (Nested (a, b) n)
-    = rewrite intEqualityReflexive a in rewrite intEqualityReflexive b in nameEqualityReflexive n
-nameEqualityReflexive (CaseBlock n k) = rewrite natEqualityReflexive k in nameEqualityReflexive n
-nameEqualityReflexive (WithBlock n k) = rewrite natEqualityReflexive k in nameEqualityReflexive n
-nameEqualityReflexive (Resolved k) = intEqualityReflexive k
-
-0 nameEqualitySymmetric : (m, n : Name) -> (m == n) = False -> (n == m) = False
-nameEqualitySymmetric (NS ms m) (NS ns n) same
-    = bothFalse (m == n) (ms == ns) (n == m) (ns == ms) (nameEqualitySymmetric m n)
-                (namespaceEqualitySymmetric identSymmetric ms ns) same
-nameEqualitySymmetric (UN u) (UN v) same = userNameSymmetric u v same
-nameEqualitySymmetric (MN i j) (MN i' j') same
-    = bothFalse (j == j') (i == i') (j' == j) (i' == i) (intEqualitySymmetric j j') (identSymmetric i i') same
-nameEqualitySymmetric (PV m j) (PV n k) same
-    = bothFalse (m == n) (j == k) (n == m) (k == j) (nameEqualitySymmetric m n) (intEqualitySymmetric j k) same
-nameEqualitySymmetric (DN _ m) (DN _ n) same = nameEqualitySymmetric m n same
-nameEqualitySymmetric (Nested p m) (Nested q n) same
-    = bothFalse (p == q) (m == n) (q == p) (n == m) (pairSymmetric p q) (nameEqualitySymmetric m n) same
-nameEqualitySymmetric (CaseBlock m j) (CaseBlock n k) same
-    = bothFalse (j == k) (m == n) (k == j) (n == m) (natEqualitySymmetric j k) (nameEqualitySymmetric m n) same
-nameEqualitySymmetric (WithBlock m j) (WithBlock n k) same
-    = bothFalse (j == k) (m == n) (k == j) (n == m) (natEqualitySymmetric j k) (nameEqualitySymmetric m n) same
-nameEqualitySymmetric (Resolved j) (Resolved k) same = intEqualitySymmetric j k same
-nameEqualitySymmetric (NS _ _) (UN _) _ = Refl
-nameEqualitySymmetric (NS _ _) (MN _ _) _ = Refl
-nameEqualitySymmetric (NS _ _) (PV _ _) _ = Refl
-nameEqualitySymmetric (NS _ _) (DN _ _) _ = Refl
-nameEqualitySymmetric (NS _ _) (Nested _ _) _ = Refl
-nameEqualitySymmetric (NS _ _) (CaseBlock _ _) _ = Refl
-nameEqualitySymmetric (NS _ _) (WithBlock _ _) _ = Refl
-nameEqualitySymmetric (NS _ _) (Resolved _) _ = Refl
-nameEqualitySymmetric (UN _) (NS _ _) _ = Refl
-nameEqualitySymmetric (UN _) (MN _ _) _ = Refl
-nameEqualitySymmetric (UN _) (PV _ _) _ = Refl
-nameEqualitySymmetric (UN _) (DN _ _) _ = Refl
-nameEqualitySymmetric (UN _) (Nested _ _) _ = Refl
-nameEqualitySymmetric (UN _) (CaseBlock _ _) _ = Refl
-nameEqualitySymmetric (UN _) (WithBlock _ _) _ = Refl
-nameEqualitySymmetric (UN _) (Resolved _) _ = Refl
-nameEqualitySymmetric (MN _ _) (NS _ _) _ = Refl
-nameEqualitySymmetric (MN _ _) (UN _) _ = Refl
-nameEqualitySymmetric (MN _ _) (PV _ _) _ = Refl
-nameEqualitySymmetric (MN _ _) (DN _ _) _ = Refl
-nameEqualitySymmetric (MN _ _) (Nested _ _) _ = Refl
-nameEqualitySymmetric (MN _ _) (CaseBlock _ _) _ = Refl
-nameEqualitySymmetric (MN _ _) (WithBlock _ _) _ = Refl
-nameEqualitySymmetric (MN _ _) (Resolved _) _ = Refl
-nameEqualitySymmetric (PV _ _) (NS _ _) _ = Refl
-nameEqualitySymmetric (PV _ _) (UN _) _ = Refl
-nameEqualitySymmetric (PV _ _) (MN _ _) _ = Refl
-nameEqualitySymmetric (PV _ _) (DN _ _) _ = Refl
-nameEqualitySymmetric (PV _ _) (Nested _ _) _ = Refl
-nameEqualitySymmetric (PV _ _) (CaseBlock _ _) _ = Refl
-nameEqualitySymmetric (PV _ _) (WithBlock _ _) _ = Refl
-nameEqualitySymmetric (PV _ _) (Resolved _) _ = Refl
-nameEqualitySymmetric (DN _ _) (NS _ _) _ = Refl
-nameEqualitySymmetric (DN _ _) (UN _) _ = Refl
-nameEqualitySymmetric (DN _ _) (MN _ _) _ = Refl
-nameEqualitySymmetric (DN _ _) (PV _ _) _ = Refl
-nameEqualitySymmetric (DN _ _) (Nested _ _) _ = Refl
-nameEqualitySymmetric (DN _ _) (CaseBlock _ _) _ = Refl
-nameEqualitySymmetric (DN _ _) (WithBlock _ _) _ = Refl
-nameEqualitySymmetric (DN _ _) (Resolved _) _ = Refl
-nameEqualitySymmetric (Nested _ _) (NS _ _) _ = Refl
-nameEqualitySymmetric (Nested _ _) (UN _) _ = Refl
-nameEqualitySymmetric (Nested _ _) (MN _ _) _ = Refl
-nameEqualitySymmetric (Nested _ _) (PV _ _) _ = Refl
-nameEqualitySymmetric (Nested _ _) (DN _ _) _ = Refl
-nameEqualitySymmetric (Nested _ _) (CaseBlock _ _) _ = Refl
-nameEqualitySymmetric (Nested _ _) (WithBlock _ _) _ = Refl
-nameEqualitySymmetric (Nested _ _) (Resolved _) _ = Refl
-nameEqualitySymmetric (CaseBlock _ _) (NS _ _) _ = Refl
-nameEqualitySymmetric (CaseBlock _ _) (UN _) _ = Refl
-nameEqualitySymmetric (CaseBlock _ _) (MN _ _) _ = Refl
-nameEqualitySymmetric (CaseBlock _ _) (PV _ _) _ = Refl
-nameEqualitySymmetric (CaseBlock _ _) (DN _ _) _ = Refl
-nameEqualitySymmetric (CaseBlock _ _) (Nested _ _) _ = Refl
-nameEqualitySymmetric (CaseBlock _ _) (WithBlock _ _) _ = Refl
-nameEqualitySymmetric (CaseBlock _ _) (Resolved _) _ = Refl
-nameEqualitySymmetric (WithBlock _ _) (NS _ _) _ = Refl
-nameEqualitySymmetric (WithBlock _ _) (UN _) _ = Refl
-nameEqualitySymmetric (WithBlock _ _) (MN _ _) _ = Refl
-nameEqualitySymmetric (WithBlock _ _) (PV _ _) _ = Refl
-nameEqualitySymmetric (WithBlock _ _) (DN _ _) _ = Refl
-nameEqualitySymmetric (WithBlock _ _) (Nested _ _) _ = Refl
-nameEqualitySymmetric (WithBlock _ _) (CaseBlock _ _) _ = Refl
-nameEqualitySymmetric (WithBlock _ _) (Resolved _) _ = Refl
-nameEqualitySymmetric (Resolved _) (NS _ _) _ = Refl
-nameEqualitySymmetric (Resolved _) (UN _) _ = Refl
-nameEqualitySymmetric (Resolved _) (MN _ _) _ = Refl
-nameEqualitySymmetric (Resolved _) (PV _ _) _ = Refl
-nameEqualitySymmetric (Resolved _) (DN _ _) _ = Refl
-nameEqualitySymmetric (Resolved _) (Nested _ _) _ = Refl
-nameEqualitySymmetric (Resolved _) (CaseBlock _ _) _ = Refl
-nameEqualitySymmetric (Resolved _) (WithBlock _ _) _ = Refl
-
 0 orFalse : (a : Bool) -> (a || b) = False -> (a = False, b = False)
 orFalse False prf = (Refl, prf)
 orFalse True prf = absurd prf
-
-0 andTrue : (a : Bool) -> (a && b) = True -> (a = True, b = True)
-andTrue True prf = (Refl, prf)
-andTrue False prf = absurd prf
-
-0 notTrue : (a : Bool) -> not a = True -> a = False
-notTrue False _ = Refl
-notTrue True prf = absurd prf
 
 -- A name a set of bounds does not replace is at none of them.
 0 noneAt : (bs : Bounds ns) -> replaces bs n = False -> NoneAt bs n
 noneAt None _ = NoneHere
 noneAt (Add _ old rest) none = NotThis (fst (orFalse (n == old) none)) (noneAt rest (snd (orFalse (n == old) none)))
-
--- A name a set of bounds does not replace is unequal to each it does.
-0 replacesAt : (bs : Bounds ns) -> replaces bs n = False -> (w : Var ns) -> (n == replacedAt bs w) = False
-replacesAt (Add _ old rest) none (MkVar First) = fst (orFalse (n == old) none)
-replacesAt (Add _ old rest) none (MkVar (Later v)) = replacesAt rest (snd (orFalse (n == old) none)) (MkVar v)
-replacesAt None _ (MkVar v) impossible
-
--- Where the names are apart, each is at the first bound that replaces it:
--- equal to its own, and unequal to each before it.
-0 firstAt : (bs : Bounds ns) -> namesApart bs = True -> (w : Var ns) -> FirstAt bs w (replacedAt bs w)
-firstAt (Add _ old rest) apart (MkVar First) = AtHere (nameEqualityReflexive old)
-firstAt (Add _ old rest) apart (MkVar (Later v))
-    = AtLater (nameEqualitySymmetric old (replacedAt rest (MkVar v))
-                 (replacesAt rest (notTrue (replaces rest old) (fst (andTrue (not (replaces rest old)) apart))) (MkVar v)))
-              (firstAt rest (snd (andTrue (not (replaces rest old)) apart)) (MkVar v))
-firstAt None _ (MkVar v) impossible
 
 export
 0 weakenMarker : (o : SizeOf outer) -> (bs : Bounds ns) -> (w : Var ns) ->
@@ -1317,154 +1129,12 @@ mutual
   mentionsEmbedPi k bs AutoImplicit = Refl
   mentionsEmbedPi k bs (DefImplicit t) = mentionsEmbed k bs t
 
--- A local a substitution left below the binders it is under, turned back
--- by `mkLocals` and substituted again, is the local substituted once.
-0 belowBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-              (0 p : IsVar nm i (outer ++ (ns ++ vars))) -> Nat.LT i (size o) ->
-              {t : Term (outer ++ vars)} -> LocalAt lfc r i t ->
-              substTerm o sz vs (mkLocals {vars} o bs t) = substTerm o sz vs (Local lfc r i p)
-belowBack o sz bs vs p lt (IsLocalAt {p = q}) =
-  cong (substTerm o sz vs) (localAtSame (mkLocalsBelow {vars} o bs q lt) (IsLocalAt {p}))
-
 -- A local among the variables values are put in for, at any location, is
 -- the value.
 0 middleBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (vs : SubstEnv ns vars) -> (w : Var ns) ->
                {t : Term (outer ++ (ns ++ vars))} -> LocalAt mfc r (size o + varIdx w) t ->
                substTerm o sz vs t = weakenNs o (Var.index vs w)
 middleBack o sz vs w (IsLocalAt {p = q}) = substMiddle o sz vs q w Refl
-
--- A local a substitution moved down past the variables it put values in
--- for, moved back up by `mkLocals` and substituted again, is the local
--- substituted once.
-0 pastBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-             (0 p : IsVar nm i (outer ++ (ns ++ vars))) -> (k : Nat) -> i = size o + (size sz + k) ->
-             {t : Term (outer ++ vars)} -> LocalAt lfc r (size o + k) t ->
-             substTerm o sz vs (mkLocals {vars} o bs t) = substTerm o sz vs (Local lfc r i p)
-pastBack o sz bs vs p k eq (IsLocalAt {p = q}) =
-  cong (substTerm o sz vs)
-       (localAtSame (replace {p = \x => LocalAt lfc r x (mkLocals {vars} o bs (Local lfc r (size o + k) q))}
-                             (trans (cong (\x => x + (size o + k)) (sizesAgree (sizeOf bs) sz))
-                                    (trans (swapPlus (size o) (size sz) k) (sym eq)))
-                             (mkLocalsPast {vars} o bs q (lteAddRight (size o))))
-                    (IsLocalAt {p}))
-
--- A local, closed with a marker in for it where it is one of the scope's
--- variables, turned back and substituted, is the local substituted: by
--- where its index is, below the binders, among the scope's variables, or
--- past them.
-0 localPutBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-                 namesApart bs = True -> (0 p : IsVar nm i (outer ++ (ns ++ vars))) ->
-                 substTerm o sz vs (mkLocals {vars} o bs (substTerm o sz (markersOf {vars} fc bs) (Local lfc r i p)))
-                   = substTerm o sz vs (Local lfc r i p)
-localPutBack o sz bs vs apart p = case range (size o) (size sz) i of
-  InFirst lt => belowBack o sz bs vs p lt (substBelow o sz (markersOf fc bs) p lt)
-  InSecond j eq lt =>
-    let (w ** wj) = varAt sz j lt
-        atW = trans eq (cong (size o +) (sym wj)) in
-    trans (cong (\t => substTerm o sz vs (mkLocals {vars} o bs t)) (substMiddle o sz (markersOf fc bs) p w atW))
-      (trans (cong (\t => substTerm o sz vs (mkLocals {vars} o bs t)) (weakenMarker o bs w))
-        (trans (middleBack o sz vs w (mkLocalsMarker {vars} o bs w (firstAt bs apart w)))
-               (sym (substMiddle o sz vs p w atW))))
-  PastBoth k eq => pastBack o sz bs vs p k eq (substPast o sz (markersOf fc bs) p k eq)
-
-mutual
-  -- A term over a scope, with markers in for the scope's variables, the
-  -- markers turned back into the variables and values put in for those, is
-  -- the term with the values put in, at any depth, where the names are
-  -- apart and the term names none of them.
-  0 markersPutBack : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-                     namesApart bs = True -> (u : Term (outer ++ (ns ++ vars))) ->
-                     mentions BoundOrUnknown bs u = False ->
-                     substTerm o sz vs (mkLocals {vars} o bs (substTerm o sz (markersOf {vars} fc bs) u)) = substTerm o sz vs u
-  markersPutBack o sz bs vs apart (Local lfc r i p) _ = localPutBack o sz bs vs apart p
-  markersPutBack o sz bs vs apart (Ref rfc Bound n) none =
-    cong (substTerm o sz vs) (mkLocalsUnreplaced {vars} o bs (noneAt bs none))
-  markersPutBack o sz bs vs apart (Ref rfc Func n) _ = Refl
-  markersPutBack o sz bs vs apart (Ref rfc (DataCon tag arity) n) _ = Refl
-  markersPutBack o sz bs vs apart (Ref rfc (TyCon arity) n) _ = Refl
-  markersPutBack o sz bs vs apart (Meta mfc m k args) none =
-    trans (cong (substTerm o sz vs) (mkLocalsUnknown {vars} o bs (noneAt bs (fst (orFalse (replaces bs m) none)))))
-          (cong (Meta mfc m k) (markersPutBackAll o sz bs vs apart args (snd (orFalse (replaces bs m) none))))
-  markersPutBack o sz bs vs apart (Bind bfc x b sc) none =
-    cong2 (Bind bfc x) (markersPutBackBinder o sz bs vs apart b (fst (orFalse (mentionsInBinder BoundOrUnknown bs b) none)))
-                       (markersPutBack (suc o) sz bs vs apart sc (snd (orFalse (mentionsInBinder BoundOrUnknown bs b) none)))
-  markersPutBack o sz bs vs apart (App afc f a) none =
-    cong2 (App afc) (markersPutBack o sz bs vs apart f (fst (orFalse (mentions BoundOrUnknown bs f) none)))
-                    (markersPutBack o sz bs vs apart a (snd (orFalse (mentions BoundOrUnknown bs f) none)))
-  markersPutBack o sz bs vs apart (As afc side n t) none =
-    cong2 (As afc side) (markersPutBack o sz bs vs apart n (fst (orFalse (mentions BoundOrUnknown bs n) none)))
-                        (markersPutBack o sz bs vs apart t (snd (orFalse (mentions BoundOrUnknown bs n) none)))
-  markersPutBack o sz bs vs apart (TDelayed dfc r t) none = cong (TDelayed dfc r) (markersPutBack o sz bs vs apart t none)
-  markersPutBack o sz bs vs apart (TDelay dfc d ty a) none =
-    cong2 (TDelay dfc d) (markersPutBack o sz bs vs apart ty (fst (orFalse (mentions BoundOrUnknown bs ty) none)))
-                         (markersPutBack o sz bs vs apart a (snd (orFalse (mentions BoundOrUnknown bs ty) none)))
-  markersPutBack o sz bs vs apart (TForce ffc r t) none = cong (TForce ffc r) (markersPutBack o sz bs vs apart t none)
-  markersPutBack o sz bs vs apart (PrimVal pfc c) _ = Refl
-  markersPutBack o sz bs vs apart (Erased efc Placeholder) _ = Refl
-  markersPutBack o sz bs vs apart (Erased efc Impossible) _ = Refl
-  markersPutBack o sz bs vs apart (Erased efc (Dotted t)) none =
-    cong (\x => Erased efc (Dotted x)) (markersPutBack o sz bs vs apart t none)
-  markersPutBack o sz bs vs apart (TType tfc u) _ = Refl
-
-  0 markersPutBackAll : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-                        namesApart bs = True -> (us : List (Term (outer ++ (ns ++ vars)))) ->
-                        mentionsIn BoundOrUnknown bs us = False ->
-                        substTerms o sz vs (mkLocalsTerms {vars} o bs (substTerms o sz (markersOf {vars} fc bs) us))
-                          = substTerms o sz vs us
-  markersPutBackAll o sz bs vs apart [] _ = Refl
-  markersPutBackAll o sz bs vs apart (u :: us) none =
-    cong2 (::) (markersPutBack o sz bs vs apart u (fst (orFalse (mentions BoundOrUnknown bs u) none)))
-               (markersPutBackAll o sz bs vs apart us (snd (orFalse (mentions BoundOrUnknown bs u) none)))
-
-  0 markersPutBackBinder : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-                           namesApart bs = True -> (b : Binder (Term (outer ++ (ns ++ vars)))) ->
-                           mentionsInBinder BoundOrUnknown bs b = False ->
-                           substBinder o sz vs (mkLocalsBinder {vars} o bs (substBinder o sz (markersOf {vars} fc bs) b))
-                             = substBinder o sz vs b
-  markersPutBackBinder o sz bs vs apart (Lam lfc c p ty) none =
-    cong2 (Lam lfc c) (markersPutBackPi o sz bs vs apart p (fst (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
-                      (markersPutBack o sz bs vs apart ty (snd (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
-  markersPutBackBinder o sz bs vs apart (Let lfc c v ty) none =
-    cong2 (Let lfc c) (markersPutBack o sz bs vs apart v (fst (orFalse (mentions BoundOrUnknown bs v) none)))
-                      (markersPutBack o sz bs vs apart ty (snd (orFalse (mentions BoundOrUnknown bs v) none)))
-  markersPutBackBinder o sz bs vs apart (Pi lfc c p ty) none =
-    cong2 (Pi lfc c) (markersPutBackPi o sz bs vs apart p (fst (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
-                     (markersPutBack o sz bs vs apart ty (snd (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
-  markersPutBackBinder o sz bs vs apart (PVar lfc c p ty) none =
-    cong2 (PVar lfc c) (markersPutBackPi o sz bs vs apart p (fst (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
-                       (markersPutBack o sz bs vs apart ty (snd (orFalse (mentionsInPi BoundOrUnknown bs p) none)))
-  markersPutBackBinder o sz bs vs apart (PLet lfc c v ty) none =
-    cong2 (PLet lfc c) (markersPutBack o sz bs vs apart v (fst (orFalse (mentions BoundOrUnknown bs v) none)))
-                       (markersPutBack o sz bs vs apart ty (snd (orFalse (mentions BoundOrUnknown bs v) none)))
-  markersPutBackBinder o sz bs vs apart (PVTy lfc c ty) none =
-    cong (PVTy lfc c) (markersPutBack o sz bs vs apart ty none)
-
-  0 markersPutBackPi : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-                       namesApart bs = True -> (p : PiInfo (Term (outer ++ (ns ++ vars)))) ->
-                       mentionsInPi BoundOrUnknown bs p = False ->
-                       substPi o sz vs (mkLocalsPi {vars} o bs (substPi o sz (markersOf {vars} fc bs) p)) = substPi o sz vs p
-  markersPutBackPi o sz bs vs apart Implicit _ = Refl
-  markersPutBackPi o sz bs vs apart Explicit _ = Refl
-  markersPutBackPi o sz bs vs apart AutoImplicit _ = Refl
-  markersPutBackPi o sz bs vs apart (DefImplicit t) none = cong DefImplicit (markersPutBack o sz bs vs apart t none)
-
-||| Putting values in for names that stand for a scope's variables is
-||| putting them in for the variables. A term over the scope, closed with a
-||| reference to each name in for its variables (`markersOf`), those
-||| references turned back into the variables (`refsToLocals`) and the
-||| values put in for them, is the term with the values put in for its
-||| variables, where the names are apart (`namesApart`) and the term names
-||| none of them (`mentions`): each reference finds its own name first, and
-||| every reference and unknown the term held stays as it was.
-export
-0 substitutesMarkers : {ns : Scope} -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) -> (t : Term ns) ->
-                       namesApart bs = True -> mentions BoundOrUnknown bs t = False ->
-                       substs (mkSizeOf ns) vs (refsToLocals bs (substs (mkSizeOf ns) (markersOf {vars} fc bs) (embed {outer = vars} t)))
-                         = substs (mkSizeOf ns) vs (embed {outer = vars} t)
-substitutesMarkers None [] t _ _ = substNothing zero (mkSizeOf []) (substs (mkSizeOf []) [] (embed t))
-substitutesMarkers (Add new old rest) vs t apart none
-    = markersPutBack zero (mkSizeOf ns) (Add new old rest) vs apart (embed t)
-                     (trans (mentionsEmbed BoundOrUnknown (Add new old rest) t) none)
 
 ------------------------------------------------------------------------------
 -- Putting values in, node by node
@@ -1480,8 +1150,9 @@ substitutesMarkers (Add new old rest) vs t apart none
 ||| of no replaced name the same unknown over its arguments put in
 ||| (`mkLocalsUnknown`): `substTerm` and `mkLocals` are public, so each of
 ||| those is their definitions unfolded. A bound reference is the value
-||| for its name's variable (`putInMarker`) or itself (`putInUnreplaced`),
-||| and a local is kept (`putInLocal`).
+||| for the variable of the first bound that replaces its name
+||| (`putInFirst`) or itself (`putInUnreplaced`), and a local is kept
+||| (`putInLocal`).
 public export
 0 putIn : SizeOf outer -> SizeOf ns -> Bounds ns -> SubstEnv ns vars -> Term (outer ++ vars) -> Term (outer ++ vars)
 putIn o sz None vs t = substTerm o sz vs t
@@ -1493,17 +1164,6 @@ export
                substs sz vs (refsToLocals bs t) = putIn SizeOf.zero sz bs vs t
 putInAtTop sz None vs t = Refl
 putInAtTop sz (Add new old rest) vs t = Refl
-
-||| A bound reference to the name a set of bounds replaces at a variable,
-||| where the names are apart, is the value for that variable, weakened
-||| under the binders.
-export
-0 putInMarker : (o : SizeOf outer) -> (sz : SizeOf ns) -> (bs : Bounds ns) -> (vs : SubstEnv ns vars) ->
-                namesApart bs = True -> (w : Var ns) ->
-                putIn o sz bs vs (Ref fc Bound (replacedAt bs w)) = weakenNs o (Var.index vs w)
-putInMarker o sz (Add new old rest) vs apart w
-    = middleBack o sz vs w (mkLocalsMarker {vars} o (Add new old rest) w (firstAt (Add new old rest) apart w))
-putInMarker o sz None vs apart (MkVar v) impossible
 
 ||| A bound reference to a name no bound replaces stays as it was.
 export
@@ -3096,7 +2756,7 @@ export
 normalisesThrough bs vs fresh none r s = reachesNormalForm s (substitutes bs vs fresh none r.steps)
 
 ------------------------------------------------------------------------------
--- The frontend's probes are fresh
+-- The frontend's probes resolve to nothing
 ------------------------------------------------------------------------------
 
 ||| A name of the frontend's probes: one of their identifiers
@@ -3108,32 +2768,14 @@ data ProbeNamed : Name -> Type where
   NamedUser : (0 _ : isProbe k = True) -> ProbeNamed (UN (Basic (known k)))
   NamedNested : ProbeNamed n -> ProbeNamed (Nested p n)
 
-||| Bounds that replace only names of the frontend's probes.
-public export
-data AllProbeNamed : Bounds ns -> Type where
-  NoneNamed : AllProbeNamed None
-  EachNamed : ProbeNamed old -> AllProbeNamed bs -> AllProbeNamed (Add new old bs)
-
-||| The frontend's probes are fresh for every frozen context: no definition
-||| it holds names one, as a bound reference or an unknown, nor any name
-||| Idris's equality of names takes for one. A probe's identifier holds a
-||| dash, so no source spells it; the elaborator names nothing with one, and
-||| a TTC holds only what the elaborator made; and two names are equal
-||| only where their identifiers are, which the table of identifiers makes
-||| one identifier. Those are facts of the `Core` actions that build the
-||| context, as `oneEntryPerName` is, and no type of the context states
-||| what names its terms hold: stating it would take reading every term of
-||| every definition when the context is frozen, a cost for a fact the
-||| context's making already keeps. So it is trusted.
-export
-0 probesFresh : AllProbeNamed bs -> FreshIn ctx bs
-probesFresh _ = trusted
-
 ||| No name of the frontend's probes resolves in a frozen context. A probe's
 ||| name is no resolved name, so Idris's lookup reads it from the context's
 ||| map of names, which gains a name only where the context makes an entry
-||| for it: a name the elaborator defined or a TTC held, never a probe's,
-||| for the reason `probesFresh` is trusted. So this is trusted too.
+||| for it: a name the elaborator defined or a TTC held. A probe's
+||| identifier holds a dash, so no source spells it, the elaborator names
+||| nothing with one, and a TTC holds only what the elaborator made. Those
+||| are facts of the `Core` actions that build the context, which no type of
+||| it states, so this is trusted.
 export
 0 probesUnresolved : {0 ctx : Frozen} -> ProbeNamed n -> getNameID n (gamma (defsOf ctx)) = Nothing
 probesUnresolved _ = trusted
@@ -3148,213 +2790,6 @@ reduct : ({auto c : Ref Ctxt Defs} -> Defs -> Env Term [] -> ClosedTerm -> Core 
 reduct normaliser ctx t
     = do v <- normaliser {c = ctx.reference} (defsOf ctx) Env.empty t
          pure (MkReduct v trusted trusted)
-
-------------------------------------------------------------------------------
--- How large a primitive's result is
-------------------------------------------------------------------------------
-
-||| An integer's magnitude.
-public export
-magnitudeOf : Integer -> Nat
-magnitudeOf v = integerToNat (abs v)
-
-||| How much a constant holds, by the measure that can grow: an integer's
-||| magnitude, whatever its width; a string's characters; a double's text,
-||| which is what tells doubles apart. A character, a primitive type and
-||| the world hold nothing that grows.
-public export
-constantSize : Constant -> Nat
-constantSize (I x) = magnitudeOf (cast x)
-constantSize (I8 x) = magnitudeOf (cast x)
-constantSize (I16 x) = magnitudeOf (cast x)
-constantSize (I32 x) = magnitudeOf (cast x)
-constantSize (I64 x) = magnitudeOf (cast x)
-constantSize (BI x) = magnitudeOf x
-constantSize (B8 x) = magnitudeOf (cast x)
-constantSize (B16 x) = magnitudeOf (cast x)
-constantSize (B32 x) = magnitudeOf (cast x)
-constantSize (B64 x) = magnitudeOf (cast x)
-constantSize (Str x) = length (unpack x)
-constantSize (Ch _) = 0
-constantSize (Db x) = length (unpack (show x))
-constantSize (PrT _) = 0
-constantSize WorldVal = 0
-
-||| A bound on the size of a primitive's result over the sizes of its
-||| arguments: a number, an argument's size, a sum, a product, or two to a
-||| power. Each grows with the sizes (`resultBoundMonotone`), so what bounds
-||| the arguments bounds the result.
-public export
-data SizeBound : Nat -> Type where
-  AtMost : Nat -> SizeBound arity
-  ArgumentSize : Fin arity -> SizeBound arity
-  Summed : SizeBound arity -> SizeBound arity -> SizeBound arity
-  Multiplied : SizeBound arity -> SizeBound arity -> SizeBound arity
-  TwoToThe : SizeBound arity -> SizeBound arity
-
-||| What a bound comes to at its arguments' sizes. Two to a size is past
-||| what any machine holds, so a bound is read in proofs and never computed;
-||| the constant exponents a bound names are held by name
-||| (`Core.Primitives.Host.widthExponent`, `widestExponent`), so two to one
-||| is stuck in every type here and a proof compares it by its exponent.
-public export
-0 atSizes : SizeBound arity -> Vect arity Nat -> Nat
-atSizes (AtMost k) ss = k
-atSizes (ArgumentSize i) ss = Vect.index i ss
-atSizes (Summed a b) ss = atSizes a ss + atSizes b ss
-atSizes (Multiplied a b) ss = atSizes a ss * atSizes b ss
-atSizes (TwoToThe a) ss = power 2 (atSizes a ss)
-
-||| 2^64, by its exponent: no fixed-width integer, whose widest width is 64
-||| bits, wraps to a value past it, and no double's text is that long.
-public export
-fixedWidth : SizeBound arity
-fixedWidth = TwoToThe (AtMost widthExponent)
-
-||| A bound on the text of a double the evaluator's table computes. The
-||| longest text of a double on the hosts that run this compiler is a sign,
-||| 17 digits, a point and an exponent such as `e-308`, 24 characters on
-||| each. The bound is looser: 49 allowed for a complex number the stock
-||| host's cast from String read into a Double, a real and an imaginary
-||| part that long and an `i`. The table reads no number from a String any
-||| more, and the bound stays 49, the number the frontend's proofs over it
-||| state.
-public export
-doubleText : Nat
-doubleText = 49
-
-||| A bound on each primitive's result as the evaluator's table (`tableOf`)
-||| computes it. The table chooses by the constants it is given, not by the
-||| type the primitive names, so each bound holds whatever constants the
-||| operation meets:
-||| - a sum, difference, product, quotient, remainder or negation of
-|||   integers, or their bitwise and, or or xor, is no larger in magnitude
-|||   than the sum or the product of theirs, a remainder than its divisor;
-|||   a fixed-width result wrapped to its width is below 2^64, and so is a
-|||   double's text;
-||| - a shift moves a value by its amount, and by a negative amount the
-|||   other way, as the stock host does at every width (`ash`), so it gives
-|||   at most 2^amount times the value, or a wrapped value below 2^64;
-||| - a comparison gives 0 or 1;
-||| - a string operation gives a string of at most the characters it was
-|||   given (one more for `strCons`), their count, or a character;
-||| - a double's operation gives a double;
-||| - a cast to Integer gives an integer's own value, at most its size and
-|||   so below 2^(4 * size), or a character's code or a finite double's
-|||   integer part, each below 2^1024. The first term is looser than an
-|||   integer needs: it allowed for a string's number in a base of at most
-|||   16, below 16^length, which the table reads no more, and it stays, the
-|||   form the frontend's proofs over the bound are stated against;
-||| - a cast to String gives an integer's sign and digits, at most its
-|||   magnitude and one more, or a character;
-||| - a cast to a fixed-width type gives the value, or wraps it below 2^64;
-||| - `believe_me` gives its value unchanged;
-||| - `crash` and a cast to the world compute nothing.
-public export
-boundOf : PrimFn arity -> SizeBound arity
-boundOf (Add _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
-boundOf (Sub _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
-boundOf (Mul _) = Summed (Multiplied (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
-boundOf (Div _) = Summed (ArgumentSize FZ) fixedWidth
-boundOf (Mod _) = Summed (ArgumentSize (FS FZ)) fixedWidth
-boundOf (Neg _) = Summed (ArgumentSize FZ) fixedWidth
-boundOf (ShiftL _) = Summed (Multiplied (ArgumentSize FZ) (TwoToThe (ArgumentSize (FS FZ)))) fixedWidth
-boundOf (ShiftR _) = Summed (Multiplied (ArgumentSize FZ) (TwoToThe (ArgumentSize (FS FZ)))) fixedWidth
-boundOf (BAnd _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
-boundOf (BOr _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
-boundOf (BXOr _) = Summed (Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))) fixedWidth
-boundOf (Primitive.LT _) = AtMost 1
-boundOf (Primitive.LTE _) = AtMost 1
-boundOf (Primitive.EQ _) = AtMost 1
-boundOf (Primitive.GTE _) = AtMost 1
-boundOf (Primitive.GT _) = AtMost 1
-boundOf StrLength = ArgumentSize FZ
-boundOf StrHead = AtMost 0
-boundOf StrTail = ArgumentSize FZ
-boundOf StrIndex = AtMost 0
-boundOf StrCons = Summed (AtMost 1) (ArgumentSize (FS FZ))
-boundOf StrAppend = Summed (ArgumentSize FZ) (ArgumentSize (FS FZ))
-boundOf StrReverse = ArgumentSize FZ
-boundOf StrSubstr = ArgumentSize (FS (FS FZ))
-boundOf DoubleExp = AtMost doubleText
-boundOf DoubleLog = AtMost doubleText
-boundOf DoublePow = AtMost doubleText
-boundOf DoubleSin = AtMost doubleText
-boundOf DoubleCos = AtMost doubleText
-boundOf DoubleTan = AtMost doubleText
-boundOf DoubleASin = AtMost doubleText
-boundOf DoubleACos = AtMost doubleText
-boundOf DoubleATan = AtMost doubleText
-boundOf DoubleSqrt = AtMost doubleText
-boundOf DoubleFloor = AtMost doubleText
-boundOf DoubleCeiling = AtMost doubleText
-boundOf (Cast _ IntegerType) =
-  Summed (TwoToThe (Multiplied (AtMost 4) (ArgumentSize FZ))) (TwoToThe (AtMost widestExponent))
-boundOf (Cast _ StringType) = Summed (ArgumentSize FZ) (AtMost 1)
-boundOf (Cast _ CharType) = AtMost 0
-boundOf (Cast _ DoubleType) = AtMost doubleText
-boundOf (Cast _ WorldType) = AtMost 0
-boundOf (Cast _ _) = Summed (ArgumentSize FZ) fixedWidth
-boundOf BelieveMe = ArgumentSize (FS (FS FZ))
-boundOf Crash = AtMost 0
-
-||| The bound on a primitive's result at its arguments' sizes.
-public export
-0 resultBound : PrimFn arity -> Vect arity Nat -> Nat
-resultBound op ss = atSizes (boundOf op) ss
-
-||| Each size of one list is at most the one at its place in the other.
-public export
-data SizesWithin : Vect n Nat -> Vect n Nat -> Type where
-  NoSizes : SizesWithin [] []
-  SizeWithin : Nat.LTE s t -> SizesWithin ss ts -> SizesWithin (s :: ss) (t :: ts)
-
-0 withinAt : (i : Fin n) -> SizesWithin ss ts -> Nat.LTE (Vect.index i ss) (Vect.index i ts)
-withinAt FZ (SizeWithin le _) = le
-withinAt (FS i) (SizeWithin _ rest) = withinAt i rest
-
-0 timesMonotone : Nat.LTE a b -> Nat.LTE c d -> Nat.LTE (a * c) (b * d)
-timesMonotone LTEZero _ = LTEZero
-timesMonotone (LTESucc ab) cd = plusLteMonotone cd (timesMonotone ab cd)
-
-0 twoToPositive : (n : Nat) -> Nat.LTE 1 (power 2 n)
-twoToPositive Z = reflexive
-twoToPositive (S k) = transitive (twoToPositive k) (lteAddRight {m = power 2 k + 0} (power 2 k))
-
-0 twoToMonotone : Nat.LTE m n -> Nat.LTE (power 2 m) (power 2 n)
-twoToMonotone {n} LTEZero = twoToPositive n
-twoToMonotone (LTESucc le) = timesMonotone (reflexive {x = 2}) (twoToMonotone le)
-
-0 atSizesMonotone : (b : SizeBound n) -> SizesWithin ss ts -> Nat.LTE (atSizes b ss) (atSizes b ts)
-atSizesMonotone (AtMost k) _ = reflexive
-atSizesMonotone (ArgumentSize i) within = withinAt i within
-atSizesMonotone (Summed a b) within = plusLteMonotone (atSizesMonotone a within) (atSizesMonotone b within)
-atSizesMonotone (Multiplied a b) within = timesMonotone (atSizesMonotone a within) (atSizesMonotone b within)
-atSizesMonotone (TwoToThe a) within = twoToMonotone (atSizesMonotone a within)
-
-||| A primitive's bound grows with its arguments' sizes, so a bound on what
-||| its arguments can be bounds what it computes.
-export
-0 resultBoundMonotone : (op : PrimFn arity) -> SizesWithin ss ts ->
-                        Nat.LTE (resultBound op ss) (resultBound op ts)
-resultBoundMonotone op within = atSizesMonotone (boundOf op) within
-
-||| What the evaluator's table computes from constants stays within the
-||| primitive's bound at their sizes (`boundOf`). The table applies the
-||| primitive of the host that runs this compiler, so this is a fact of
-||| each host: of idris-mlir's runtime, whose fixed-width results are of
-||| their width and whose shift of an integer by a negative amount moves it
-||| the other way; and of Chez Scheme, under the stock host, whose integers
-||| are exact, whose fixed-width arithmetic wraps, and whose shift right of
-||| any width does not. No operation of the table reads anything but its
-||| arguments (none reads the clock or the world), so none is left out.
--- The measure mapped over the arguments is named in full: unqualified, a
--- name in argument position of a type is bound as a fresh implicit, and
--- the trust would hold of every function.
-export
-0 computedWithin : {arity : Nat} -> (op : PrimFn arity) -> (cs : Vect arity Constant) ->
-                   tableOf op cs = Just c -> Nat.LTE (constantSize c) (resultBound op (map Host.constantSize cs))
-computedWithin _ _ _ = trusted
 
 ------------------------------------------------------------------------------
 -- Full names
@@ -3418,25 +2853,8 @@ mutual
   fullNamesPiIn ctx (DefImplicit t) = DefImplicit (fullNamesIn ctx t)
 
 ------------------------------------------------------------------------------
--- Full names tell entries apart
+-- Entries are placed
 ------------------------------------------------------------------------------
-
--- Idris makes each definition under the full name it records (`newDef`,
--- `addBuiltin`) and gives a name one entry, the one made for it first
--- (`getPosition`), and a definition decoded from a TTC keeps the full name
--- it was saved under: so two entries hold definitions of two full names,
--- and no definition records a resolved name as its full name. These are
--- invariants the `Core` actions that build the context keep, over its
--- mutable table and its map of names, and no definition states them, so
--- they are trusted.
-0 oneEntryPerName : {0 ctx : Frozen} -> {0 i, j : Int} ->
-                    IntMap.lookup i (entriesOf ctx) = Just d -> IntMap.lookup j (entriesOf ctx) = Just d' ->
-                    fullname d = fullname d' -> i = j
-oneEntryPerName _ _ _ = trusted
-
-0 fullNameUnresolved : {0 ctx : Frozen} -> {0 i : Int} ->
-                       IntMap.lookup i (entriesOf ctx) = Just d -> Not (fullname d = Resolved k)
-fullNameUnresolved _ _ = trusted
 
 -- The frozen map holds the entries `frozenContext` reads, from index 0 up
 -- to the context's next one (`entriesFrom`), each at the index it was read
@@ -3461,59 +2879,6 @@ definedPlaced (AtEntry {i} (ResolvedAs found) held) = (i ** (found, entryPlaced 
 export
 0 resolvedPlaced : Resolves ctx n i -> Defines ctx n d -> (i < 0) = False
 resolvedPlaced r (AtEntry {i = j} r' held) = replace {p = \k => (k < 0) = False} (resolvesOnce r' r) (entryPlaced {ctx} {i = j} held)
-
-0 resolvedInjective : Resolved i = Resolved j -> i = j
-resolvedInjective Refl = Refl
-
-||| A resolved name made full is the full name of the definition at its
-||| entry: `fullNameIn` reads that definition's.
-export
-0 entryFullName : {0 ctx : Frozen} -> {0 i : Int} ->
-                  IntMap.lookup i (entriesOf ctx) = Just d -> fullNameIn ctx (Resolved i) = fullname d
-entryFullName held = cong (maybe (Resolved i) fullname) held
-
-||| The entry a name resolves to, made full, is the full name of the
-||| definition the context gives the name, whatever spelling the name has:
-||| the definition is the one at that entry.
-export
-0 definedFullName : Defines ctx n d -> (i : Int ** (Resolves ctx n i, fullNameIn ctx (Resolved i) = fullname d))
-definedFullName (AtEntry {i} r held) = (i ** (r, entryFullName held))
-
-||| A resolved name the context defines, made full, is the full name of its
-||| definition: it resolves to its own entry, where the definition is.
-export
-0 resolvedDefinedFullName : Defines ctx (Resolved j) d -> fullNameIn ctx (Resolved j) = fullname d
-resolvedDefinedFullName (AtEntry r held) = entryFullName (atEntry resolvedItself r held)
-
--- Two resolved names whose full names agree, read through what their
--- entries hold: two definitions, one, or none. The projection is named as
--- Idris names it, in its record's namespace: unqualified, in argument
--- position of a type, it would be bound as a fresh implicit.
-0 sameByFullName : {0 ctx : Frozen} -> {0 i, j : Int} -> (m, m' : Maybe GlobalDef) ->
-                   IntMap.lookup i (entriesOf ctx) = m -> IntMap.lookup j (entriesOf ctx) = m' ->
-                   maybe (Resolved i) GlobalDef.fullname m = maybe (Resolved j) GlobalDef.fullname m' -> i = j
-sameByFullName (Just d) (Just d') found found' same = oneEntryPerName {ctx} {i} {j} found found' same
-sameByFullName (Just d) Nothing found _ same = void (fullNameUnresolved {ctx} {i} found same)
-sameByFullName Nothing (Just d') _ found' same = void (fullNameUnresolved {ctx} {i = j} found' (sym same))
-sameByFullName Nothing Nothing _ _ same = resolvedInjective same
-
-||| Two resolved names that name one entry have one full name: a resolved
-||| name resolves to its own entry, so two that share an entry are one.
-export
-0 sameEntryFullName : SameEntry ctx (Resolved i) (Resolved j) ->
-                      fullNameIn ctx (Resolved i) = fullNameIn ctx (Resolved j)
-sameEntryFullName (OneEntry r r') =
-  cong (\k => fullNameIn ctx (Resolved k))
-       (trans (resolvesOnce resolvedItself r) (sym (resolvesOnce resolvedItself r')))
-
-||| Two resolved names whose full names agree name one entry, since the
-||| context makes one entry for each full name and records no resolved name
-||| as one.
-export
-0 fullNameSameEntry : fullNameIn ctx (Resolved i) = fullNameIn ctx (Resolved j) ->
-                      SameEntry ctx (Resolved i) (Resolved j)
-fullNameSameEntry same =
-  rewrite sameByFullName {ctx} {i} {j} _ _ Refl Refl same in OneEntry resolvedItself resolvedItself
 
 ------------------------------------------------------------------------------
 -- The operations

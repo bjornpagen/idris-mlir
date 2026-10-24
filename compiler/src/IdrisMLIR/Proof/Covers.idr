@@ -13,10 +13,6 @@
 |||   instance's value for that marker is the field, which the markers then
 |||   hold too (`fieldMarkerHolds`), since any reading of the field is a
 |||   child of a reading of the constructor applied (`readsAny`);
-||| - a builtin read beside its call: the constant the host computes at an
-|||   instance measures within one computation's growth of what its
-|||   arguments measure (`computedMeasured`), the premise of
-|||   `Proof.Bound.AtComputed`;
 ||| - the graph's rewrites of a site's template: what an instance writes
 |||   under the reading, it writes under the template the graph keeps
 |||   (`asGivenWrites`, `closedWrites`, `landedWrites`), from what the
@@ -187,6 +183,10 @@
 |||   dictionary over runtime values is the implementation the frontend's
 |||   own reduction finds (`FromImplementation`), which no relation of the
 |||   host's states.
+||| - a builtin read beside its call: `Proof.Bound.AtComputed` asks that the
+|||   constant a builtin computes at an instance measure no more than
+|||   `grown` of what its arguments measure, which is a fact of each host's
+|||   primitives that nothing states.
 |||
 ||| Every proof is erased and total, and nothing here runs.
 module IdrisMLIR.Proof.Covers
@@ -218,7 +218,6 @@ import IdrisMLIR.Proof.Forms
 import IdrisMLIR.Proof.Growth
 import IdrisMLIR.Proof.Inversion
 import IdrisMLIR.Proof.Markers
-import IdrisMLIR.Proof.Primitives
 import IdrisMLIR.Proof.Reading
 import IdrisMLIR.Proof.Requests
 import IdrisMLIR.Proof.Template
@@ -600,7 +599,7 @@ fieldMarkerHolds {path} {k} held x marked spine el named =
     (replace {p = \l => walkMarker stands y = Just (Template.Var i l)} (pathStep path k) named)
 
 ------------------------------------------------------------------------------
--- A builtin's constant
+-- A constant
 ------------------------------------------------------------------------------
 
 ||| What an instance reads a constant as, applied to nothing.
@@ -608,68 +607,11 @@ public export
 constantRead : Constant -> Template
 constantRead c = appliedConstant c []
 
-||| What an instance reads some constants as, in order.
-public export
-constantsRead : Vect n Constant -> List Template
-constantsRead [] = []
-constantsRead (c :: cs) = constantRead c :: constantsRead cs
-
 ||| An instance reads a constant as `constantRead`: no closed run is one.
 export
 0 constantReadAs : ReadAs (InstanceMode ctx) env (PrimVal fc c) r -> r = constantRead c
 constantReadAs (ASpine (SConstant [])) = Refl
 constantReadAs (ARun run) = void (runNotConstant run)
-
--- A text read a leaf per character has as many.
-0 speltLength : (cs : List Char) -> length (spelt cs ++ []) = length cs
-speltLength [] = Refl
-speltLength (_ :: cs) = cong S (speltLength cs)
-
-0 eqMeasured : a = b -> (Nat.LTE b a, Nat.LTE a (S b))
-eqMeasured Refl = (reflexive, lteSuccRight reflexive)
-
--- An integer's one symbol weighs one more than its magnitude.
-0 integerMeasured : (k : Nat) -> (Nat.LTE k (S k + 0), Nat.LTE (S k + 0) (S k))
-integerMeasured k = (lteSuccRight (lteAddRight k), LTESucc (rewrite plusZeroRightNeutral k in reflexive))
-
-||| What a constant's template measures (`measureOf`) against what the
-||| host's bound measures of it (`constantSize`): at least that, and at most
-||| one more, an integer's one symbol weighing one more than its magnitude.
-export
-0 constantMeasured : (c : Constant) ->
-                     (Nat.LTE (constantSize c) (measureOf (constantRead c)), Nat.LTE (measureOf (constantRead c)) (S (constantSize c)))
-constantMeasured (I x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (I8 x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (I16 x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (I32 x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (I64 x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (BI x) = integerMeasured (magnitudeOf x)
-constantMeasured (B8 x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (B16 x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (B32 x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (B64 x) = integerMeasured (magnitudeOf (cast x))
-constantMeasured (Str x) = eqMeasured (speltLength (unpack x))
-constantMeasured (Db x) = eqMeasured (speltLength (unpack (show x)))
-constantMeasured (Ch _) = (LTEZero, LTEZero)
-constantMeasured (PrT _) = (LTEZero, LTEZero)
-constantMeasured WorldVal = (LTEZero, LTEZero)
-
--- Constants each measuring within a bound: each of their sizes is within it.
-0 sizesBelow : (cs : Vect n Constant) -> Nat.LTE (measuresOf (constantsRead cs)) y ->
-               SizesWithin (map Host.constantSize cs) (replicate n y)
-sizesBelow [] _ = NoSizes
-sizesBelow (c :: cs) le =
-  SizeWithin (transitive (fst (constantMeasured c)) (transitive (maximumLeftUpperBound _ _) le))
-             (sizesBelow cs (transitive (maximumRightUpperBound _ _) le))
-
-||| The premise `Proof.Bound.AtComputed` asks of what an instance writes
-||| where a site reads a builtin beside its call: the constant the host's
-||| table computes from the constants it is given measures no more than
-||| `grown` of the most they measure, as the instance reads each.
-export
-0 computedMeasured : {arity : Nat} -> (op : PrimFn arity) -> (cs : Vect arity Constant) -> tableOf op cs = Just c ->
-                     Nat.LTE (measureOf (constantRead c)) (grown (measuresOf (constantsRead cs)))
-computedMeasured op cs computed = transitive (snd (constantMeasured c)) (computedGrown op cs computed (sizesBelow cs reflexive))
 
 ------------------------------------------------------------------------------
 -- The graph's rewrites of a reading

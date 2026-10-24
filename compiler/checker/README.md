@@ -370,18 +370,9 @@ that miss. The other facts trusted are of the same kind: a definition's
 type and tree, read through the context's accessors (`host.typeOf`,
 `host.treeOf`), are the evaluator's, one each (`typeOnce`, `treeOnce`);
 every term a term reduces to reduces on to its normal form
-(`reachesNormalForm`), the confluence Idris's type checker rests on; and
-reduction is closed under putting values in for bound names
-(`substitutes`), where values put in for names standing for a scope's
-variables are put in for the variables (`substitutesMarkers`). Two facts
-of other kinds stand beside them: the context makes one entry for each
-full name and records no resolved name as one (`oneEntryPerName`,
-`fullNameUnresolved`), so two resolved names name one entry exactly when
-their full names agree (`sameEntryFullName`, `fullNameSameEntry`, both
-proved from it); and what the evaluator's table of primitives computes
-stays within a bound that grows with its arguments' sizes
-(`computedWithin`, `resultBoundMonotone`), a fact of each host's
-primitives.
+(`reachesNormalForm`), the confluence Idris's type checker rests on.
+Reduction is closed under putting values in for bound names
+(`substitutes`), which is proved.
 Over the frozen context, making names full is a function (`fullNamesIn`),
 so that it only renames is its definition. A frontend that proves its
 readings sound against `Reduces` keeps no check, when it runs, that the

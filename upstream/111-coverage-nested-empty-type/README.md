@@ -11,7 +11,11 @@ refines an argument (*measured*, a scratch build of 89ba32eb on Chez
 - `CaseBlock.idr`: `0 alone`, `aloneKept` and `0 closedBelow` are "not
   covering", each by a call of its case block. `alone` is the frontend's
   `Held.aloneWritten` as INT-16 reduced it (its `repro/Alone.idr` and
-  `AloneKept.idr`); `closedBelow` has the shape of `Graph.landsInto`.
+  `AloneKept.idr`); `closedBelow` has the shape of `Graph.landsInto`, its
+  scrutinee a call of an argument, as `tests/checker-coverage-nested-empty-type`
+  writes it (2026-10-23, *measured* on the Idris with 96 and 104 to 110 and
+  on the toolchain's: refused and accepted as before), so the reproducer
+  holds no `believe_me`.
 - `Clause.idr`: `paired _ (_, Refl)` is reported missing `paired (S (S _))
   _` and `paired 0 _`; `0 lteSuccCases`, the frontend's
   `Held.lteSuccCases` with its second clause's `k'` written `_` (INT-16's

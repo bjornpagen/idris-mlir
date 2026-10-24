@@ -768,12 +768,11 @@ fitsWithin size arity height heaviest =
 
 ||| The most a literal measures, a token's weight or a text's characters,
 ||| once one primitive computes it from literals that measure at most x:
-||| chosen above every primitive's bound at x (`Idris.Host.boundOf`), whose
-||| largest are a cast to Integer's 2^(4x) and 2^1024, a shift's x * 2^x and
-||| a fixed width's 2^64, and above x, which `believe_me` gives back. The
-||| exponent 1024 is the host's, held behind its name
-||| (`Core.Primitives.Host.widestExponent`), so no type here holds 2^1024 as
-||| a number the type checker would build.
+||| above what the hosts' primitives give at x, whose largest are a cast to
+||| Integer's 2^(4x) and 2^1024, a shift's x * 2^x and a fixed width's 2^64,
+||| and above x, which `believe_me` gives back. The exponent 1024 is the
+||| host's, held behind its name (`Core.Primitives.Host.widestExponent`), so
+||| no type here holds 2^1024 as a number the type checker would build.
 public export
 grown : Nat -> Nat
 grown x = S (power 2 (4 * x) * (x + 2) + power 2 Host.widestExponent)
