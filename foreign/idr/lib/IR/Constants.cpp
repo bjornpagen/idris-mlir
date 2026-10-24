@@ -40,8 +40,14 @@ using namespace idr;
 
 namespace {
 
-// A constructor of `data` is held at a type whose data type is `data`.
-bool holdsConstructor(DataType data, Type type) { return dataTypeOf(type) == data; }
+// A constructor of `data` is held at a type whose data type `data` refines,
+// by the one rule a field is filled by (fillsField): its own, or one that
+// leaves more constructors possible, as a list's Nil is held in a field of
+// the list. Its static data is laid out at that type (getStaticForm).
+bool holdsConstructor(DataType data, Type type) {
+  DataType place = dataTypeOf(type);
+  return place && families::refines(data, place);
+}
 
 // A constant closure is held at a type whose values carry labels, a
 // closure's or a suspension's, as its type answers; verifyParts holds it to
@@ -196,15 +202,16 @@ LogicalResult ClosureAttr::verifyParts(Operation *holder, SymbolTableCollection 
 // binds it: used as often as the cell holding it times the field's own
 // uses, holding what the cell holds as far as the cell's claim reaches into
 // it. So a constant fills a linear field as its plain value, and a field of
-// static data is static data. Its data type is the type it is held at,
-// which isBuildableAt has said. A constructor is checked a cell at a time,
-// each field at its type in its own cell's application, however long its
-// run, and never through the suffix that reading the field along its spine
-// would build. Each cell after the first is the field along the spine of
-// the one before, held as that field is, so its application is that
-// field's type there, refined to the same constructor: a run of a vector's
-// cells is checked at each cell's own index. One cell has no field after
-// it.
+// static data is static data. Its data type refines the type it is held
+// at, which isBuildableAt has said, and its fields are its own data
+// type's, the place giving them only their grade. A constructor is checked
+// a cell at a time, each field at its type in its own cell's application,
+// however long its run, and never through the suffix that reading the
+// field along its spine would build. Each cell after the first is the
+// field along the spine of the one before, held as that field is, so its
+// application is that field's type there, refined to the same constructor:
+// a run of a vector's cells is checked at each cell's own index. One cell
+// has no field after it.
 LogicalResult ConAttr::verifyParts(Operation *holder, SymbolTableCollection &, Type type,
                                    function_ref<void(Attribute, Type)> part) const {
   Tag tag = getTag();

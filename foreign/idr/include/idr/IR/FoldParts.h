@@ -177,7 +177,7 @@ inline mlir::OpFoldResult foldResultOf(const std::optional<Folded<InParts>> &fol
 }
 
 // Where idr.constant holds a constructor of `data`, or a closure, at `type`:
-// the type's data type is `data` itself, or the type carries labels; and,
+// `data` refines the type's data type, or the type carries labels; and,
 // either way, it stands as static data does there. The one statement of
 // where each stands, which the attributes' own checks and the e-graph's
 // constants, which hold no attribute, ask.

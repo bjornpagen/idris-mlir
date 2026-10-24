@@ -7,7 +7,11 @@
 // and the string read off it is written out at the static hold the read
 // gives. In the second a vector of two strings is a constant of one run of
 // two cells, and the string in the second cell is static data as the one
-// in the first is. Both verify.
+// in the first is. In the third a list of two strings, as the folds of
+// its constructors make it, ends in an empty list held in its last cell's
+// tail, a field of the list's type: a constructor stands in a field whose
+// type its own refines, as a value built of it fills one. All three
+// verify.
 #P = #idr.family<"P" [] {
     @MkP (i64, !idr.str)
   }>
@@ -36,6 +40,22 @@ idr.program @record root(@main) stage(higher) {
 idr.program @run root(@main) stage(higher) {
   idr.func @main() {
     %v = idr.constant !V2S #idr.con<!V2, ["a", #idr.con<!V1, ["b", #idr.con<!V0, []>]>]>
+    idr.return
+  }
+}
+
+// -----
+
+#Strs = #idr.family<"Strs" [] {
+    @Nil ()
+    @Cons (!idr.str, !idr.self)
+  }>
+!Nil = !idr.data<#Strs @Nil>
+!Cons = !idr.data<#Strs @Cons>
+!ConsS = !idr.graded<many, static, !idr.data<#Strs @Cons>>
+idr.program @list root(@main) stage(higher) {
+  idr.func @main() {
+    %list = idr.constant !ConsS #idr.con<!Cons, ["ab", #idr.con<!Cons, ["c", #idr.con<!Nil, []>]>]>
     idr.return
   }
 }
