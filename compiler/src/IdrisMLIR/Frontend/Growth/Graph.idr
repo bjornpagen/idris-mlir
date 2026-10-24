@@ -231,6 +231,26 @@ readAtPlace : (f : Fin n) -> SpotsRead ss -> SpotRead (Vect.index f ss)
 readAtPlace FZ (PlacedThen r _) = r
 readAtPlace (FS f) (PlacedThen _ rs) = readAtPlace f rs
 
+||| How a call passes on a dictionary of its writer's: as it is, or a
+||| strict part of it.
+public export
+data Shrink = Equally | Strictly
+
+||| A dictionary parameter of a call's callee and the dictionary parameter
+||| of its writer's it holds, as it is or a strict part of it.
+public export
+record MeasureEdge where
+  constructor MkMeasureEdge
+  writerParameter : Nat
+  calleeParameter : Nat
+  shrink : Shrink
+
+||| A call the walk drew: the writer's node, the number of the site's entry,
+||| and the callee's node.
+public export
+CallEdge : Type
+CallEdge = (Node, Nat, Node)
+
 ||| The graph, and what its numbers stand for: the position met at each
 ||| place, the places where a position was first met, what made each arc,
 ||| and the sizes the worklist's universe needs beside the bounds.
@@ -275,6 +295,9 @@ record Built where
   ||| the walk read them: the node that first reached it, the one that
   ||| first reached that, and so on up to main.
   reachers : SortedMap Node (List GlobalDef)
+  ||| What each call the walk drew passes on of its writer's dictionaries
+  ||| (`measureEdges`), which a cycle of calls is measured by.
+  measures : SortedMap CallEdge (List MeasureEdge)
   ||| Above every reachable definition's parameter count and data type's
   ||| constructor and field counts.
   breadth : Nat
@@ -1719,7 +1742,7 @@ leadingWritings nodes leads =
 -- e heads down, `Var i d` (c >= e - 1 - d) or a pair's part (`PartField`,
 -- c >= e - 2 - d); a closed leaf h high (c >= e + h - 1, as h(D) >= 1); a
 -- head over what does; a choice whose every leaf does; or field k' of a
--- part of J's argument q deep (`recordDepth`) that only implementations can
+-- part of J's argument q deep (`recordMeasure`) that only implementations can
 -- be, each of whose field k' does with its own constant c'
 -- (c >= c' + e - q - 1). Then h(field k of D) <= h(D) + c, by induction
 -- on D: the read's record is a strict part D' of D, h(D') <= h(D) - 1 - q,
@@ -1736,6 +1759,20 @@ leadingWritings nodes leads =
 -- read of any other field is that field's position's, as before: only a
 -- recursion needs reading as one.
 --
+-- A read's record may itself be a field of such a part (`Monad m =>
+-- Applicative (StateT s m)` builds its parent `Functor` from the parent of
+-- its constraint's parent), or a choice between such a field and the
+-- parent's projection stuck as written. A field k' of a part D' of D is
+-- no higher than h(D') + c', c' the most its roots' field k' constants
+-- are, so a record built of parts and of fields of them is no higher than
+-- h(D) + g - l for the (g, l) its structure gives (`recordMeasure`), once
+-- every field it reads through has its constant: the fields are settled
+-- in phases (`relativeFields`), each reading through those an earlier
+-- phase settled, until a phase settles none. A leaf of a record no
+-- implementation roots (a call stuck as written) is read through by no
+-- field position; a read of it is the projection over it, no higher than
+-- one more than the leaf.
+--
 -- A field read in another field's template is the only place a field's
 -- position is written from a field's, so these are the reads a cycle of
 -- fields passes through. A real growth is not one of them: a dictionary
@@ -1747,22 +1784,91 @@ leadingWritings nodes leads =
 ImplementationField : Type
 ImplementationField = (Address, Nat)
 
-||| How deep in the writer's parameter a record a field read takes apart
-||| is, where it is a part of the writer's own argument a root is read off
-||| (`Heads.byTemplate`): the parameter itself, 0 deep, or a field of the
-||| pair it is (`PartField k i 0`), one match deeper.
-recordDepth : Template -> Maybe Nat
-recordDepth (Var _ Z) = Just 0
-recordDepth (PartField _ _ Z) = Just 1
-recordDepth _ = Nothing
+||| Each field that has a constant, settled: how much higher than its
+||| dictionary it can be, and the strongly connected component it lies in
+||| among those fields, by number, unique across every phase.
+record Settled where
+  constructor MkSettled
+  constant : Nat
+  component : Nat
 
-||| A read, in a field's template, of field k of a record that is a part of
-||| the implementation's own argument `part` deep (`recordDepth`), `depth`
-||| heads down, with the implementations the record can be at the node.
+||| Each field that has a constant, settled.
+Relative : Type
+Relative = SortedMap ImplementationField Settled
+
+||| A settled field's constant.
+constantOf : Settled -> Nat
+constantOf x = x.constant
+
+||| How much higher than the dictionary D a field read takes apart a
+||| part of, a record can be, as (gain, loss), h(record) <= h(D) + gain -
+||| loss: for its leaves implementations root, which a field read through
+||| reads at their roots' fields' positions, and for its leaves nothing
+||| roots (a call stuck as written), which no position is read through.
+record RecordMeasure where
+  constructor MkRecordMeasure
+  rooted : Maybe (Nat, Nat)
+  unrooted : Maybe (Nat, Nat)
+
+||| The more of two measures: the most either gains and the least either
+||| loses, so that it is above both.
+widest : Maybe (Nat, Nat) -> Maybe (Nat, Nat) -> Maybe (Nat, Nat)
+widest Nothing y = y
+widest x Nothing = x
+widest (Just (g, l)) (Just (g', l')) = Just (max g g', min l l')
+
+||| Two records' measures, leaf kind by leaf kind.
+bothMeasures : RecordMeasure -> RecordMeasure -> RecordMeasure
+bothMeasures x y = MkRecordMeasure (widest x.rooted y.rooted) (widest x.unrooted y.unrooted)
+
+||| A measure one head higher, whatever its leaves: a head over parts roots
+||| nothing.
+headOver : RecordMeasure -> RecordMeasure
+headOver x = MkRecordMeasure Nothing (map (\(g, l) => (S g, l)) (widest x.rooted x.unrooted))
+
+mutual
+  ||| A record a field read takes apart, measured (`RecordMeasure`): a part
+  ||| of the implementation's own argument, the parameter itself (`Var i
+  ||| 0`), losing 1, or a field of the pair it is (`PartField k i 0`),
+  ||| losing 2; field k of a record whose roots' field k all have a
+  ||| constant in `rel`, gaining the most of those, its stuck leaves read
+  ||| as the projection over them, two heads higher at most; a call of a
+  ||| definition that is no implementation (`dictionaries`), stuck as
+  ||| written over records, a head higher, rooting nothing; a choice among
+  ||| records, the widest of its leaves; a closed leaf h high, gaining h and
+  ||| losing 1, as h(D) >= 1. Nothing for any other: an implementation
+  ||| applied, whose field reduces to what its own template writes, or a
+  ||| field whose roots have no constant yet.
+  recordMeasure : SortedMap Address Fields -> Relative -> (Template -> Maybe (List Address)) -> Template -> Maybe RecordMeasure
+  recordMeasure ds rel rts (Var _ Z) = Just (MkRecordMeasure (Just (0, 1)) Nothing)
+  recordMeasure ds rel rts (PartField _ _ Z) = Just (MkRecordMeasure (Just (0, 2)) Nothing)
+  recordMeasure ds rel rts (Field k r) = do
+    m <- recordMeasure ds rel rts r
+    rs <- rts r
+    cs <- traverse (\j => constantOf <$> SortedMap.lookup (j, k) rel) rs
+    pure (MkRecordMeasure (map (\(g, l) => (g + foldl max 0 cs, l)) m.rooted) (map (\(g, l) => (S (S g), l)) m.unrooted))
+  recordMeasure ds rel rts (Head (Just a) ts) = case SortedMap.lookup a ds of
+    Just _ => Nothing
+    Nothing => case ts of
+      [] => Just (MkRecordMeasure Nothing (Just (1, 1)))
+      t :: us => headOver <$> measuresOf ds rel rts t us
+  recordMeasure ds rel rts (Choice _ (t :: ts)) = measuresOf ds rel rts t ts
+  recordMeasure ds rel rts (Leaf h) = Just (MkRecordMeasure Nothing (Just (h, 1)))
+  recordMeasure ds rel rts _ = Nothing
+
+  measuresOf : SortedMap Address Fields -> Relative -> (Template -> Maybe (List Address)) -> Template -> List Template ->
+               Maybe RecordMeasure
+  measuresOf ds rel rts t [] = recordMeasure ds rel rts t
+  measuresOf ds rel rts t (u :: us) = bothMeasures <$> recordMeasure ds rel rts t <*> measuresOf ds rel rts u us
+
+||| A read, in a field's template, of field k of a record (`recordMeasure`)
+||| at the fields of the implementations its rooted leaves can be that no
+||| earlier phase settled: an arc from each into the field, gaining `gain`
+||| and losing `loss`.
 record PartRead where
   constructor MkPartRead
-  depth : Nat
-  part : Nat
+  gain : Nat
+  loss : Nat
   field : Nat
   roots : List Address
 
@@ -1780,30 +1886,42 @@ bothAsks x y = MkAsks (max x.floor y.floor) (x.reads ++ y.reads)
 mutual
   ||| What a field's template asks, read e heads down, each record's roots
   ||| as the node reads them where only implementations can be it
-  ||| (`Heads.headedRoots`); nothing where a part of it holds what no height
-  ||| of the dictionary bounds: a recursion, a family applied, a member the
-  ||| running program chooses, or a field of anything but a part of the
-  ||| implementation's own argument.
-  asksAt : (Template -> Maybe (List Address)) -> (e : Nat) -> Template -> Maybe Asks
-  asksAt rts e (Var _ d) = Just (MkAsks (minus e (S d)) [])
-  asksAt rts e (PartField _ _ d) = Just (MkAsks (minus e (S (S d))) [])
-  asksAt rts e (Leaf h) = Just (MkAsks (minus (e + h) 1) [])
-  asksAt rts e (Token _) = Just (MkAsks e [])
-  asksAt rts e (Formal _ _) = Just (MkAsks e [])
-  asksAt rts e (Head _ []) = Just (MkAsks e [])
-  asksAt rts e (Head _ ts@(_ :: _)) = asksAll rts (S e) ts
-  asksAt rts e (Choice _ ls) = asksAll rts e ls
-  asksAt rts e (Field k r) = case recordDepth r of
-    Just q => (\rs => MkAsks 0 [MkPartRead e q k rs]) <$> rts r
-    Nothing => Nothing
-  asksAt rts e (Opaque _ _) = Nothing
-  asksAt rts e (Applied _ _ _) = Nothing
-  asksAt rts e (Computing _ _ _) = Nothing
-  asksAt rts e (Member _) = Nothing
+  ||| (`Heads.headedRoots`), a field an earlier phase settled (`rel`) read
+  ||| at its constant: a floor. Nothing where a part of it holds what no
+  ||| height of the dictionary bounds: a recursion, a family applied, a
+  ||| member the running program chooses, or a field of a record no
+  ||| measure reads (`recordMeasure`).
+  asksAt : SortedMap Address Fields -> Relative -> (Template -> Maybe (List Address)) -> (e : Nat) -> Template -> Maybe Asks
+  asksAt ds rel rts e (Var _ d) = Just (MkAsks (minus e (S d)) [])
+  asksAt ds rel rts e (PartField _ _ d) = Just (MkAsks (minus e (S (S d))) [])
+  asksAt ds rel rts e (Leaf h) = Just (MkAsks (minus (e + h) 1) [])
+  asksAt ds rel rts e (Token _) = Just (MkAsks e [])
+  asksAt ds rel rts e (Formal _ _) = Just (MkAsks e [])
+  asksAt ds rel rts e (Head _ []) = Just (MkAsks e [])
+  asksAt ds rel rts e (Head _ ts@(_ :: _)) = asksAll ds rel rts (S e) ts
+  asksAt ds rel rts e (Choice _ ls) = asksAll ds rel rts e ls
+  -- A stuck leaf's read is the projection over it, two heads higher at
+  -- most, whatever it loses.
+  asksAt ds rel rts e (Field k r) = do
+    m <- recordMeasure ds rel rts r
+    rs <- rts r
+    let settled = mapMaybe (\j => constantOf <$> SortedMap.lookup (j, k) rel) rs
+        pending = filter (\j => not (isJust (SortedMap.lookup (j, k) rel))) rs
+        stuck = maybe 0 (\(g, _) => S (S (e + g))) m.unrooted
+        throughSettled = \(g, l) => case settled of
+                                        [] => 0
+                                        c :: cs => minus (e + g + foldl max c cs) l
+    pure (case m.rooted of
+            Just gl => MkAsks (max stuck (throughSettled gl)) [MkPartRead (e + fst gl) (snd gl) k pending]
+            Nothing => MkAsks stuck [])
+  asksAt ds rel rts e (Opaque _ _) = Nothing
+  asksAt ds rel rts e (Applied _ _ _) = Nothing
+  asksAt ds rel rts e (Computing _ _ _) = Nothing
+  asksAt ds rel rts e (Member _) = Nothing
 
-  asksAll : (Template -> Maybe (List Address)) -> (e : Nat) -> List Template -> Maybe Asks
-  asksAll rts e [] = Just (MkAsks 0 [])
-  asksAll rts e (t :: ts) = bothAsks <$> asksAt rts e t <*> asksAll rts e ts
+  asksAll : SortedMap Address Fields -> Relative -> (Template -> Maybe (List Address)) -> (e : Nat) -> List Template -> Maybe Asks
+  asksAll ds rel rts e [] = Just (MkAsks 0 [])
+  asksAll ds rel rts e (t :: ts) = bothAsks <$> asksAt ds rel rts e t <*> asksAll ds rel rts e ts
 
 ||| An implementation's fields, numbered from 0, each with its template.
 numberedFields : Fields -> List (Nat, TemplateRead)
@@ -1812,18 +1930,6 @@ numberedFields fields = numbered 0 (map (fst . fieldRead) fields.inOrder)
     numbered : Nat -> List TemplateRead -> List (Nat, TemplateRead)
     numbered k [] = []
     numbered k (t :: ts) = (k, t) :: numbered (S k) ts
-
-||| A field that has a constant (`asksAt`): how much higher than its
-||| dictionary it can be, and the strongly connected component it lies in
-||| among those fields, by number.
-record Settled where
-  constructor MkSettled
-  constant : Nat
-  component : Nat
-
-||| Each field that has a constant, settled.
-Relative : Type
-Relative = SortedMap ImplementationField Settled
 
 ||| A list less the element at a position, one shorter.
 without : (xs : List a) -> Fin (length xs) -> Subset (List a) (\ys => LT (length ys) (length xs))
@@ -1861,6 +1967,7 @@ firstMissed (p :: ps) f with (f p) proof missed
 
 ||| Where a cause of growth leaves from: a cycle's first arc's source, a
 ||| Stuck arc's.
+export
 causeSource : {g : Graph} -> Cause g -> Fin g.size
 causeSource (Cycle (a :: _) _) = (arc g a).from
 causeSource (Cycle [] (Sums (Proof.Growth.Last _ _) _ _)) impossible
@@ -1868,14 +1975,14 @@ causeSource (Cycle [] (Sums (Proof.Growth.Next _ _ _) _ _)) impossible
 causeSource (Unbounded a _) = (arc g a).from
 
 ||| A field's reads, each root's field as its position among the fields:
-||| an arc from there into the field at position i, gaining how deep the
-||| read is written and losing one more than how deep its record is; or
-||| nothing, where a root's field is none of them.
+||| an arc from there into the field at position i, gaining what the read
+||| gains and losing what its record loses (`PartRead`); or nothing, where a
+||| root's field is none of them.
 readArcs : SortedMap ImplementationField (Fin n) -> Vect n (ImplementationField, Asks) -> Fin n -> Maybe (List (Arc n))
 readArcs ix placed i = concat <$> traverse arcsOf (snd (index i placed)).reads
   where
     arcsOf : PartRead -> Maybe (List (Arc n))
-    arcsOf r = traverse (\j => (\from => MkArc from i (Measured r.depth (S r.part))) <$> lookup (j, r.field) ix) r.roots
+    arcsOf r = traverse (\j => (\from => MkArc from i (Measured r.gain r.loss)) <$> lookup (j, r.field) ix) r.roots
 
 -- What a reading missed it does not keep.
 0 missedDropped : (m : Maybe b) -> m = Nothing -> isJust m = False
@@ -1883,59 +1990,94 @@ missedDropped Nothing Refl = Refl
 
 ||| The constants of the fields that ask only what their dictionary's
 ||| height bounds, as the growth check's least potential over them, each
-||| floor a cap over a constant of 0. The fields one of whose reads' roots'
+||| floor a cap over a constant of 0, their components numbered from
+||| `base`, with how many there are. The fields one of whose reads' roots'
 ||| fields has none are taken out together, and then a field on a cycle
 ||| that gains, one at a time, until the rest have theirs.
-settleRelative : (fields : List (ImplementationField, Asks)) -> (0 _ : SizeAccessible fields) -> Relative
-settleRelative fields (Access rec) =
+settleRelative : (base : Nat) -> (fields : List (ImplementationField, Asks)) -> (0 _ : SizeAccessible fields) -> (Relative, Nat)
+settleRelative base fields (Access rec) =
   let ix = SortedMap.fromList (zip (map fst fields) (Proof.Growth.indices fields))
       placed = Vect.fromList fields in
   case firstMissed (Proof.Growth.indices fields) (readArcs ix placed) of
     Left (i ** missed) =>
       let Element rest shorter = keptWithout fields (\j => isJust (readArcs ix placed j)) i
                                              (missedDropped (readArcs ix placed i) missed) in
-      settleRelative rest (rec rest shorter)
+      settleRelative base rest (rec rest shorter)
     -- The graph written whole where it is checked, so that its size is
     -- the fields' count in the types of what the check answers.
     Right arcs =>
       case checkSettled (MkGraph (length fields) (concat arcs) 0 (map (\x => Just (snd x).floor) placed)) of
         (Check.Bounded pot _, found) =>
-          SortedMap.fromList (numberedIn 0 found >>= \(n, ms) => map (\m => (fst (index m placed), MkSettled (index m pot) n)) ms)
+          (SortedMap.fromList (numberedIn base found >>= \(n, ms) => map (\m => (fst (index m placed), MkSettled (index m pot) n)) ms),
+           length found)
         (Check.Grows (c ::: _), _) =>
-          let Element rest shorter = without fields (causeSource c) in settleRelative rest (rec rest shorter)
+          let Element rest shorter = without fields (causeSource c) in settleRelative base rest (rec rest shorter)
   where
     numberedIn : Nat -> List b -> List (Nat, b)
     numberedIn k [] = []
     numberedIn k (x :: xs) = (k, x) :: numberedIn (S k) xs
 
+||| The first position a test drops, with the evidence.
+firstDropped : (ps : List (Fin n)) -> (keep : Fin n -> Bool) -> Maybe (i : Fin n ** keep i = False)
+firstDropped [] keep = Nothing
+firstDropped (p :: ps) keep with (keep p) proof dropped
+  _ | False = Just (p ** dropped)
+  _ | True = firstDropped ps keep
+
+||| An implementation's field, with its template at each node of the
+||| implementation the walk entered, each with the roots that node reads
+||| its records at.
+record FieldAt where
+  constructor MkFieldAt
+  field : ImplementationField
+  templates : List (Template -> Maybe (List Address), Template)
+
+||| What a field's templates ask together, every field `rel` settled read at
+||| its constant; nothing where one asks what nothing bounds.
+fieldAsks : SortedMap Address Fields -> Relative -> FieldAt -> Maybe Asks
+fieldAsks ds rel f = foldl (\acc, (rts, t) => bothAsks <$> acc <*> asksAt ds rel rts 0 t) (Just (MkAsks 0 [])) f.templates
+
+||| The fields settled phase by phase: each phase settles what the fields
+||| still pending ask, reading through those earlier phases settled, until
+||| a phase settles none (`settleRelative`). A field read through is settled
+||| in an earlier phase, so its constant is final when it is read.
+phases : SortedMap Address Fields -> (pending : List FieldAt) -> Relative -> (base : Nat) -> (0 _ : SizeAccessible pending) ->
+         Relative
+phases ds pending rel base (Access rec) =
+  let asked = mapMaybe (\f => (f.field,) <$> fieldAsks ds rel f) pending
+      (settled, count) = settleRelative base asked (sizeAccessible asked)
+      keep = \i => not (isJust (SortedMap.lookup (index' pending i).field settled)) in
+  case firstDropped (Proof.Growth.indices pending) keep of
+    Nothing => rel
+    Just (i ** dropped) =>
+      let Element rest shorter = keptWithout pending keep i dropped in
+      phases ds rest (SortedMap.mergeLeft rel settled) (base + count) (rec rest shorter)
+
 ||| Each walked implementation's field that has a constant, settled
-||| (`settleRelative`): it asks what each of its templates asks, one at
-||| each node of its implementation, and nothing where one asks what
-||| nothing bounds.
+||| (`phases`): it asks what each of its templates asks, one at each node of
+||| its implementation, and nothing where one asks what nothing bounds.
 relativeFields : Flow -> SortedMap Address (List Node) -> SortedMap Address Fields -> Relative
 relativeFields fl nodes fs =
-  let asked = foldl (\m, (p, a) => insertWith both p a m) SortedMap.empty
-                    (SortedMap.toList fs >>= \(j, fields) =>
-                       [ ((j, k), asksAt (headedRoots fl jn OwnOnly) 0 t.template)
-                       | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numberedFields fields ])
-      fields = mapMaybe (\(p, a) => map (MkPair p) a) (SortedMap.toList asked) in
-  settleRelative fields (sizeAccessible fields)
-  where
-    both : Maybe Asks -> Maybe Asks -> Maybe Asks
-    both (Just x) (Just y) = Just (bothAsks x y)
-    both _ _ = Nothing
+  let pending = SortedMap.toList fs >>= \(j, fields) =>
+                  map (\(k, t) => MkFieldAt (j, k) [ (headedRoots fl jn OwnOnly, t.template) | jn <- fromMaybe [] (lookup j nodes) ])
+                      (numberedFields fields) in
+  phases fs pending SortedMap.empty 0 (sizeAccessible pending)
 
 ||| A read of field k of a record in field p's template, at node jn, that
-||| reaches p again: one of the fields its roots' field k is lies in p's
-||| component, and every one has a constant. The record raised by the most
-||| those constants are; nothing for any other read.
-throughOwn : Flow -> Relative -> ImplementationField -> Node -> Nat -> Template -> Maybe Nat
-throughOwn fl rel p jn k r = do
-  _ <- recordDepth r
+||| reaches p again: the record measured (`recordMeasure`), one of the
+||| fields its roots' field k is lies in p's component, and every one has a
+||| constant. The record raised by the most those constants are, at least
+||| two where a stuck leaf is read as the projection over it; nothing for
+||| any other read.
+throughOwn : Flow -> SortedMap Address Fields -> Relative -> ImplementationField -> Node -> Nat -> Template -> Maybe Nat
+throughOwn fl fs rel p jn k r = do
+  m <- recordMeasure fs rel (headedRoots fl jn OwnOnly) r
+  _ <- m.rooted
   rs <- headedRoots fl jn OwnOnly r
   own <- SortedMap.lookup p rel
   found <- traverse (\j => SortedMap.lookup (j, k) rel) rs
-  if any (\x => x.component == own.component) found then Just (foldl (\c, x => max c x.constant) 0 found) else Nothing
+  let stuck = maybe 0 (const 2) m.unrooted
+  if any (\x => x.component == own.component) found then Just (max stuck (foldl (\c, x => max c x.constant) 0 found)) else Nothing
 
 ||| A field read as a decision on it says: raised by a constant, or as it
 ||| is.
@@ -2004,10 +2146,10 @@ fieldWritings : Flow -> Relative -> SortedMap Address (List Node) -> SortedMap A
 fieldWritings fl rel nodes fs =
   SortedMap.toList fs >>= \(j, fields) =>
     [ MkWriting (spotAt jn OwnOnly) (writerSpotRead fields.givenBy jn OwnOnly)
-                (raisedReads (throughOwn fl rel (j, k) jn) t.template) (AtNode jn OwnOnly)
+                (raisedReads (throughOwn fl fs rel (j, k) jn) t.template) (AtNode jn OwnOnly)
                 (OfField j k) (FieldSpot (FieldOf fields.givenBy)) (InField fields.givenBy k t)
-                (FieldDraws (raisedRecursions (throughOwn fl rel (j, k) jn) t.template))
-                (openLands {e} (InField fields.givenBy k t) Refl (raisedReads (throughOwn fl rel (j, k) jn) t.template))
+                (FieldDraws (raisedRecursions (throughOwn fl fs rel (j, k) jn) t.template))
+                (openLands {e} (InField fields.givenBy k t) Refl (raisedReads (throughOwn fl fs rel (j, k) jn) t.template))
     | jn <- fromMaybe [] (lookup j nodes), (k, t) <- numberedFields fields ]
 
 ------------------------------------------------------------------------------
@@ -3069,6 +3211,67 @@ numberedReadings reads =
   MkNumberedReadings (readingsSize rs) (length xs) (map (\x => MkDrawnReading x.node x.defined x.tree) numbered)
                      (SortedMap.fromList (toList (zipWith (\i, x => (x.node, (x.defined, (i, x.inOrder)))) (numbersFrom 0 (length xs) Refl) numbered)))
 
+||| How a dictionary argument passes on its writer's dictionary parameter i,
+||| by the root Core read it at: the parameter itself, Equally; a field of
+||| it whose roots' field is no higher than its dictionary (a constant of
+||| 0, `rel`), Equally; a strict part of it, Strictly. Nothing for any
+||| other root, which passes on no parameter of the writer's.
+passedOn : Relative -> (Template -> Maybe (List Address)) -> Root -> Maybe (Nat, Shrink)
+passedOn rel rts (Parameter i Z) = Just (i, Equally)
+passedOn rel rts (Parameter i (S _)) = Just (i, Strictly)
+passedOn rel rts (ParameterField i (k ::: [])) = do
+  rs <- rts (Var i Z)
+  cs <- traverse (\j => constantOf <$> SortedMap.lookup (j, k) rel) rs
+  if all (== 0) cs then Just (i, Equally) else Nothing
+passedOn rel rts _ = Nothing
+
+||| What each call the walk drew passes on of its writer's dictionaries. A
+||| dispatch through the writer's own dictionary parameter, or a field of it
+||| no higher, runs a method function whose leading dictionaries are the
+||| record's arguments, each a strict part of it; a call that gives a dictionary parameter of
+||| its writer's at a dictionary parameter of its callee passes it on as it
+||| is, no higher, or strictly smaller (`passedOn`). A position of the
+||| application is no writer's own, and holds nothing a node passes on.
+measureEdges : Flow -> Relative -> List (Node, List (Entry k, Reached Defined)) -> SortedMap CallEdge (List MeasureEdge)
+measureEdges fl rel walked = foldl add SortedMap.empty walked
+  where
+    own : Parameters -> Nat -> Maybe Nat
+    own ps i = case parameterOf ps i of
+      WritersOwn j => Just j
+      UsesPosition _ => Nothing
+
+    leadingDictionary : Nat -> Leading -> Maybe MeasureEdge
+    leadingDictionary i l = case l.kind of
+      Just ADictionary => Just (MkMeasureEdge i l.atMethod Strictly)
+      _ => Nothing
+
+    passed : Node -> Parameters -> Placed -> Maybe MeasureEdge
+    passed w ps (MkPlaced x p) = case x.kind of
+      ADictionary => do
+        (i, sh) <- passedOn rel (headedRoots fl w ps) x.root
+        j <- own ps i
+        pure (MkMeasureEdge j p sh)
+      _ => Nothing
+
+    -- A dispatch through a record the writer's dictionary parameter passes
+    -- on (`passedOn`) runs a method whose leading dictionaries are the
+    -- record's arguments, strict parts of a record no higher than the
+    -- parameter.
+    edgesOf : Node -> Entry k -> Reached Defined -> Maybe (Node, List MeasureEdge)
+    edgesOf w en (MkReached (Entering v _) _ (Dispatched _ _ _ leading)) = case en.site.reach of
+      Dispatches _ r _ => do
+        (i, _) <- passedOn rel (headedRoots fl w en.site.params) r
+        j <- own en.site.params i
+        pure (visitNode v, mapMaybe (leadingDictionary j) leading)
+      _ => Nothing
+    edgesOf w en (MkReached (Entering v _) placed Called) = Just (visitNode v, mapMaybe (passed w en.site.params) placed)
+    edgesOf w _ _ = Nothing
+
+    add : SortedMap CallEdge (List MeasureEdge) -> (Node, List (Entry k, Reached Defined)) -> SortedMap CallEdge (List MeasureEdge)
+    add m (w, es) = foldl (\m', (en, r) => case edgesOf w en r of
+                                              Just (c, ms@(_ :: _)) => insertWith (++) (w, finToNat en.number, c) ms m'
+                                              _ => m') m es
+
 ||| The site table the graph keeps (`State.SiteTable`): what it drew, and
 ||| every node's reading, main's the root.
 public export
@@ -3134,7 +3337,8 @@ build main = do
   -- given, what each list of values a dictionary is given writes at its
   -- place's held positions, and what the walked sites' arguments write,
   -- the latest first: the order the check reads the arcs in.
-  let fixed = leadingWritings nodes leads ++ fieldWritings fl (relativeFields fl nodes entered.fields) nodes entered.fields
+  let rel = relativeFields fl nodes entered.fields
+  let fixed = leadingWritings nodes leads ++ fieldWritings fl rel nodes entered.fields
   let writtenBy : List (Node, List (Entry sited.entries, Reached Defined)) -> List (Writing sited.entries) ->
                   List (Writing sited.entries)
       writtenBy ws args =
@@ -3250,7 +3454,7 @@ build main = do
                          ((st, x) ** (el, (fromSite, tagged))) =>
                            replace {p = \w => DrawnBy w (fst (Vect.index a (drawnVect arcs))).drawnFrom} (sym tagged)
                                    (replace {p = DrawnBy x} (sym fromSite) (fst (indexAll el (snd keptEvidence)))))
-                (foldl (\m, x => max m (Template.arity (fst x).template)) 0 sites) found.reachers entered.breadth
+                (foldl (\m, x => max m (Template.arity (fst x).template)) 0 sites) found.reachers (measureEdges fl rel walked) entered.breadth
                 (foldl (\m, x => max m (Template.heaviest (fst x).template)) count sites)
                 (modelOf positionsOf fieldPositionsOf choicePositionsOf positionOf count beyond caps kept)
                 kept Refl

@@ -42,6 +42,7 @@ import Data.List1
 import Data.Maybe
 import Data.Nat
 import Data.SortedMap
+import Data.SortedSet
 import Data.String
 import Data.Vect
 
@@ -594,6 +595,229 @@ refuse fc main b (Cycle as (Sums ring _ _)) =
 refuse fc main b (Unbounded a stuck) = refuseOpaque fc main b a stuck
 
 ------------------------------------------------------------------------------
+-- A cycle of calls a dictionary measures
+------------------------------------------------------------------------------
+
+-- A cycle of calls through an implementation's dictionary in which a
+-- method's type argument grows while the dictionary strictly shrinks (a
+-- monad transformer over itself: the outer `StateT`'s bind calls the inner
+-- one's at `(s, a)` through the dictionary it was given) is a finite
+-- nesting the program fixes. A turn that dispatches through the writer's
+-- own dictionary runs a method whose leading dictionaries are that
+-- dictionary's arguments, strictly smaller, and no other call of the cycle
+-- passes one on larger, so a walk through the cycle makes no more such
+-- dispatches than the dictionary it entered with is high. The graph's
+-- positions cannot say so, since the type argument and the dictionary are
+-- two of them, joined only by the calls both are passed at: the cycle is
+-- measured by its calls (`Graph.measureEdges`), each node of it by one
+-- dictionary parameter, which every call of the component passes on as it
+-- is or strictly smaller. With the arcs on a shrinking call drawn from a
+-- source past every position instead, so that they constrain nothing, no
+-- cycle of the component may gain: then a walk through it gains no more
+-- than its arcs gain together (T) between two shrinking calls, and no
+-- more than that at each, so a value entering it grows by no more than
+-- (2H + 1) T, H the most its dictionaries can be high (`bound`, read with
+-- the shrinking arcs detached). Every arc into the component carries that
+-- allowance, and so does an arc from the source to each of its positions,
+-- for a value the component starts itself, so the potential the check
+-- finds over that graph bounds the program; the dictionaries' own bounds
+-- must come out as they were, or they would hang on the growth they
+-- measure.
+
+||| A position by the spot it was first met at.
+positionsBySpot : (b : Built) -> SortedMap Spot (Fin b.graph.size)
+positionsBySpot b = foldl (\m, f => insert (index f b.position) f m) SortedMap.empty b.firsts
+
+||| Some values, each with its number from k.
+numberedFrom : Nat -> List a -> List (Nat, a)
+numberedFrom k [] = []
+numberedFrom k (x :: xs) = (k, x) :: numberedFrom (S k) xs
+
+||| The component each position is in, by number.
+componentOf : List (List (Fin n)) -> SortedMap Nat Nat
+componentOf cs = foldl (\m, (k, ps) => foldl (\m', p => insert (finToNat p) k m') m ps) SortedMap.empty (numberedFrom 0 cs)
+
+||| An arc inside a component, on a call the walk drew between two nodes:
+||| the call's ends, what it passes on of its writer's dictionaries, and
+||| the arc's number, gain and loss.
+record OnCall where
+  constructor MkOnCall
+  writer : Node
+  callee : Node
+  edges : List MeasureEdge
+  arcNumber : Nat
+  gain : Nat
+  loss : Nat
+
+||| An arc as a call the walk drew passes a value at, with what the call
+||| passes on of its writer's dictionaries; none for an arc nothing
+||| measures (an Unmeasured one, one no call between nodes drew, one on a
+||| call that passes on no dictionary).
+onCall : (b : Built) -> Fin (length b.graph.arcs) -> Maybe OnCall
+onCall b a = case (arc b.graph a, snd (index a b.drawing)) of
+  (MkArc f t (Measured gn ls), FromArgument en _) => case (index f b.position, index t b.position) of
+    (OfParameter (OfNode w) _, OfParameter (OfNode c) _) => case lookup (w, finToNat en.number, c) b.measures of
+      Just es@(_ :: _) => Just (MkOnCall w c es (finToNat a) gn ls)
+      _ => Nothing
+    _ => Nothing
+  _ => Nothing
+
+||| The dictionary parameter each node of a component's calls is measured
+||| by: the least among those every call it writes or is called at passes
+||| on at its end; none where a node has none.
+measuring : List OnCall -> Maybe (SortedMap Node Nat)
+measuring calls = SortedMap.fromList <$> traverse (\n => (n,) <$> chosen n) (nub (calls >>= \c => [c.writer, c.callee]))
+  where
+    -- What a call passes on at a node's end of it: its writer's parameters
+    -- where the node writes it, its callee's where the node is called, both
+    -- where it calls itself.
+    atEnd : Node -> OnCall -> Maybe (List Nat)
+    atEnd n c = case (c.writer == n, c.callee == n) of
+      (True, True) => Just (filter (\p => elem p (map (.calleeParameter) c.edges)) (map (.writerParameter) c.edges))
+      (True, False) => Just (map (.writerParameter) c.edges)
+      (False, True) => Just (map (.calleeParameter) c.edges)
+      (False, False) => Nothing
+
+    chosen : Node -> Maybe Nat
+    chosen n = case mapMaybe (atEnd n) calls of
+      [] => Nothing
+      p :: ps => case foldl (\acc, q => filter (\x => elem x q) acc) p ps of
+        [] => Nothing
+        x :: xs => Just (foldl min x xs)
+
+||| How a call passes on the dictionary its ends are measured by: strictly
+||| smaller where any of its passings that match the measure shrinks it;
+||| none where none matches.
+shrinkOn : SortedMap Node Nat -> OnCall -> Maybe Shrink
+shrinkOn mu c = do
+  i <- lookup c.writer mu
+  j <- lookup c.callee mu
+  case filter (\e => e.writerParameter == i && e.calleeParameter == j) c.edges of
+    [] => Nothing
+    es => Just (if any (\e => case e.shrink of { Strictly => True; Equally => False }) es then Strictly else Equally)
+
+||| One growing component a dictionary measures: its positions, the
+||| positions of its nodes' measuring dictionaries, the arcs on a call that
+||| shrinks the dictionary, and what its arcs gain together.
+record Measured (n : Nat) where
+  constructor MkMeasured
+  members : List (Fin n)
+  measures : List (Fin n)
+  shrinking : List Nat
+  gained : Nat
+
+||| A growing component, measured, where every arc inside it is on a call
+||| that passes on its writer's measuring dictionary as it is or strictly
+||| smaller, the measuring dictionaries being positions of the graph.
+measuredOf : (b : Built) -> SortedMap Spot (Fin b.graph.size) -> List (Fin b.graph.size) -> Maybe (Measured b.graph.size)
+measuredOf b spots members = do
+  let inside = SortedSet.fromList (map finToNat members)
+  let inner = filter (\a => contains (finToNat (arc b.graph a).from) inside && contains (finToNat (arc b.graph a).to) inside)
+                     (everyArc b.graph)
+  calls <- traverse (onCall b) inner
+  mu <- measuring calls
+  shrinks <- traverse (shrinkOn mu) calls
+  measures <- traverse (\(n, p) => lookup (OfParameter (OfNode n) p) spots) (SortedMap.toList mu)
+  pure (MkMeasured members measures
+                   (mapMaybe (\(c, sh) => case sh of
+                                           Strictly => Just c.arcNumber
+                                           Equally => Nothing) (zip calls shrinks))
+                   (foldl (\t, c => t + minus c.gain c.loss) 0 calls))
+
+||| The graph with a source past every position, the shrinking arcs drawn
+||| from it instead, so that they constrain nothing, and each measured
+||| component's allowance (none, to read the dictionaries' bounds): every
+||| arc into it raised by it, and an arc from the source to each of its
+||| positions that gives it that much.
+detached : (g : Graph) -> SortedSet Nat -> List (List (Fin g.size), Nat) -> Graph
+detached g shrinking adm = MkGraph (S g.size) (zipWith arcAt (everyArc g) g.arcs ++ sourced) g.constant (snoc g.caps Nothing)
+  where
+    tagged : SortedMap Nat (Nat, Nat)
+    tagged = foldl (\m, (k, (ms, al)) => foldl (\m', p => insert (finToNat p) (k, al) m') m ms) SortedMap.empty (numberedFrom 0 adm)
+
+    into : Fin g.size -> Fin g.size -> Nat
+    into f t = case (lookup (finToNat t) tagged, lookup (finToNat f) tagged) of
+      (Just (k, al), Just (k', _)) => if k == k' then 0 else al
+      (Just (_, al), Nothing) => al
+      _ => 0
+
+    arcAt : Fin (length g.arcs) -> Arc g.size -> Arc (S g.size)
+    arcAt a (MkArc f t lab) =
+      if contains (finToNat a) shrinking then MkArc last (weaken t) (Measured 0 0) else case lab of
+        Measured gn ls => MkArc (weaken f) (weaken t) (Measured (gn + into f t) ls)
+        Unmeasured => MkArc (weaken f) (weaken t) Unmeasured
+
+    sourced : List (Arc (S g.size))
+    sourced = adm >>= \(ms, al) => map (\p => MkArc last (weaken p) (Measured al 0)) ms
+
+||| An arc of the graph Unmeasured, with the evidence.
+stuckIn : (g : Graph) -> (a : Fin (length g.arcs)) -> Maybe (StuckArc g a)
+stuckIn g a with ((arc g a).label) proof p
+  _ | Unmeasured = Just (ItIsStuck p)
+  _ | Measured _ _ = Nothing
+
+||| The program's growth where dictionaries measure it, given the graph's
+||| components the check settled: every cycle of a growing component that a
+||| dictionary measures admitted, the potential
+||| over the graph with their allowances, which bounds every position; or,
+||| where something still grows, the causes to report: each one the graph
+||| gave of a component not measured, or whose shrinking arcs leave a
+||| cycle that gains, and each Unbounded arc no growing component reaches
+||| any more.
+measuredPotential : (b : Built) -> (found : List (List (Fin b.graph.size))) -> List1 (Cause b.graph) ->
+                    Either (List1 (Cause b.graph)) (Vect b.graph.size Nat)
+measuredPotential b found causes =
+  let comps = componentOf found
+      spots = positionsBySpot b
+      componentAt = \p => lookup (finToNat p) comps
+      growing = nub (mapMaybe (\c => case c of
+                                       Cycle _ _ => componentAt (causeSource c)
+                                       Unbounded _ _ => Nothing) (forget causes))
+      admitted = mapMaybe (\k => (k,) <$> (getAt k found >>= measuredOf b spots)) growing in
+  case admitted of
+    [] => Left causes
+    _ => kept componentAt admitted (SortedSet.fromList (admitted >>= \(_, m) => m.shrinking))
+  where
+    -- What still grows with the shrinking arcs detached: the causes the
+    -- graph gave of every component not admitted, or one that still gains,
+    -- and each Unbounded arc no growing component reaches now.
+    reported : (Fin b.graph.size -> Maybe Nat) -> List Nat -> (s : SortedSet Nat) -> List1 (Cause (detached b.graph s [])) ->
+               List1 (Cause b.graph)
+    reported componentAt admitted s still =
+      let gaining = mapMaybe (\c => strengthen (causeSource c) >>= componentAt) (forget still)
+          remaining = filter (\c => case c of
+                                      Cycle _ _ => maybe True (\k => not (elem k admitted) || elem k gaining) (componentAt (causeSource c))
+                                      Unbounded _ _ => True) (forget causes)
+          known = mapMaybe (\c => case c of { Unbounded a _ => Just (finToNat a); _ => Nothing }) (forget causes)
+          exposed = mapMaybe (\c => case c of
+                                      Unbounded a _ => if elem (finToNat a) known then Nothing else do
+                                                         a' <- natToFin (finToNat a) (length b.graph.arcs)
+                                                         (\st => Unbounded a' st) <$> stuckIn b.graph a'
+                                      Cycle _ _ => Nothing) (forget still) in
+      fromMaybe causes (fromList (remaining ++ exposed))
+
+    -- The measured components' allowances over the graph with their
+    -- shrinking arcs detached, where nothing grows there: the potential
+    -- over the graph with them, its dictionaries' bounds as they were.
+    allowed : List (Nat, Measured b.graph.size) -> (s : SortedSet Nat) -> Vect (detached b.graph s []).size Nat ->
+              Either (List1 (Cause b.graph)) (Vect b.graph.size Nat)
+    allowed admitted s pot =
+      let allowance = \m => (2 * foldl (\h, p => max h (bound (detached b.graph s []) pot (weaken p))) 0 m.measures + 1) * m.gained in
+      case check (detached b.graph s (map (\(_, m) => (m.members, allowance m)) admitted)) of
+        Grows _ => Left causes
+        Bounded pot' _ =>
+          if all (\(_, m) => all (\p => index (weaken p) pot' == index (weaken p) pot) m.measures) admitted
+            then Right (init pot')
+            else Left causes
+
+    -- The graph with the measured components' shrinking arcs detached.
+    kept : (Fin b.graph.size -> Maybe Nat) -> List (Nat, Measured b.graph.size) -> (s : SortedSet Nat) ->
+           Either (List1 (Cause b.graph)) (Vect b.graph.size Nat)
+    kept componentAt admitted s = case check (detached b.graph s []) of
+      Grows still => Left (reported componentAt (map fst admitted) s still)
+      Bounded pot _ => allowed admitted s pot
+
+------------------------------------------------------------------------------
 -- The phase
 ------------------------------------------------------------------------------
 
@@ -611,12 +835,18 @@ checkGrowth fc mainRead = do
   let main = fullname mainRead.def
   Just b <- noting (build mainRead)
     | Nothing => pure False
-  case check b.graph of
-    Bounded pot _ => do
+  let (verdict, found) = checkSettled b.graph
+  case verdict of
+    Bounded pot _ => admit b pot
+    Grows causes => case measuredPotential b found causes of
+      Right pot => admit b pot
+      Left reported => do
+        for_ (forget reported) $ \cause => noted (refuse fc main b cause)
+        pure False
+  where
+    admit : (b : Built) -> Vect b.graph.size Nat -> Core Bool
+    admit b pot = do
       let ts = tablesOf b pot
       updateState { bounds := boundsOf b ts, sizes := sizesOf b (heightsOf b pot ts),
                     growth := siteTable b }
       pure True
-    Grows causes => do
-      for_ (forget causes) $ \cause => noted (refuse fc main b cause)
-      pure False
