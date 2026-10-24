@@ -222,15 +222,22 @@ void section(llvm::raw_ostream &os, StringRef heading, StringRef text) {
 // run of items is written as one list literal, and a list as it is.
 enum class ItemOrList { Item, List };
 
+// Which of a dialect's sums a def belongs to: its types, or its attributes,
+// which hold types and attributes both.
+enum class DefKind { Type, Attribute };
+
 // How the Idris side gives a value of some kind, and writes it: whether it
-// is one item or a list of them, the Idris type of an item, and the
-// expression that writes it from a value `{0}` of the kind. The kind's own
-// Idris type is made from the first two, so whether it is a list is never
-// read back from its text.
+// is one item or a list of them, the Idris type of an item, the expression
+// that writes it from a value `{0}` of the kind, and the sum whose defs can
+// hold such a value: the types', and so either, or the attributes' alone,
+// for a value that holds an attribute (`at`), which no type holds. The
+// kind's own Idris type is made from the first two, so whether it is a list
+// is never read back from its text.
 struct Kind {
   ItemOrList form;
   std::string item;
   std::string text;
+  DefKind sum;
 
   std::string type() const {
     return form == ItemOrList::List ? "List " + parenthesized(item) : item;
@@ -599,7 +606,8 @@ Kind enumValue(Enums &enums, const llvm::Record *def, int64_t width) {
   return Kind{ItemOrList::Item, name,
               llvm::formatv("IntegerAttr (natToInteger ({0}Value {{0})) (IntegerType {1})",
                             camel(name, Initial::Lowered), width)
-                  .str()};
+                  .str(),
+              DefKind::Type};
 }
 
 // How an op attribute of this constraint is given, once what makes it
@@ -608,7 +616,8 @@ Kind enumValue(Enums &enums, const llvm::Record *def, int64_t width) {
 // EnumAttr is an attribute of its own around the enum, a dialect's); a bit
 // enum is the integer attribute ODS stores it in; any attribute no row
 // names (an interface, a dialect's attribute, an integer or a float of no
-// one builtin type) is given as the attribute its maker wrote.
+// one builtin type) is given as the attribute its maker wrote. Each is a
+// value of IdrisMLIR.MLIR's own, never a sum's `at`, so either sum holds it.
 Kind attributeKind(Enums &enums, const Upstream &u, const mlir::tblgen::Attribute &attr) {
   const llvm::Record *def = &attr.getBaseAttr().getDef();
   if (def->isSubClassOf("EnumAttrInfo")) {
@@ -621,15 +630,16 @@ Kind attributeKind(Enums &enums, const Upstream &u, const mlir::tblgen::Attribut
     if (row.match == Match::TheDef ? def != record : !def->isSubClassOf(record))
       continue;
     if (row.valued == Valued::Alone)
-      return {row.form, row.item.str(), row.text.str()};
+      return {row.form, row.item.str(), row.text.str(), DefKind::Type};
     std::optional<mlir::tblgen::Type> type = mlir::tblgen::Attribute(def).getValueType();
     std::optional<std::string> builtin =
         type ? builtinType(u, type->getDef()) : std::optional<std::string>();
     if (builtin)
-      return {row.form, row.item.str(), llvm::formatv(row.text.data(), "{0}", *builtin).str()};
+      return {row.form, row.item.str(), llvm::formatv(row.text.data(), "{0}", *builtin).str(),
+              DefKind::Type};
     break;
   }
-  return {ItemOrList::Item, "MlirAttr", "{0}"};
+  return {ItemOrList::Item, "MlirAttr", "{0}", DefKind::Type};
 }
 
 //===----------------------------------------------------------------------===//
@@ -933,11 +943,13 @@ std::invoke_result_t<Step, T> andThen(Written<T> read, Step step) {
 enum class Presence { Always, IfJust, IfNonEmpty };
 
 // A parameter of a type or an attribute as a field of its constructor: its
-// name, its Idris type, the expression that writes it from `{0}`, and when.
+// name, its Idris type, the expression that writes it from `{0}`, the sum
+// whose defs can hold it, its kind's, and when it is written.
 struct Field {
   std::string name;
   std::string type;
   std::string text;
+  DefKind sum;
   Presence presence = Presence::Always;
 };
 
@@ -946,31 +958,33 @@ struct Field {
 // spelling and nothing more, so it is the one fact to read, and each is
 // spelled here once. A location the Idris side holds as its Location and
 // writes as MLIR writes a location attribute, `loc(...)`, which the
-// parameter's default parser reads.
+// parameter's default parser reads. An attribute, and an array of them, is
+// held only by the sum of attributes, whose `at` it is given as.
 struct PlainRow {
   StringRef cpp;
   ItemOrList form;
   StringRef item;
   StringRef text;
+  DefKind sum;
 };
 
 constexpr PlainRow plainRows[] = {
-    {"::mlir::Type", ItemOrList::Item, "ty", "t {0}"},
-    {"::mlir::Attribute", ItemOrList::Item, "at", "a {0}"},
-    {"::mlir::FlatSymbolRefAttr", ItemOrList::Item, "String", "symbol {0}"},
-    {"::mlir::SymbolRefAttr", ItemOrList::Item, "SymbolRef", "symbolRef {0}"},
-    {"::mlir::StringAttr", ItemOrList::Item, "String", "utf8 {0}"},
-    {"::llvm::StringRef", ItemOrList::Item, "String", "utf8 {0}"},
-    {"::mlir::ArrayAttr", ItemOrList::List, "at", "array a {0}"},
-    {"::mlir::FunctionType", ItemOrList::Item, "Signature ty", "signature t {0}"},
-    {"::mlir::LocationAttr", ItemOrList::Item, "Location", "location {0}"},
-    {"unsigned", ItemOrList::Item, "Nat", "show {0}"},
-    {"uint32_t", ItemOrList::Item, "Nat", "show {0}"},
-    {"uint64_t", ItemOrList::Item, "Nat", "show {0}"},
-    {"int", ItemOrList::Item, "Integer", "show {0}"},
-    {"int32_t", ItemOrList::Item, "Integer", "show {0}"},
-    {"int64_t", ItemOrList::Item, "Integer", "show {0}"},
-    {"::llvm::APInt", ItemOrList::Item, "Integer", "show {0}"},
+    {"::mlir::Type", ItemOrList::Item, "ty", "t {0}", DefKind::Type},
+    {"::mlir::Attribute", ItemOrList::Item, "at", "a {0}", DefKind::Attribute},
+    {"::mlir::FlatSymbolRefAttr", ItemOrList::Item, "String", "symbol {0}", DefKind::Type},
+    {"::mlir::SymbolRefAttr", ItemOrList::Item, "SymbolRef", "symbolRef {0}", DefKind::Type},
+    {"::mlir::StringAttr", ItemOrList::Item, "String", "utf8 {0}", DefKind::Type},
+    {"::llvm::StringRef", ItemOrList::Item, "String", "utf8 {0}", DefKind::Type},
+    {"::mlir::ArrayAttr", ItemOrList::List, "at", "array a {0}", DefKind::Attribute},
+    {"::mlir::FunctionType", ItemOrList::Item, "Signature ty", "signature t {0}", DefKind::Type},
+    {"::mlir::LocationAttr", ItemOrList::Item, "Location", "location {0}", DefKind::Type},
+    {"unsigned", ItemOrList::Item, "Nat", "show {0}", DefKind::Type},
+    {"uint32_t", ItemOrList::Item, "Nat", "show {0}", DefKind::Type},
+    {"uint64_t", ItemOrList::Item, "Nat", "show {0}", DefKind::Type},
+    {"int", ItemOrList::Item, "Integer", "show {0}", DefKind::Type},
+    {"int32_t", ItemOrList::Item, "Integer", "show {0}", DefKind::Type},
+    {"int64_t", ItemOrList::Item, "Integer", "show {0}", DefKind::Type},
+    {"::llvm::APInt", ItemOrList::Item, "Integer", "show {0}", DefKind::Type},
 };
 
 // The Idris kind of a C++ value that is no array; nothing for one the Idris
@@ -980,7 +994,7 @@ std::optional<Kind> plainKind(StringRef cpp) {
       llvm::find_if(plainRows, [&](const PlainRow &each) { return each.cpp == cpp; });
   if (row == std::end(plainRows))
     return std::nullopt;
-  return Kind{row->form, row->item.str(), row->text.str()};
+  return Kind{row->form, row->item.str(), row->text.str(), row->sum};
 }
 
 // The Idris kind of a parameter's C++ value; nothing for one the Idris side
@@ -995,7 +1009,7 @@ std::optional<Kind> valueKind(StringRef cpp) {
   std::optional<Kind> kind = plainKind(cpp);
   for (; kind && layers > 0; --layers)
     kind = Kind{ItemOrList::List, kind->type(),
-                "commaSeparated (map " + maker(kind->text) + " {0})"};
+                "commaSeparated (map " + maker(kind->text) + " {0})", kind->sum};
   return kind;
 }
 
@@ -1015,14 +1029,14 @@ std::variant<Kind, NotEnum, Omitted> enumKind(Enums &enums, const AttrOrTypePara
   std::string lower = camel(name, Initial::Lowered);
   if (!info.isBitEnum()) {
     useEnum(enums, record).spellings = true;
-    return Kind{ItemOrList::Item, name, lower + "Spelling {0}"};
+    return Kind{ItemOrList::Item, name, lower + "Spelling {0}", DefKind::Type};
   }
   if (!noBits(info))
     return Omitted{llvm::formatv("its parameter `{0}` is a bit enum without a case of no bits",
                                  param.getName())
                        .str()};
   useEnum(enums, record).spellings = true;
-  return Kind{ItemOrList::List, name, lower + "Spellings {0}"};
+  return Kind{ItemOrList::List, name, lower + "Spellings {0}", DefKind::Type};
 }
 
 // The field of a parameter of the kind `kind`, an optional one without a
@@ -1030,7 +1044,7 @@ std::variant<Kind, NotEnum, Omitted> enumKind(Enums &enums, const AttrOrTypePara
 // empty, and one item when it is not given, as a Maybe.
 Field fieldWith(const AttrOrTypeParameter &param, size_t index, const Kind &kind) {
   Field field{parameter(param.getName(), "parameter" + llvm::Twine(index)), kind.type(),
-              kind.text};
+              kind.text, kind.sum};
   std::optional<StringRef> fallback = param.getDefaultValue();
   if (fallback && *fallback == (param.getCppStorageType() + "()").str()) {
     switch (kind.form) {
@@ -1280,13 +1294,6 @@ Written<Pieces> piecesOf(const std::vector<Element> &elements,
   return std::move(open.front().out);
 }
 
-// Whether an Idris type names `word`.
-bool mentions(StringRef type, StringRef word) {
-  llvm::SmallVector<StringRef> words;
-  type.split(words, ' ');
-  return llvm::any_of(words, [&](StringRef w) { return w.trim("()") == word; });
-}
-
 // A type or an attribute as the syntax module writes it: its constructor,
 // with its documentation, and the clauses of its mnemonic and its printer.
 struct Def {
@@ -1303,10 +1310,6 @@ struct Fields {
   std::map<std::string, Field> byName;
 };
 
-// Which of a dialect's sums a def belongs to: its types, or its attributes,
-// which hold types and attributes both.
-enum class DefKind { Type, Attribute };
-
 // The fields of a def's parameters; or why one is left out, and with it the
 // def.
 Written<Fields> fieldsOf(Enums &enums, const AttrOrTypeDef &def, DefKind kind) {
@@ -1319,7 +1322,7 @@ Written<Fields> fieldsOf(Enums &enums, const AttrOrTypeDef &def, DefKind kind) {
       return andThen(fieldOf(enums, param, fields.inOrder.size()),
                      [&](Field field) -> Written<Fields> {
                        // A type holds types: the sum of types has no attribute to give.
-                       if (kind == DefKind::Type && mentions(field.type, "at"))
+                       if (kind == DefKind::Type && field.sum == DefKind::Attribute)
                          return Omitted{llvm::formatv(
                                             "its parameter `{0}` is an attribute, which no type holds",
                                             param.getName())
@@ -1440,6 +1443,8 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
   if (dialectName.empty() || moduleName.empty())
     llvm::PrintFatalError("-" + generator + " needs -idris-dialect and -idris-module");
   Vocabulary v;
+  // The dialect is found by the name the command line gives, once; each
+  // def and op after is the dialect's when its own dialect is that record.
   for (const llvm::Record *def : records.getAllDerivedDefinitions("Dialect"))
     if (def->getValueAsString("name") == dialectName)
       v.dialect.emplace(def);
@@ -1453,7 +1458,7 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
   for (const auto &[odsClass, kind] : sums)
     for (const llvm::Record *record : records.getAllDerivedDefinitionsIfDefined(odsClass)) {
       AttrOrTypeDef def(record);
-      if (def.getDialect().getName() != dialectName)
+      if (def.getDialect() != *v.dialect)
         continue;
       std::string what =
           (kind == DefKind::Type ? "type " : "attribute ") + def.getCppClassName().str();
@@ -1468,7 +1473,7 @@ Vocabulary read(const llvm::RecordKeeper &records, StringRef generator) {
   Upstream u = upstream(records);
   for (const llvm::Record *admitted : admittedOps(records)) {
     Operator op(admitted->getValueAsDef("op"));
-    if (op.getDialectName() != dialectName || admitted->getValueAsInt("frontendWrites") == 0)
+    if (op.getDialect() != *v.dialect || admitted->getValueAsInt("frontendWrites") == 0)
       continue;
     for (const llvm::Record *guard : admitted->getValueAsListOfDefs("guards")) {
       std::vector<StringRef> imports = guard->getValueAsListOfStrings("caseImports");
