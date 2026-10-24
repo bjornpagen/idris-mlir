@@ -113,17 +113,16 @@ private:
     forwardedValues(op, [&](OpOperand &operand, Value input) {
       forwards.push_back({local(operand.get()), local(input), input});
     });
-    // A position that keeps its operand's value gives it its operand's
-    // claim where its result is used once; one used many times claims
-    // nothing before references are counted, so it claims what its own
-    // grade says, which may forget what its operand claims.
+    // A position that keeps its operand's value: a cast that enters a value
+    // used many times into a position as its one use claims what the cell
+    // of the value it was entered from holds (readEntered); one whose result
+    // is used many times claims nothing before references are counted, so
+    // it claims what its own grade says, which may forget what its operand
+    // claims.
     if (op->hasTrait<SameValue>()) {
-      for (Value result : op->getResults())
-        if (claimsUncounted(result.getType())) {
-          Local at = local(result);
-          roles[at] = Role::Same;
-          owners[at] = local(op->getOperand(0));
-        }
+      auto enter = dyn_cast<LinCastOp>(op);
+      if (enter && enter.getDirection() == QuantityChange::Enter)
+        readEntered(enter);
       return;
     }
     // Its results are its inference's, which the write runs again; what it
@@ -158,6 +157,44 @@ private:
           made[at] = Made::New;
           if (!infers && raisable(target.getType()))
             roles[at] = Role::Raised;
+        });
+  }
+
+  // A cast that enters a value used many times into a position as its one
+  // use, every other use of what holds the cell a read that ends before the
+  // cast (ownership::entryOf, the one rule the verifier and the in-place
+  // promise ask): its result claims what that cell's source is solved to (a
+  // value at another grade, Same) or what the op that made the cell new
+  // allows of its parts (its terms, Raised). What a callee keeps of a value
+  // lent to it is no fact of the IR this pass reads, so every lend is taken
+  // to outlive its call, and a claim derived here holds whatever the callee
+  // does. Any other cast claims what its type says.
+  void readEntered(LinCastOp enter) {
+    Value result = enter.getResult();
+    if (!raisable(result.getType()))
+      return;
+    Local at = local(result);
+    match(
+        ownership::entryOf(enter,
+                           [](const FlowSource::Parameter &) { return ownership::Lent::Kept; }),
+        [](const ownership::HeldElsewhere &) {},
+        [&](const ownership::EntersAlone &alone) {
+          match(
+              ownership::cellOf(alone.value),
+              [&](const ownership::SameCell &same) {
+                roles[at] = Role::Same;
+                owners[at] = local(same.of);
+              },
+              [&](const ownership::NewCell &cell) {
+                roles[at] = Role::Raised;
+                made[at] = Made::New;
+                ownership::forEachTermOf(cell, alone.value, [&](const Term<Value> &term) {
+                  Local from = term.from ? local(term.from) : noLocal;
+                  pending.emplace_back(
+                      at, Term<Local>{from, term.via, term.reach, term.uses, term.held});
+                });
+              },
+              [](const ownership::UnknownCell &) {});
         });
   }
 
@@ -227,7 +264,7 @@ private:
                             last});
     }
     // Who reads each value: the values whose terms name it, and a Same
-    // value of its operand.
+    // value of its cell's source.
     auto sources = [&](Local at, auto &&each) {
       const Node &node = body.nodes[at];
       if (node.role == Role::Same)
@@ -263,7 +300,7 @@ private:
   footprint::Vector<Role> roles;
   footprint::Vector<Made> made;
   footprint::Vector<Inferred> inferred;
-  // A Same value's operand, a Called value's call.
+  // A Same value's cell's source, a Called value's call.
   footprint::Vector<Local> owners;
   footprint::Vector<Forward> forwards;
   footprint::Vector<std::pair<Local, Term<Local>>> pending;
@@ -272,12 +309,12 @@ private:
 // Whether a value waits in a solve's worklist.
 enum class Queued : std::uint8_t { No, Yes };
 
-// What `at` is given now: its operand's claim, or what its terms allow,
-// never less than its type says.
+// What `at` is given now: its cell's source's claim, or what its terms
+// allow, never less than its type says.
 Unique evaluate(const Body &body, Local at) {
   const Node &node = body.nodes[at];
   if (node.role == Role::Same)
-    return body.claims[node.first];
+    return ownership::greater(node.typed, body.claims[node.first]);
   llvm::ArrayRef<Term<Local>> terms(body.terms.data() + node.first, node.last - node.first);
   std::optional<Unique> proved = ownership::claimFrom<Local>(
       node.origin, terms, [&](Local from) { return body.claims[from]; });

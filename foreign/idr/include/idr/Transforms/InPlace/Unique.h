@@ -9,14 +9,17 @@
 // the edges its ops declare give each of them (ownership::forEachTerm), so
 // the solve reads numbers and no IR. What the rule may raise is a cell of a
 // data family, no memo label's (a force writes its cells while references to
-// them live), that its op makes new or that is forwarded into, and that is
-// used once, as a value must be to claim anything before references are
-// counted. A call's result is its callee's derived claim; a value an op keeps
-// as itself is its operand's where it is used once; a part an op of ours that
-// infers its results reads or takes out is what the read table gives it, as
-// the op's inference does; every other value is what its type says. The write
-// runs each such op's inference again, and lends each holder an op of
-// upstream's reads to it (lendReads), as that op takes the bare carrier.
+// them live), that its op makes new, that is forwarded into or that a cast
+// enters, and that is used once, as a value must be to claim anything before
+// references are counted. A call's result is its callee's derived claim; a
+// cast that enters a value used many times into a position as its one use,
+// every other use of what holds its cell a read that ends before the cast,
+// is what that cell holds (ownership::entryOf, every lend taken to outlive
+// its call); a part an op of ours that infers its results reads or takes out
+// is what the read table gives it, as the op's inference does; every other
+// value is what its type says. The write runs each such op's inference
+// again, and lends each holder an op of upstream's reads to it (lendReads),
+// as that op takes the bare carrier.
 #ifndef IDR_TRANSFORMS_INPLACE_UNIQUE_H
 #define IDR_TRANSFORMS_INPLACE_UNIQUE_H
 
@@ -55,8 +58,9 @@ enum class Role : std::uint8_t {
   Typed,
   // Raised to what the rule proves from its terms, where it is kept.
   Raised,
-  // Its operand's claim: a position that keeps its operand's value, its
-  // result used once.
+  // Its cell's source's claim: a cast that enters a value used many times
+  // as its one use where the cell is that of a value at another grade
+  // (ownership::cellOf's SameCell).
   Same,
   // Its callee's derived claim: a call's result.
   Called,
@@ -71,8 +75,8 @@ struct Node {
   // What its type claims as a source of the rule (ownership::claimOfSource).
   Unique typed;
   ownership::Origin origin;
-  // Its terms, [first, last) of the body's; for Same, `first` is its
-  // operand; for Called, its call among the body's.
+  // Its terms, [first, last) of the body's; for Same, `first` is its cell's
+  // source; for Called, its call among the body's.
   std::uint32_t first;
   std::uint32_t last;
 };
@@ -93,7 +97,7 @@ struct Body {
   footprint::Vector<Node> nodes;
   footprint::Vector<ownership::Term<Local>> terms;
   // Who reads each value, as a compressed row: the values whose terms name
-  // it, and a Same value of its operand.
+  // it, and a Same value of its cell's source.
   footprint::Vector<std::uint32_t> readerStart;
   footprint::Vector<Local> readers;
   footprint::Vector<CallResult> calls;

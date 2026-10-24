@@ -94,6 +94,36 @@ bool givenByCallee(const FlowEdges &edges, Value value) {
 
 } // namespace
 
+Value idr::ownership::enteredFrom(Value value) {
+  // Each step goes to a value that is there before the region is entered
+  // (an operand of its op, or of the jump that enters it), in no region
+  // that runs again, so the climb ends.
+  for (auto arg = dyn_cast<BlockArgument>(value); arg; arg = dyn_cast<BlockArgument>(value)) {
+    Region *region = arg.getOwner()->getParent();
+    auto branch = dyn_cast_or_null<RegionBranchOpInterface>(region->getParentOp());
+    if (!branch || repeats(branch.getOperation()) || arg.getOwner() != &region->front())
+      return value;
+    SmallVector<RegionBranchPoint> predecessors;
+    branch.getPredecessors(RegionSuccessor(region), predecessors);
+    if (predecessors.size() != 1)
+      return value;
+    Operation *from = predecessors.front().isParent()
+                          ? branch.getOperation()
+                          : predecessors.front().getTerminatorPredecessorOrNull().getOperation();
+    // Essential, the arguments a region's op binds itself (a join's token,
+    // a lifetime): no value enters them, so each is a value of its own.
+    OpOperand *entered = nullptr;
+    forwardedValues(from, [&](OpOperand &operand, Value input) {
+      if (input == value)
+        entered = &operand;
+    });
+    if (!entered)
+      return value;
+    value = entered->get();
+  }
+  return value;
+}
+
 ownership::CellOf idr::ownership::cellOf(Value value) {
   if (std::optional<Value> same = sameValueSource(value))
     return SameCell{*same};
@@ -119,16 +149,8 @@ Unique idr::ownership::carriedClaim(Value value) {
   return match(
       cellOf(value), [](const SameCell &same) { return claimOfSource(same.of); },
       [&](const NewCell &cell) {
-        FlowEdges edges;
-        cast<FlowOpInterface>(cell.op).getFlowEdges(edges);
         llvm::SmallVector<Term<Value>, 4> terms;
-        forEachTerm(
-            edges,
-            [&](Value target, const Term<Value> &term) {
-              if (target == value)
-                terms.push_back(term);
-            },
-            [](Value) {});
+        forEachTermOf(cell, value, [&](const Term<Value> &term) { terms.push_back(term); });
         return claimFrom<Value>(Origin::Fresh, terms, [](Value source) {
                  return claimOfSource(source);
                }).value_or(Unique::None);
@@ -225,9 +247,10 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
         (isa<BlockArgument>(value) || isa<RegionBranchOpInterface>(op) ||
          op->hasTrait<ResultCarriesOperand>()))
       continue;
-    // A cast that enters a value used many times as its one use carries
-    // what the value's cell holds; every other source claims what its type
-    // says. Open: what a callee keeps of what it is lent is the program's
+    // A cast that enters a value used many times as its one use carries,
+    // beside what the value claims, what the cell of the value it was
+    // entered from holds; every other source claims what its type says.
+    // Open: what a callee keeps of what it is lent is the program's
     // marking, which idr-in-place asks, and no fact of the IR carries it yet
     // (a parameter scoped under a view lifetime, or a fact of the
     // signature, is the owner's to rule), so here every lend is taken to end
@@ -235,12 +258,15 @@ LogicalResult idr::ownership::LocalCheck::check(Operation *op) {
     // runs after the cast, and each hands the value on or is a call.
     auto entering = dyn_cast<LinCastOp>(op);
     auto sourceClaim = [&](Value source) {
-      if (entering && entering.getDirection() == QuantityChange::Enter &&
-          source == entering.getValue() &&
-          std::holds_alternative<EntersAlone>(
-              entryOf(entering, [](const FlowSource::Parameter &) { return Lent::Ends; })))
-        return carriedClaim(source);
-      return claimOfSource(source);
+      if (!entering || entering.getDirection() != QuantityChange::Enter ||
+          source != entering.getValue())
+        return claimOfSource(source);
+      return match(
+          entryOf(entering, [](const FlowSource::Parameter &) { return Lent::Ends; }),
+          [&](const EntersAlone &alone) {
+            return greater(claimOfSource(source), carriedClaim(alone.value));
+          },
+          [&](const HeldElsewhere &) { return claimOfSource(source); });
     };
     std::optional<Unique> claim = claimFrom<Value>(origin, terms, sourceClaim);
     if (claim && !covers(*claim, claimed(value))) {

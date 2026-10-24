@@ -235,7 +235,6 @@ void Chains::defineCell(Value value, Asks asks, SmallVectorImpl<Target> &ends,
 
 void Chains::entered(LinCastOp enter, Asks asks, SmallVectorImpl<Target> &ends,
                      SmallVectorImpl<Step> &next, SmallVectorImpl<Demand> &demands) {
-  Value value = enter.getValue();
   match(
       ownership::entryOf(enter,
                          [&](const FlowSource::Parameter &lent) {
@@ -244,7 +243,8 @@ void Chains::entered(LinCastOp enter, Asks asks, SmallVectorImpl<Target> &ends,
       [&](const ownership::HeldElsewhere &held) {
         ends.push_back(cause(held.by->getOwner(), Why::UsedAgain));
       },
-      [&](const ownership::EntersAlone &) {
+      [&](const ownership::EntersAlone &alone) {
+        Value value = alone.value;
         match(
             ownership::cellOf(value),
             [&](const ownership::SameCell &same) { next.push_back({same.of, asks}); },

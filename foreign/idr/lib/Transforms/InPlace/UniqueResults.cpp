@@ -8,15 +8,14 @@
 // and by a kept value it moves, is read or is built into, so a value whose
 // only use takes less is left as it is and no share is made for it. Every
 // signature is written first; then each body in the one walk's order, so a
-// value's sources are written before it: its raised values, each call's
-// results its callee's again, each kept position that keeps its operand's
-// value, its result used once, at its operand's claim (one used many times
-// keeps its own, which may forget it), and each op of ours that infers its
-// results inferred again where an operand changed or a step before the rule
-// graded one. Last, wherever a value now claiming more meets a use that takes
-// less, it is shared into it: at a call, a return, a forward or an op of
-// upstream's as every pass that raises a claim meets them, and before any
-// other op that would read a type it does not take.
+// value's sources are written before it: its raised values (an entering
+// cast's result among them, at what its cell holds), each call's results its
+// callee's again, and each op of ours that infers its results inferred again
+// where an operand changed or a step before the rule graded one. Last,
+// wherever a value now claiming more meets a use that takes less, it is
+// shared into it: at a call, a return, a forward or an op of upstream's as
+// every pass that raises a claim meets them, and before any other op that
+// would read a type it does not take.
 #include "idr/Transforms/InPlace.h"
 
 #include "idr/Analysis/Ownership/Facts.h"
@@ -232,8 +231,9 @@ private:
     };
     auto raise = [&](Value value) {
       Local at = local(value);
-      if (body.nodes[at].role == Role::Raised && kept[at] == Kept::Yes &&
-          !idr::ownership::covers(body.nodes[at].typed, body.claims[at]))
+      const Node &node = body.nodes[at];
+      if ((node.role == Role::Raised || node.role == Role::Same) && kept[at] == Kept::Yes &&
+          !idr::ownership::covers(node.typed, body.claims[at]))
         change(value, idr::ownership::claiming(value.getType(), body.claims[at]));
     };
     // A call's results are its callee's again where the callee's changed.
@@ -261,16 +261,6 @@ private:
         if (nextCall != calls.end() && (*nextCall).getOperation() == &op) {
           recall(*nextCall);
           ++nextCall;
-        } else if (op.hasTrait<idr::SameValue>()) {
-          // A result kept as its operand, where its claim is kept, claims
-          // what its operand now does; one copied keeps its own grade.
-          Unique operand = idr::ownership::claimOf(op.getOperand(0).getType());
-          for (Value result : op.getResults()) {
-            Local at = local(result);
-            if (body.nodes[at].role == Role::Same && kept[at] == Kept::Yes &&
-                !idr::ownership::covers(idr::ownership::claimOf(result.getType()), operand))
-              change(result, idr::ownership::claiming(result.getType(), operand));
-          }
         } else if (auto infer = dyn_cast<InferTypeOpInterface>(&op);
                    infer && !idr::ownership::carriersOnly(&op)) {
           if (anyTouched(&op) || stale(&op))

@@ -15,16 +15,18 @@
 // a parameter of its function, whose callers then owe it. A value used many
 // times claims nothing of its sharing before references are counted, so it
 // meets none itself; a cast that enters it into a position as its one use,
-// every other use a read that ends before the cast, meets it where the
-// value's cell does (ownership::entryOf, the verifier's rule too). An element
-// an op of upstream's reads out of an array meets only what its type claims,
-// which no pass of ours raises. Where a requirement reaches what can meet
-// none (a value used again where the use that requires it may still hold it,
-// one used many times otherwise, a copy, a value no flow explains), it
-// reaches a cause. A requirement starts where a cell is rebuilt, asking what
-// its family's promise asks, and at the boundary: a parameter of quantity 1
-// whose family's values carry the promise by construction (an own cell holds
-// a buffer) is owed it by every caller.
+// every other use of what holds its cell a read that ends before the cast,
+// meets it where the cell of the value it was entered from does (a region's
+// argument entered from one place holds the cell of the value entered:
+// ownership::entryOf, the verifier's rule and idr-unique-results' too). An
+// element an op of upstream's reads out of an array meets only what its type
+// claims, which no pass of ours raises. Where a requirement reaches what can
+// meet none (a value used again where the use that requires it may still
+// hold it, one used many times otherwise, a copy, a value no flow explains),
+// it reaches a cause. A requirement starts where a cell is rebuilt, asking
+// what its family's promise asks, and at the boundary: a parameter of
+// quantity 1 whose family's values carry the promise by construction (an own
+// cell holds a buffer) is owed it by every caller.
 #ifndef IDR_TRANSFORMS_INPLACE_RULE_H
 #define IDR_TRANSFORMS_INPLACE_RULE_H
 
@@ -62,8 +64,9 @@ enum class Why : std::uint8_t {
   UsedAgain,
   // Used many times, and reached otherwise than by a cast that enters it as
   // its one use, or with nothing here to say what its cell holds (a
-  // parameter, a value forwarded into a region): before references are
-  // counted it claims nothing of its sharing.
+  // parameter, a value forwarded into a region from several places or into
+  // one that runs again): before references are counted it claims nothing
+  // of its sharing.
   UsedMany,
   // A reference to it is taken while another stays: a copy, static data,
   // a field shared into it.
@@ -222,9 +225,10 @@ private:
   void defineCell(mlir::Value value, Asks asks, llvm::SmallVectorImpl<Target> &ends,
                   llvm::SmallVectorImpl<Step> &next, llvm::SmallVectorImpl<Demand> &demands);
   // What a requirement on the result of `enter`, a cast that enters a value
-  // used many times into the position that requires it, reaches: the
-  // value's cell where every other use of it is a read that ends before the
-  // cast (ownership::entryOf), the use that may still hold it otherwise.
+  // used many times into the position that requires it, reaches: the cell
+  // of the value it was entered from where every other use of what holds
+  // that cell is a read that ends before the cast (ownership::entryOf), the
+  // use that may still hold it otherwise.
   void entered(LinCastOp enter, Asks asks, llvm::SmallVectorImpl<Target> &ends,
                llvm::SmallVectorImpl<Step> &next, llvm::SmallVectorImpl<Demand> &demands);
 

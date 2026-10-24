@@ -15,16 +15,17 @@
 // explains claim nothing. A value used many times claims nothing before
 // references are counted (the program's stage rule), so what it gives is its
 // type's at every stage, except to a cast that enters it into a position as
-// its one use, its every other use a read that ends before the cast, which
-// carries what the value's cell holds.
+// its one use, every other use of what holds its cell a read that ends
+// before the cast, which carries what that cell holds (entryOf: a region's
+// argument entered from one place holds the cell of the value entered).
 //
 // Two readers instantiate it. The verifier holds every value that claims
 // anything of its sharing to it, one op at a time, each source's claim its
 // type's (LocalCheck, a rule of the function's one walk). idr-unique-results
 // solves it over each body before bufferization, each call's result its
-// callee's derived claim, and writes what it proves into the types; the
-// exclusivity marking after bufferization covers only what this rule cannot
-// prove.
+// callee's derived claim, each entering cast what its cell's source is
+// solved to, and writes what it proves into the types; the exclusivity
+// marking after bufferization covers only what this rule cannot prove.
 #ifndef IDR_ANALYSIS_OWNERSHIP_LOCAL_H
 #define IDR_ANALYSIS_OWNERSHIP_LOCAL_H
 
@@ -385,20 +386,37 @@ Passage passageOf(mlir::OpOperand &use, OnValue &&onValue, OnLend &&onLend) {
 // the program's marking of what each callee keeps says.
 enum class Lent : std::uint8_t { Ends, Kept };
 
+// The value `value` is outside the regions it was entered into: where it is
+// an argument of a region its op runs at most once each time it is entered,
+// entered from one place (a match's scrutinee or a value forwarded beside it
+// into a case, a jump's argument into the one join region it enters), the
+// value entered there, refined, its cell the same, climbed in turn; else
+// `value` itself. An argument entered from several places (a join region
+// two jumps reach) may be any of their values, so it is no one cell.
+mlir::Value enteredFrom(mlir::Value value);
+
 // A value used many times entering a position that uses it once by a cast
 // (idr.lin.cast into a linear position) is that position's alone where
-// every other use of it is a read that ends before the cast: it runs in a
-// region the cast's excludes, or it runs before the cast and hands the
-// value on (passageOf) to uses that are such reads in turn, in no region
-// that runs again, or lends it to a callee that keeps nothing of it
-// (`keeps`). Before references are counted the cast's `once` result then
-// carries what the value's cell holds (carriedClaim), the value itself
-// still claiming nothing. The in-place promise and the verifier's local
-// rule both ask this, one rule: the promise with the program's marking of
-// what each callee keeps; the verifier, which no such fact of the IR
-// reaches yet, with every lend ending at its call, so it checks the local
-// half alone (where the callee half lives is open).
-struct EntersAlone {};
+// every other use of what holds its cell, the value it was entered from
+// (enteredFrom) and what that is handed on as, the cast's operand among
+// them, is a read that ends before the cast: it runs in a region the cast's
+// excludes, or it runs before the cast (an op that encloses the cast hands
+// its operands into the regions it enters before it) and hands the value
+// on (passageOf) to uses that are such reads in turn, in no region that
+// runs again, or lends it to a callee that keeps nothing of it (`keeps`);
+// and the cast does not run again on the one value. Before references are
+// counted the cast's `once` result then carries what that value's cell
+// holds (carriedClaim), the values themselves still claiming nothing. The
+// in-place promise, the verifier's local rule and idr-unique-results all
+// ask this, one rule: the promise with the program's marking of what each
+// callee keeps; the verifier, which no such fact of the IR reaches yet,
+// with every lend ending at its call, so it checks the local half alone
+// (where the callee half lives is open); idr-unique-results, which derives
+// claims and reads no such fact either, with every lend outliving its call.
+struct EntersAlone {
+  // The value whose cell the cast's result carries (enteredFrom).
+  mlir::Value value;
+};
 // Another use that may still hold the value where the cast enters it.
 struct HeldElsewhere {
   mlir::OpOperand *by;
@@ -408,23 +426,27 @@ using Entry = std::variant<EntersAlone, HeldElsewhere>;
 template <std::invocable<const FlowSource::Parameter &> Keeps>
   requires std::same_as<std::invoke_result_t<Keeps &, const FlowSource::Parameter &>, Lent>
 Entry entryOf(LinCastOp enter, Keeps &&keeps) {
-  // Each use still to read: the value's own, and those of what a use hands
-  // it on as. An explicit stack, so a long chain costs no native frames; it
-  // follows no region that runs again, so it reads each use once on each
-  // path to it.
+  mlir::Operation *cast = enter.getOperation();
+  mlir::Value held = enteredFrom(enter.getValue());
+  if (runsAgainOn(cast, held))
+    return HeldElsewhere{&cast->getOpOperand(0)};
+  // Each use still to read: the held value's own, and those of what a use
+  // hands it on as, down to the cast's operand. An explicit stack, so a
+  // long chain costs no native frames; it follows no region that runs
+  // again, so it reads each use once on each path to it.
   llvm::SmallVector<mlir::OpOperand *> work;
   auto push = [&](mlir::Value of) {
     for (mlir::OpOperand &use : of.getUses())
-      if (use.getOwner() != enter.getOperation())
+      if (use.getOwner() != cast)
         work.push_back(&use);
   };
-  push(enter.getValue());
+  push(held);
   while (!work.empty()) {
     mlir::OpOperand *use = work.pop_back_val();
     mlir::Operation *owner = use->getOwner();
-    if (mlir::insideMutuallyExclusiveRegions(owner, enter))
+    if (alternatives(owner, cast))
       continue;
-    if (runsAfter(owner, enter))
+    if (!owner->isProperAncestor(cast) && runsAfter(owner, cast))
       return HeldElsewhere{use};
     enum class Holds : std::uint8_t { Ends, Past } holds = Holds::Ends;
     Passage passage = passageOf(
@@ -442,14 +464,15 @@ Entry entryOf(LinCastOp enter, Keeps &&keeps) {
     if (passage == Passage::Keeps || holds == Holds::Past)
       return HeldElsewhere{use};
   }
-  return EntersAlone{};
+  return EntersAlone{held};
 }
 
-// What explains the cell of a value used many times that a cast enters: the
-// same value at another grade (a position that keeps its operand's value),
-// whose own type says what it holds; a value its op makes new, which holds
-// what its parts allow; or nothing here (a parameter, a value forwarded
-// into a region, a call's result), so it carries nothing.
+// What explains the cell of a value used many times that a cast enters
+// (EntersAlone's): the same value at another grade (a position that keeps
+// its operand's value), whose own type says what it holds; a value its op
+// makes new, which holds what its parts allow; or nothing here (a
+// parameter, a value forwarded into a region from several places or one
+// that runs again, a call's result), so it carries nothing.
 struct SameCell {
   mlir::Value of;
 };
@@ -460,8 +483,25 @@ struct UnknownCell {};
 using CellOf = std::variant<SameCell, NewCell, UnknownCell>;
 CellOf cellOf(mlir::Value value);
 
+// Each term of `value` that `cell`'s op, which makes it new, gives it by
+// its declared edges, handed to `each`: what the cell holds is what they
+// allow a fresh value.
+template <std::invocable<const Term<mlir::Value> &> Each>
+void forEachTermOf(const NewCell &cell, mlir::Value value, Each &&each) {
+  FlowEdges edges;
+  llvm::cast<FlowOpInterface>(cell.op).getFlowEdges(edges);
+  forEachTerm(
+      edges,
+      [&](mlir::Value target, const Term<mlir::Value> &term) {
+        if (target == value)
+          each(term);
+      },
+      [](mlir::Value) {});
+}
+
 // What a value used many times holds where a cast enters it as its one
-// use: the claim its cell's source gives it, read off the source types.
+// use (EntersAlone's): the claim its cell's source gives it, read off the
+// source types.
 Unique carriedClaim(mlir::Value value);
 
 // The rule in the verifier's walk of a function, after every pass: every
@@ -469,8 +509,9 @@ Unique carriedClaim(mlir::Value value);
 // makes, claims no more than the rule gives it from its sources' types (a
 // fresh value from what its parts claim, a value moved on from what it was
 // moved from claims, a cast that enters a value used many times as its one
-// use from what the value's cell holds (entryOf), a part read or taken out
-// from the value's claim), every value forwarded into one claims at least
+// use from what the value claims and what the cell of the value it was
+// entered from holds (entryOf), a part read or taken out from the value's
+// claim), every value forwarded into one claims at least
 // what that one does, and none is copied, read whole into another value by an
 // op that neither takes nor gives it up. A call's results are its callee's
 // signature's, a result its op infers is held to the inference by the op's

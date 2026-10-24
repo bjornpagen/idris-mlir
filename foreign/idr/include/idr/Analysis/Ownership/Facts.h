@@ -24,6 +24,8 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <cstdint>
 #include <optional>
@@ -272,20 +274,98 @@ inline bool carriersOnly(mlir::Operation *op) {
 // run.
 inline bool repeats(mlir::Operation *op) { return llvm::isa<mlir::LoopLikeOpInterface>(op); }
 
+// The region of `op` that holds `inner`, an op nested in one of them.
+inline mlir::Region &regionHolding(mlir::Operation *op, mlir::Operation *inner) {
+  for (mlir::Region &region : op->getRegions())
+    if (region.findAncestorOpInRegion(*inner))
+      return region;
+  llvm_unreachable("an op nested in another stands in one of its regions");
+}
+
+// Whether `branch` may enter its region `to` once its region `from` has run:
+// what enters `to`, as the op answers (its predecessors), read back through
+// the regions those stand in until `from` is met. The op itself enters only
+// at its start.
+inline bool entersAfter(mlir::RegionBranchOpInterface branch, mlir::Region &from,
+                        mlir::Region &to) {
+  llvm::SmallVector<bool> seen(branch->getNumRegions(), false);
+  llvm::SmallVector<mlir::Region *> work{&to};
+  seen[to.getRegionNumber()] = true;
+  while (!work.empty()) {
+    llvm::SmallVector<mlir::RegionBranchPoint> predecessors;
+    branch.getPredecessors(mlir::RegionSuccessor(work.pop_back_val()), predecessors);
+    for (mlir::RegionBranchPoint point : predecessors) {
+      if (point.isParent())
+        continue;
+      mlir::Region &in = regionHolding(branch.getOperation(),
+                                       point.getTerminatorPredecessorOrNull().getOperation());
+      if (&in == &from)
+        return true;
+      if (!seen[in.getRegionNumber()]) {
+        seen[in.getRegionNumber()] = true;
+        work.push_back(&in);
+      }
+    }
+  }
+  return false;
+}
+
+// Whether ops `a` and `b` never both run in one run of the region branch
+// that holds them in two of its regions: neither region may be entered once
+// the other has run (entersAfter). Read through what enters each region,
+// which counts a jump nested in a region, where upstream's mutual exclusion,
+// reading each region's own terminator alone, finds no way from a join op's
+// body to the region a nested jump enters.
+inline bool alternatives(mlir::Operation *a, mlir::Operation *b) {
+  for (auto branch = a->getParentOfType<mlir::RegionBranchOpInterface>(); branch;
+       branch = branch->getParentOfType<mlir::RegionBranchOpInterface>()) {
+    if (!branch->isProperAncestor(b))
+      continue;
+    mlir::Region &ra = regionHolding(branch.getOperation(), a);
+    mlir::Region &rb = regionHolding(branch.getOperation(), b);
+    return &ra != &rb && !entersAfter(branch, ra, rb) && !entersAfter(branch, rb, ra);
+  }
+  return false;
+}
+
 // Whether `use`, an op, may run after `call` on some path: later in a block
 // that holds the call, anywhere in a region that runs again around it, or
-// in a region of a branch that is not an alternative to the call's.
+// in a region of a branch that the branch may enter once the call's region
+// has run (a join region after the body that jumps to it, never the body
+// after one of its join regions, nor one alternative after another).
 inline bool runsAfter(mlir::Operation *use, mlir::Operation *call) {
   for (mlir::Operation *at = call; at && !llvm::isa<FuncOp>(at); at = at->getParentOp()) {
     if (mlir::Operation *holder = at->getBlock()->findAncestorOpInBlock(*use)) {
       if (holder != at)
         return at->isBeforeInBlock(holder);
-      return !mlir::insideMutuallyExclusiveRegions(use, call);
+      // Essential, the ops whose order their regions answer: a region
+      // branch holding the two in two of its regions; otherwise (the use the
+      // op that holds the call, or blocks of one region) only an
+      // alternative is known not to follow.
+      auto branch = llvm::dyn_cast<mlir::RegionBranchOpInterface>(at);
+      if (branch && use != at && call != at) {
+        mlir::Region &from = regionHolding(at, call);
+        mlir::Region &to = regionHolding(at, use);
+        if (&from != &to)
+          return entersAfter(branch, from, to);
+      }
+      return !alternatives(use, call);
     }
     mlir::Operation *parent = at->getParentOp();
     if (parent && repeats(parent) && parent->isAncestor(use))
       return true;
   }
+  return false;
+}
+
+// Whether `op` may run again on the one value `value`: an op that repeats
+// encloses `op` but not where `value` is defined.
+inline bool runsAgainOn(mlir::Operation *op, mlir::Value value) {
+  mlir::Region *home = value.getParentRegion();
+  for (mlir::Region *region = op->getParentRegion(); region && !region->isAncestor(home);
+       region = region->getParentRegion())
+    if (repeats(region->getParentOp()))
+      return true;
   return false;
 }
 
