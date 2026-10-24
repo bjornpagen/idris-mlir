@@ -2689,6 +2689,16 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   lemma's induction over the model's walk alone, this deletes
   `Finite.unsound`, `heightWithin`, `sizedWithin`, `Types.boundsHold` and
   the translation's own request computation.
+- **C282** (2026-10-23; L16en's finding, under C277: a weaker claim is
+  always sound). A value built of fields takes from a field the claim
+  that field's value holds only where that value is used once, its
+  reference moving into the new value; a field whose value is used many
+  times gives no claim (`None`), since its cell is reached by its other
+  uses as well (`(xs, xs)` claimed `unique deep` over a list both fields
+  reach). The rule is the specification's `freshClaim`, its proof reading
+  the field at its uses, which the frontend and the dialect's builder
+  both ask; a claim lost here is raised later only where exclusivity
+  proves it (`idr-unique-results`).
 - **C251** (2026-10-22; the §6 check). §6's "grep finds no remaining
   reference" counts code, tests' expected behaviour, generated files and
   current documentation. It does not count history kept on purpose:
