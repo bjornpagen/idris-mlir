@@ -293,13 +293,25 @@ FailureOr<std::optional<Nodes::Grant>> Nodes::request(FunctionId requester, Requ
   Key key = *judged;
   // A copy the decisions of the component it joined gave other results
   // than its key says was converted at every call made of it then, each
-  // caller re-graded between waves; a call made of it now would change
-  // what its caller reads in the middle of a turn, so it is refused, as a
-  // key that grows one is, and nothing is asked.
-  if (const Node *made = known(key);
-      made && idr::match(
-                  made->restated, [](ResultsChanged) { return true; },
-                  [](const OneOf<AsKeyed, ParametersLowered> auto &) { return false; }))
+  // caller re-graded between waves. A signature key states the results its
+  // caller reads, and its want was judged against those its copy gives now
+  // (signatureOf), so its call is made at them (Node::signature). A pattern
+  // key's caller reads its owner's results and a raise key's its
+  // dispatch's, which such a copy no longer gives: a call made of it now
+  // would change what its caller reads in the middle of a turn, so it is
+  // refused, as a key that grows one is, and nothing is asked. Essential:
+  // the two read their results by two rules.
+  auto readsOthers = [&](const Node &made) {
+    return idr::match(
+        made.restated,
+        [&](const ResultsChanged &) {
+          return idr::match(
+              key, [](const SignatureKey *) { return false; },
+              [](OneOf<const PatternKey *, const RaiseKey *> auto) { return true; });
+        },
+        [](const OneOf<AsKeyed, ParametersLowered> auto &) { return false; });
+  };
+  if (const Node *made = known(key); made && readsOthers(*made))
     return std::optional<Grant>();
 
   FunctionId owner = ownerOf(key);
@@ -466,13 +478,19 @@ void Nodes::dropped(FunctionId fn, const llvm::BitVector &unread) {
 void Nodes::restate(FunctionId fn, mlir::FunctionType before, mlir::FunctionType after) {
   Node *node = state->placedAt(fn);
   assert(node && "only a copy has a key whose signature its decisions restate");
+  assert(idr::match(
+             node->restated, [](AsKeyed) { return true; },
+             [&](const OneOf<ParametersLowered, ResultsChanged> auto &earlier) {
+               return earlier.type == before;
+             }) &&
+         "a copy's decisions restate the signature they restated before");
   // Results the decisions left as they were are still its key's, unless an
   // earlier decision changed them already.
   node->restated = idr::match(
-      node->restated, [](ResultsChanged changed) -> Restated { return changed; },
+      node->restated, [&](const ResultsChanged &) -> Restated { return ResultsChanged{after}; },
       [&](const OneOf<AsKeyed, ParametersLowered> auto &) -> Restated {
         if (before.getResults() != after.getResults())
-          return ResultsChanged{};
+          return ResultsChanged{after};
         return ParametersLowered{after};
       });
 }

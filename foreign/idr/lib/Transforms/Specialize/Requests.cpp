@@ -120,14 +120,16 @@ IndexArgsAttr keptArgs(MLIRContext *ctx, IndexArgsAttr call, IndexArgsAttr class
 // What `call`, redirected to the copy `made`, the node a granted key names
 // (none for one the table has not made yet), passes, from the key's
 // signature `type` and the operands the key would pass, which become those
-// it passes. Where the decisions of the component the copy joined lowered
-// its parameters (ParametersLowered; a copy whose results they changed is
-// granted no more), they are at the holds that component passes: an
-// operand that claims more than one is shared down to it before the call,
-// as every call of a lowered parameter is, a claim no key may raise; one
-// that differs otherwise (static data where the copy counts) crosses at
-// the copy's hold until the copy is final and its own copy is keyed to it,
-// or the caller's edges are made exact. Then each but those at the
+// it passes. Where the decisions of the component the copy joined restated
+// its signature, the call is made at theirs (Node::signature): its results
+// as they left them, which a signature key's want was judged against
+// (signatureOf; a pattern or raise key whose copy's results they changed
+// is not granted), and its parameters at the holds that component passes:
+// an operand that claims more than one is shared down to it before the
+// call, as every call of a lowered parameter is, a claim no key may raise;
+// one that differs otherwise (static data where the copy counts) crosses
+// at the copy's hold until the copy is final and its own copy is keyed to
+// it, or the caller's edges are made exact. Then each but those at the
 // parameters the node says its copy no longer takes, which dropUnread
 // erased when the copy's component became final. A copy not final yet
 // takes them all; a call of it made now loses them with its callers' when
@@ -136,9 +138,9 @@ FunctionType passing(CallOp call, const Node *made, FunctionType type,
                      SmallVectorImpl<Value> &operands) {
   if (made)
     idr::match(
-        made->restated,
-        [&](const ParametersLowered &lowered) {
-          type = lowered.type;
+        made->restated, [](AsKeyed) {},
+        [&](const OneOf<ParametersLowered, ResultsChanged> auto &restated) {
+          type = restated.type;
           OpBuilder b(call);
           for (auto [operand, input] : llvm::zip_equal(operands, type.getInputs())) {
             std::optional<Hold> given = holdOf(operand.getType());
@@ -146,11 +148,6 @@ FunctionType passing(CallOp call, const Node *made, FunctionType type,
             if (given && asked && given->claim() != asked->claim() && given->fits(*asked))
               operand = heldAs(b, call.getLoc(), operand, atHold(operand.getType(), *asked));
           }
-        },
-        [](AsKeyed) {},
-        [](ResultsChanged) {
-          llvm_unreachable("a copy whose results its component's decisions changed is granted no "
-                           "more");
         });
   if (!made || made->unread.none())
     return type;
@@ -240,9 +237,8 @@ FailureOr<unsigned> redirectCalls(FuncOp fn, optimize::Schedule &schedule, Nodes
     FailureOr<std::optional<Want>> want = std::optional<Want>();
     if (std::optional<optimize::Readable> known = schedule.final(*callee)) {
       CallSite site = siteOf(schedule, self, requester, *callee);
-      want = decide(nodes.arena(), nodes.forms(), call, requester, known->fn, *callee,
-                    nodes.find(*callee), schedule.callees.of(*callee),
-                    seenBy(site, *known), site, standingOf(call));
+      want = decide(nodes, call, requester, known->fn, *callee, nodes.find(*callee),
+                    schedule.callees.of(*callee), seenBy(site, *known), site, standingOf(call));
     } else if (schedule.sameComponent(self, *callee)) {
       // The beta step: closures built for this call alone, applied to a
       // member of the component, keyed by those closures, so their cells

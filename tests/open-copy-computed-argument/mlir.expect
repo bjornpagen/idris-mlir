@@ -1,0 +1,4 @@
+# Where n is 4, f and h each end in a call of g, whose four strings g lays
+# out otherwise than they return theirs: each calls the copy of g keyed to
+# the open layout, the one copy both ask for, so each call is a tail call.
+owned: tail-calls=@Main.f:@Main.g tail-calls=@Main.h:@Main.g

@@ -51,18 +51,22 @@ struct Placed {
 using Phase = std::variant<Requested, Built, Placed>;
 
 // What the decisions of the component a copy joined made of its key's
-// signature, between waves: nothing; its parameters lowered to what that
-// component passes, its results its key's, which a call made of it after
-// passes, each operand that claims more shared down to it; or its results
-// changed too (a result lowered to the hold its return then gives), which
-// every call made of it then was converted to, and which a caller taken up
-// after it would read otherwise than its key says, so its key is granted no
-// more. Holds only descend, so results once changed stay changed.
+// signature, between waves, each with the signature they gave it, at which
+// every call made of it after is made: nothing, its signature its key's;
+// its parameters lowered to what that component passes, its results its
+// key's, each operand that claims more shared down to it at a call; or its
+// results changed too (a result lowered to the hold its return then gives),
+// which every call made of it then was converted to, and which a call made
+// of it after gives its caller. Holds only descend, so each restatement
+// claims no more than the one before, and results once changed stay
+// changed.
 struct AsKeyed {};
 struct ParametersLowered {
   mlir::FunctionType type;
 };
-struct ResultsChanged {};
+struct ResultsChanged {
+  mlir::FunctionType type;
+};
 using Restated = std::variant<AsKeyed, ParametersLowered, ResultsChanged>;
 
 struct Node {
@@ -110,6 +114,15 @@ struct Node {
   // What the decisions of the component it joined made of its key's
   // signature, at its key's positions, before any parameter goes unread.
   Restated restated = AsKeyed{};
+
+  // The signature its copy has, at its key's positions, before any
+  // parameter goes unread: `keyed`, the one its key gives the copy, until
+  // the decisions of the component it joined restate it.
+  mlir::FunctionType signature(mlir::FunctionType keyed) const {
+    return idr::match(
+        restated, [&](AsKeyed) { return keyed; },
+        [](const OneOf<ParametersLowered, ResultsChanged> auto &given) { return given.type; });
+  }
 };
 
 // The consumer forms raising has met: each a detached function, interned
@@ -201,9 +214,13 @@ public:
   // The copy `want`'s key names for `requester`, judged on its own state
   // and what the table holds, and asked of `state`: the table is not
   // written. None where the key grows one given before, a lift leaves no
-  // structure, or the key's copy gives other results than its key says
-  // (ResultsChanged): the call stays a call, and nothing is asked. A name
-  // another key's node holds is an internal error, emitted at `at`.
+  // structure, or a pattern or raise key names a copy whose results the
+  // decisions of its component changed (ResultsChanged), which its caller,
+  // reading its owner's results or its dispatch's, does not read: the call
+  // stays a call, and nothing is asked. A signature key's want was judged
+  // against the results its copy gives now (Node::signature), and its call
+  // is made at them. A name another key's node holds is an internal error,
+  // emitted at `at`.
   struct Grant {
     Asked asked;
     const PatternKey *key;
@@ -234,8 +251,9 @@ public:
   void dropped(FunctionId fn, const llvm::BitVector &unread);
   // Between waves, as the schedule takes up the component of `fn`, a copy:
   // the decisions changed its signature from `before` to `after`, which its
-  // node keeps (Restated) for every request of its key made after. A hold
-  // only descends, so each restatement claims no more than the one before.
+  // node keeps (Restated) for every request of its key made after, whose
+  // call is made at `after`. A hold only descends, so each restatement
+  // claims no more than the one before.
   void restate(FunctionId fn, mlir::FunctionType before, mlir::FunctionType after);
   // Once no turn runs: each placed copy's kind written on its function,
   // where the inline verdict reads it after the run.

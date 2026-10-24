@@ -1021,10 +1021,12 @@ void keyCalls(const optimize::Schedule &schedule, FuncOp fn) {
 // The result rule for `id` (openedResults), its layouts decided where the
 // program held it and its key's for a copy: its results retyped where its
 // tails or its return no longer agree with them, every call of it
-// converted, and each holder of its component, which may have lost a tail
-// to the cast or had its return re-graded, put on `work` to be decided
-// again; one outside is decided when it is taken up.
-void decideResults(const optimize::Schedule &schedule, FunctionId id,
+// converted, and each holder that may have lost a tail to the cast or had
+// its return re-graded put on `work` to be decided again: each of its
+// component, and, for a copy, each function outside it that asked for it,
+// which a turn took up already and no later take-up decides. A caller
+// outside it is decided when it is taken up, which it waits for.
+void decideResults(const optimize::Schedule &schedule, const Nodes &nodes, FunctionId id,
                    SmallVectorImpl<FunctionId> &work) {
   FuncOp fn = schedule.function(id);
   Spine spine = spineOf(fn);
@@ -1054,8 +1056,12 @@ void decideResults(const optimize::Schedule &schedule, FunctionId id,
                            ? TailKind::tail
                            : tail::withContext(call));
   }
+  const Node *node = nodes.find(id);
+  auto asked = [&](FunctionId holder) {
+    return node && llvm::is_contained(node->askers, holder);
+  };
   for (auto &[holder, held] : calls)
-    if (schedule.sameComponent(holder, id))
+    if (schedule.sameComponent(holder, id) || asked(holder))
       work.push_back(holder);
 }
 
@@ -1084,12 +1090,14 @@ void openResults(optimize::Schedule &schedule, Nodes &nodes, ArrayRef<FunctionId
     FunctionType before = fn.getFunctionType();
     lowerParameters(schedule, id);
     keyCalls(schedule, fn);
-    decideResults(schedule, id, work);
+    decideResults(schedule, nodes, id, work);
     passOn(schedule, id, work);
     // A copy whose decisions changed its signature is called as its node
     // says from now on: every call made of it before was converted above,
-    // and a request of its key made after passes the parameters restated,
-    // or is refused where its results changed.
+    // and a request of its key made after is made at the signature
+    // restated, a signature key's where its caller reads its results
+    // (signatureOf), a pattern or raise key's only where they are its
+    // key's.
     if (schedule.originOf(id) != id && fn.getFunctionType() != before)
       nodes.restate(id, before, fn.getFunctionType());
   }

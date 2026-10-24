@@ -312,10 +312,14 @@ void keyGivenBack(identities::FactsView given, llvm::ArrayRef<std::optional<Hold
 //   type gives it.
 // A member of its component that loses a tail to the cast, has its return
 // re-graded or is passed an operand at another hold than its parameter's
-// is decided again in turn. A copy whose signature the decisions changed
-// has it restated on its node (Nodes::restate), which a request of its key
-// made after reads: its parameters lowered, which the call passes, or its
-// results changed, which refuses the request.
+// is decided again in turn, and so is a function outside it that asked for
+// a copy whose results changed, whose call of it was converted. A copy
+// whose signature the decisions changed has it restated on its node
+// (Nodes::restate), at which a request of its key made after is made: its
+// parameters lowered, which the call passes, and its results as restated,
+// which a signature key's caller is judged to read (signatureOf) and a
+// pattern or raise key's caller, reading its owner's results or its
+// dispatch's, does not, so that request is refused.
 void openResults(optimize::Schedule &schedule, Nodes &nodes, llvm::ArrayRef<FunctionId> starters);
 
 // Each edge of `id`, a function whose component is becoming final, that a

@@ -133,12 +133,13 @@ llvm::SmallVector<mlir::Type> keyedResults(FuncOp callee, llvm::ArrayRef<ResultL
 // argument's extent the callee names, as `site` lets a size key it, or it
 // passes an argument at a hold its parameter does not have (each result
 // that argument may reach, by the callee's published facts `given`, keyed
-// with it), or `standing` is a tail lost to a layout; else its raise; else
-// its pattern key.
-mlir::FailureOr<std::optional<Want>> decide(Arena &arena, Forms &forms, CallOp call,
-                                            const Node *requester, FuncOp callee,
-                                            FunctionId calleeId, const Node *calleeNode,
-                                            identities::FactsView given,
+// with it), or `standing` is a tail lost to a layout, judged against what
+// the copy `nodes` holds for its key gives; else its raise; else its
+// pattern key. Keys and forms are interned in `nodes`' arena and table of
+// forms.
+mlir::FailureOr<std::optional<Want>> decide(Nodes &nodes, CallOp call, const Node *requester,
+                                            FuncOp callee, FunctionId calleeId,
+                                            const Node *calleeNode, identities::FactsView given,
                                             llvm::ArrayRef<BindingTime> seen,
                                             const CallSite &site, TailStanding standing);
 
