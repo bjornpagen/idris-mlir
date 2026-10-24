@@ -1658,6 +1658,15 @@ DP-22 to DP-84 and folded in here after the coordinator's review.
   and routes each error to its lane overnight; the toolchain's bootstrap
   and the C++ build on the four targets run on the owner's machines, and
   their failures are routed the same way.
+  *Widened* (2026-10-22, the owner): "you can build everythinrg except
+  for llvm proper. everything else is deferred to my other machine." So
+  this machine builds the whole Idris half (the specification and its
+  generators, the checker, the frontend, the libraries, the harness, the
+  frontend's runs over the fixtures, `make check`) and our C++ against
+  the TableGen-only typecheck toolchain, each lane on its own export;
+  the LLVM build and everything that needs it (our C++ against the
+  assertions-on MLIR, the suites that run our tools) are the owner's
+  other machine's.
 - **D112** (2026-10-22; the owner, on the assertions). "why are we doing
   so many assertions? can we fix a lot of the assertions pls? especially
   for our own compiler. we should strive to prove things rather than
