@@ -305,7 +305,12 @@ E and the design documents: `audits/p0/synthesis/`, `audits/p0/design/`).
   type already knows is never recomputed, re-derived, looked up, tested,
   string-compared, hashed or rebuilt; and a fact some earlier stage knew,
   or could have kept, counts as known: throwing it away and deriving it
-  again is the same violation. A static fact is a compile-time constant
+  again is the same violation. "we need to push so hard on not rederiving
+  data we already have! represnetation first. we keep running into the
+  same spiritual issue over and over again ... let's finally do it this
+  time" (2026-10-23): a fact is carried from where it is first known to
+  every use, in a type or a verified property, never dropped at a
+  boundary and read again past it. A static fact is a compile-time constant
   (generated from the one source, the dialect's Idris specification,
   checked by `static_assert` or
   `consteval`, dispatched by templates and concepts), carried in a type or
