@@ -8,15 +8,15 @@
 // exact: every member of a component reaches every other through calls,
 // so its members share one row, the join of their own parts and of the
 // rows of the components they call. A cycle of ours may run forever unless
-// Idris proved every function on it in one and the same component of its
-// own (provedTogether). A cycle of one, a call of the function itself, is
-// in its own part already, the derivation's reading of the call, so its
-// check holds it too; a cycle of several is the graph's, not any one
-// function's, so the writer adds it and no function's check can. The
-// record follows the same way: a write through a parameter passed on to a
-// callee's written parameter is a write through the caller's; what a
-// callee puts into a lifetime passed on is put into the caller's, with no
-// bound where the call lies on a cycle or in a region that runs again.
+// Idris proved every function on it (everyProved). A cycle of one, a call
+// of the function itself, is in its own part already, the derivation's
+// reading of the call, so its check holds it too; a cycle of several is
+// the graph's, not any one function's, so the writer adds it and no
+// function's check can. The record follows the same way: a write through a
+// parameter passed on to a callee's written parameter is a write through
+// the caller's; what a callee puts into a lifetime passed on is put into
+// the caller's, with no bound where the call lies on a cycle or in a
+// region that runs again.
 //
 // Rows are equal to their derivation right after the writer, and cover it
 // after every other pass. The writer runs where effects change: in

@@ -40,7 +40,7 @@ data IdrType : (ty : Type) -> (at : Type) -> Type where
 public export
 data IdrAttr : (ty : Type) -> (at : Type) -> Type where
   BinderAttr : (definition' : at) -> (index' : Nat) -> IdrAttr ty at
-  TerminatesAttr : (proof' : ComponentProof ty at) -> IdrAttr ty at
+  TerminatesAttr : IdrAttr ty at
   ExtentAttr : (side' : IdrisMLIR.Spec.Functions.Extents.ExtentSide) -> (position' : Nat) -> (axis' : Nat) -> (term' : List (TermNode ty at)) -> IdrAttr ty at
   ExtentsAttr : (entries' : List (at)) -> IdrAttr ty at
   FamilyAttr : (members' : List (MemberOf ty at)) -> IdrAttr ty at
@@ -79,7 +79,7 @@ idrAttrMnemonics = ["binder", "terminates", "extent", "extents", "family", "inde
 export
 idrAttrMnemonic : IdrAttr ty at -> String
 idrAttrMnemonic (BinderAttr _ _) = "binder"
-idrAttrMnemonic (TerminatesAttr _) = "terminates"
+idrAttrMnemonic TerminatesAttr = "terminates"
 idrAttrMnemonic (ExtentAttr _ _ _ _) = "extent"
 idrAttrMnemonic (ExtentsAttr _) = "extents"
 idrAttrMnemonic (FamilyAttr _) = "family"
@@ -189,8 +189,8 @@ terminatesAttrCode = 1
 
 ||| The parts of `TerminatesAttr`: its code, then each parameter.
 export
-encodeTerminatesAttr : ComponentProof TypeRef AttrRef -> List Part
-encodeTerminatesAttr proof' = [VarInt terminatesAttrCode] ++ partsComponentProof proof'
+encodeTerminatesAttr : List Part
+encodeTerminatesAttr = [VarInt terminatesAttrCode]
 
 ||| The code of `ExtentAttr`, its place among the dialect's attributes.
 export
@@ -318,7 +318,7 @@ encodeIdrType (LazyType value') = encodeLazyType value'
 export
 encodeIdrAttr : IdrAttr TypeRef AttrRef -> List Part
 encodeIdrAttr (BinderAttr definition' index') = encodeBinderAttr definition' index'
-encodeIdrAttr (TerminatesAttr proof') = encodeTerminatesAttr proof'
+encodeIdrAttr (TerminatesAttr) = encodeTerminatesAttr
 encodeIdrAttr (ExtentAttr side' position' axis' term') = encodeExtentAttr side' position' axis' term'
 encodeIdrAttr (ExtentsAttr entries') = encodeExtentsAttr entries'
 encodeIdrAttr (FamilyAttr members') = encodeFamilyAttr members'

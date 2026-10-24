@@ -27,9 +27,7 @@ using namespace idr;
 // MLIR holds an absent attribute as null; the absence is the unproved
 // case, turned into it here once, so no reader tests for null.
 Termination idr::FuncOp::getTermination() {
-  if (TerminatesAttr proof = getTerminatesAttr())
-    return proof.getProof();
-  return Unproved{};
+  return getTerminatesAttr() ? Termination::Proved : Termination::Unproved;
 }
 
 //===----------------------------------------------------------------------===//

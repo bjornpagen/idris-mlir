@@ -328,16 +328,16 @@ LogicalResult crashSitesNotAdded(const After &after) {
   return success(held);
 }
 
-// cycle-divergence-kept: every member of a cycle of the program Idris did
-// not prove together holds the cycle's divergence. A function's check reads
-// its body, where a cycle of several shows only through the calls' copies
-// of the other members' rows, so members that all dropped it together pass
-// every check. The writer's own addCycles runs over the rows the module
-// holds, so the rule is read from its one place, and a member whose row it
-// grows lost what its cycle adds. A cycle of one is its function's check's,
-// which reads the self call, and the verifier runs before the contracts.
-// The program graph, which holds the cycles, indexes a first-order program
-// of ours alone.
+// cycle-divergence-kept: every member of a cycle of the program with a
+// member Idris did not prove holds the cycle's divergence. A function's
+// check reads its body, where a cycle of several shows only through the
+// calls' copies of the other members' rows, so members that all dropped it
+// together pass every check. The writer's own addCycles runs over the rows
+// the module holds, so the rule is read from its one place, and a member
+// whose row it grows lost what its cycle adds. A cycle of one is its
+// function's check's, which reads the self call, and the verifier runs
+// before the contracts. The program graph, which holds the cycles, indexes
+// a first-order program of ours alone.
 LogicalResult cycleDivergenceKept(const After &after) {
   ProgramOp program = expect::firstOrderProgram(after.module);
   if (!program)
@@ -447,8 +447,8 @@ struct OutsideCycle {
 
 static_assert(rows::CallReader<OutsideCycle>);
 
-// cycle-divergence-kept, broken: the first cycle, callees first, that Idris
-// did not prove together and whose members may run forever by the cycle
+// cycle-divergence-kept, broken: the first cycle, callees first, with a
+// member Idris did not prove and whose members may run forever by the cycle
 // alone loses its divergence, from every member's row and from every call
 // of a member. Each member's body then derives none and each call holds
 // its callee's row, so every function's check holds, a caller's outside
@@ -465,7 +465,7 @@ void breakCycleDivergenceKept(ProgramOp program, AnalysisManager analyses) {
       continue;
     auto members = llvm::map_range(graph.members(component),
                                    [&](solver::FunctionId f) { return graph.op(f); });
-    if (rows::provedTogether(members))
+    if (rows::everyProved(members))
       continue;
     OutsideCycle reader{graph, component, {}};
     if (llvm::any_of(members, [&](FuncOp fn) {

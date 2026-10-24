@@ -11,20 +11,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
-#include <variant>
 
 // what Idris proved of a function's own loops
-// One struct per case, holding what the case holds, and their variant,
-// in the cases' order.
 
 namespace idr {
 
-// a termination's case, the alternative of `Termination` it is
-enum class TerminationCase : std::uint8_t {
-  // Idris did not prove the function's loops end: a function without the attribute
+// what Idris proved of a function's own loops, the attribute read
+enum class Termination : std::uint8_t {
+  // Idris did not prove the function ends: a function without the attribute
   Unproved,
-  // Idris proved its loops end, in the component of its call graph with this number
-  InComponent,
+  // Idris proved every call of the function ends: a function with the attribute
+  Proved,
 };
 
 
@@ -33,29 +30,10 @@ enum class TerminationCase : std::uint8_t {
 namespace idr {
 
 template <>
-struct EnumTraits<::idr::TerminationCase> {
+struct EnumTraits<::idr::Termination> {
   static constexpr std::size_t count = 2;
-  static constexpr std::array<std::string_view, 2> names{{"unproved", "in_component"}};
+  static constexpr std::array<std::string_view, 2> names{{"unproved", "proved"}};
 };
-
-
-} // namespace idr
-
-namespace idr {
-
-// Idris did not prove the function's loops end: a function without the attribute
-struct Unproved {
-  bool operator==(const Unproved &) const = default;
-};
-
-// Idris proved its loops end, in the component of its call graph with this number
-struct InComponent {
-  uint32_t component;
-  bool operator==(const InComponent &) const = default;
-};
-
-// what is known of a function's own loops, the attribute read
-using Termination = std::variant<Unproved, InComponent>;
 
 
 } // namespace idr

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Bjorn Pagen
 // What idr.func and idr.call hold beyond their generated classes, which the
 // specification's attributes and properties name, so it comes before them:
-// what Idris proved of a function's own loops, the specification's variant
+// what Idris proved of a function's own loops, the specification's enum
 // (Generated/Termination.h.inc), the bound a function puts into a lifetime
 // parameter, where each scoped parameter and result lives, the index term
 // each unknown axis of its signature's shapes is, and which part of a
@@ -46,11 +46,9 @@
 
 // What Idris proved of a function's own loops, the attribute read: whether
 // a loop a pass makes of its code may not end (joins::endingOf), and
-// whether a cycle of calls through it does (rows::provedTogether). The
-// specification's `Termination`, a variant of one struct per case:
-// `Unproved`, a function without `#idr.terminates`, and `InComponent`, the
-// component of its call graph Idris proved the loops in, which the
-// attribute holds, so none can claim an empty proof.
+// whether a cycle of calls through it does (rows::everyProved). The
+// specification's `Termination`, an enum: `Unproved`, a function without
+// `#idr.terminates`, and `Proved`, one with it.
 #include "idr/IR/Generated/Termination.h.inc"
 
 namespace idr {

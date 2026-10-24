@@ -191,13 +191,8 @@ bool isMemoState(::mlir::Type value);
 // The default of GuardOpInterface::getGuarded.
 ::mlir::Value guardedOperand(::mlir::Operation *self);
 
-::llvm::hash_code hash_value(const ::idr::InComponent &value);
-
 ::mlir::FailureOr<::idr::LifetimeKind> parseLifetimeKind(::mlir::AsmParser &parser);
 void printLifetimeKind(::mlir::AsmPrinter &printer, ::idr::LifetimeKind value);
-
-::mlir::FailureOr<::idr::InComponent> parseProof(::mlir::AsmParser &parser);
-void printProof(::mlir::AsmPrinter &printer, ::idr::InComponent value);
 
 ::mlir::FailureOr<::llvm::SmallVector<::idr::PutBound>> parsePutBounds(::mlir::AsmParser &parser);
 void printPutBounds(::mlir::AsmPrinter &printer, ::llvm::ArrayRef<::idr::PutBound> value);

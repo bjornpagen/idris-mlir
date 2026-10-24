@@ -563,13 +563,12 @@ sortsOf (MkTargetF _ _ sorts _ _ _) = sorts
 
 ||| What begins each join region of an `idr.loop`, a region that may run
 ||| again: `idr.may_loop`, the divergence of a region repeated for ever,
-||| unless Idris proved that every loop through the function stays in the
-||| one component it names, whose calls decrease.
+||| unless Idris proved that every call of the function ends.
 repeats : Loc -> E ()
 repeats l = do
   t <- gets (.termination)
   case t of
-    InComponent _ => pure ()
+    Proved => pure ()
     Unproved => statement l Idr.mayLoopOp
 
 ||| A join op, by its member's builder: its body, a region entered once,

@@ -114,7 +114,7 @@ void rows::writeComponent(std::span<const solver::Member> members, const solver:
   for (const Own &mine : own)
     row = row | mine.derived.atoms | writesElsewhere(mine.sites, nodes, written);
   if (isCycle(own, [](const Own &lone) { return !lone.sites.empty(); }) &&
-      !provedTogether(llvm::map_range(members, [](const solver::Member &m) { return m.fn; })))
+      !everyProved(llvm::map_range(members, [](const solver::Member &m) { return m.fn; })))
     row = row | effects::Row{effects::Atom::divergence};
 
   // The members' amounts: a put passed on to a member lies on the cycle.

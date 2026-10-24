@@ -87,7 +87,6 @@ modules = IdrisMLIR.Registry.Name
         , IdrisMLIR.Frontend.Translate.Shapes
         , IdrisMLIR.Frontend.Translate.Keys
         , IdrisMLIR.Frontend.Translate.Types
-        , IdrisMLIR.Frontend.Translate.Recursion
         , IdrisMLIR.Frontend.Translate.Instances
         , IdrisMLIR.Frontend.Translate.Choices
         , IdrisMLIR.Frontend.Translate.Primitives

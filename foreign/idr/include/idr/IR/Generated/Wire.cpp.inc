@@ -186,17 +186,6 @@ void writeLifetimeKindOf(::mlir::DialectBytecodeWriter &writer, const ::idr::Lif
       });
 }
 
-// Idris proved the loops end in this component of its call graph
-::mlir::LogicalResult readComponentProof(::mlir::DialectBytecodeReader &reader, ::idr::InComponent &value) {
-  if (::mlir::failed(readWord32(reader, value.component)))
-    return ::mlir::failure();
-  return ::mlir::success();
-}
-
-void writeComponentProof(::mlir::DialectBytecodeWriter &writer, const ::idr::InComponent &value) {
-  writer.writeVarInt(value.component);
-}
-
 // a put parameter's position among them and its bound in bytes
 ::mlir::LogicalResult readPutBound(::mlir::DialectBytecodeReader &reader, ::idr::PutBound &value) {
   if (::mlir::failed(readWord32(reader, value.parameter)))
@@ -691,19 +680,6 @@ void writeLifetimeKind(::mlir::DialectBytecodeWriter &writer, ::idr::LifetimeKin
   writeLifetimeKindOf(writer, value);
 }
 
-// a termination proof: `component <n>`
-::mlir::LogicalResult readProof(::mlir::DialectBytecodeReader &reader, ::idr::InComponent &value) {
-  return readComponentProof(reader, value);
-}
-
-void writeProof(::mlir::DialectBytecodeWriter &writer, ::idr::InComponent value) {
-  writeComponentProof(writer, value);
-}
-
-::llvm::hash_code hash_value(const ::idr::InComponent &value) {
-  return ::llvm::hash_combine(value.component);
-}
-
 // the bounded put parameters: `[0: 64, 2: 128]`
 ::mlir::LogicalResult readPutBounds(::mlir::DialectBytecodeReader &reader, Kept<::idr::PutBound> &value) {
   auto each = [&](::idr::PutBound &element) -> ::mlir::LogicalResult {
@@ -859,18 +835,5 @@ void writeCalleeRef(::mlir::DialectBytecodeWriter &writer, ::mlir::FlatSymbolRef
 
 void writeCaptures(::mlir::DialectBytecodeWriter &writer, ::mlir::ArrayAttr value) {
   writer.writeAttribute(value);
-}
-
-::mlir::FailureOr<::idr::InComponent> parseProof(::mlir::AsmParser &parser) {
-  ::idr::InComponent value{};
-  if (::mlir::failed(parser.parseKeyword("component")))
-    return ::mlir::failure();
-  if (::mlir::failed(parser.parseInteger(value.component)))
-    return ::mlir::failure();
-  return value;
-}
-
-void printProof(::mlir::AsmPrinter &printer, ::idr::InComponent value) {
-  printer << "component " << value.component;
 }
 

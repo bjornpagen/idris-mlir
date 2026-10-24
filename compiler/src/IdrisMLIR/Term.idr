@@ -1624,15 +1624,15 @@ data Standing = OwnFunction | LocalDefinition LocalValue
 ||| signature's tensors is (`Extents`); the name Idris gave each runtime
 ||| parameter; its body; and what Idris proved of its loops (the
 ||| specification's `Termination`, which the dialect's attribute and C++
-||| read): every loop through it is a loop of the one Idris component (its
-||| strongly connected component of Idris's call graph) numbered, whose
-||| size-change graphs decrease, or no proof covers a loop through it,
-||| which may then run for ever. A function another one's lambda or delay
-||| became takes its owner's; one the frontend made with no definition of
-||| its own (the program's root, a dispatch, a member at a use) has no
-||| proof, since only a loop through it asks and no component of Idris's
-||| holds that loop. Its projections are postfix only: a prefix `extents`
-||| would be `Shapes.extents` too.
+||| read): Idris's termination checker's verdict on its definition, which
+||| follows every call, so that every call of a proved function ends, a
+||| loop or a cycle of calls through it among them; or no proof, and a
+||| loop through it may run for ever. A function another one's lambda or
+||| delay became takes its owner's; one the frontend made with no
+||| definition of its own (the program's root, a dispatch, a member at a
+||| use) has no proof, since only a loop through it asks and no verdict of
+||| Idris's covers that loop. Its projections are postfix only: a prefix
+||| `extents` would be `Shapes.extents` too.
 public export
 record TFn where
   constructor MkTFn
@@ -1926,16 +1926,18 @@ mutual
 
 ||| What Idris proved of a function's loops once the join regions of the
 ||| local definitions it holds are part of it: a loop of one that is not
-||| proved to end is now a loop of the function's.
+||| proved to end is now a loop of the function's. The checker's verdict on
+||| the function follows its calls, but not one `assert_total` hides from
+||| it, so a function proved to end may hold a local definition that is
+||| not.
 export
 withRegions : Termination -> List TFn -> Termination
 withRegions t [] = t
 withRegions t (m :: ms) = withRegions (both t m.termination) ms
   where
     both : Termination -> Termination -> Termination
+    both Proved region = region
     both Unproved _ = Unproved
-    both _ Unproved = Unproved
-    both own _ = own
 
 ||| A group of families: a strongly connected component of the graph of
 ||| family instances whose fields refer to each other (`Rose`'s `List (Rose

@@ -57,14 +57,6 @@ record ConId (tags : Nat) where
   family : FamilyId
   index : Fin tags
 
-||| A strongly connected component of Idris's own call graph, whose
-||| size-change graphs Idris keeps: by its place in the table of components
-||| the translation has checked, minted once per component.
-public export
-record ComponentId where
-  constructor MkComponentId
-  index : Nat
-
 ||| An Idris name as it is printed: what the compiler reports, never what it
 ||| compares. It has `Show` and no `Eq`, so code outside the registry can
 ||| name a definition in a message but cannot key behaviour on it.
@@ -185,9 +177,6 @@ export Ord (ConId tags) where compare a b = compare (a.family, a.index) (b.famil
 -- The identity, for the compiler's own errors: what a user or a test reads
 -- names a constructor by `Con.name`.
 export Show (ConId tags) where show c = show c.family ++ "#" ++ show (finToNat c.index)
-
-export Eq ComponentId where a == b = a.index == b.index
-export Ord ComponentId where compare a b = compare a.index b.index
 
 ------------------------------------------------------------------------------
 -- Names from content

@@ -18,11 +18,11 @@
 // end begins each region it repeats with idr.may_loop, which goes wherever
 // a pass moves the loop; a call of the function itself closes a cycle of
 // one, whose divergence the fold reads off Idris's proof of the function
-// (provedTogether), since the call's row is the function's own and cannot
-// vouch for it; and the divergence of a cycle of several functions Idris
-// did not prove together the writers join into each member's row, from
-// which every call of a member takes it. A cycle of several is the program
-// graph's, which no function's body shows.
+// (everyProved), since the call's row is the function's own and cannot
+// vouch for it; and the divergence of a cycle of several functions, some
+// member of which Idris did not prove, the writers join into each member's
+// row, from which every call of a member takes it. A cycle of several is
+// the program graph's, which no function's body shows.
 //
 // Two refinements keep a row to what a caller can see: an effect on memory
 // the function acquired itself (allocated on the heap or in its frame) is
@@ -46,7 +46,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Layout.h"
 #include "idr/IR/Regions.h"
-#include "idr/Support/Match.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
@@ -58,7 +57,6 @@
 
 #include <concepts>
 #include <cstdint>
-#include <iterator>
 #include <optional>
 #include <variant>
 
@@ -85,20 +83,17 @@ effects::Told told(FuncOp fn);
 // The derivation
 //===----------------------------------------------------------------------===//
 
-// Whether every function of a cycle was proved by Idris in one and the same
-// component of its own, the one way a cycle of ours is known to end: read of
-// a cycle of one by the fold, of a cycle of the program graph by the
-// writers, and of a loop made of calls by the pass that makes it.
+// Whether Idris proved every function of a cycle to end, the one way a
+// cycle of ours is known to end: its checker's verdict that a function ends
+// covers every run of it, through whatever it calls, so a cycle that
+// specialization and defunctionalization make of functions it proved ends
+// with them. Read of a cycle of one by the fold, of a cycle of the program
+// graph by the writers, and of a loop made of calls by the pass that makes
+// it.
 template <class Members>
-bool provedTogether(Members &&members) {
-  FuncOp first = *std::begin(members);
-  return idr::match(
-      first.getTermination(), [](Unproved) { return false; },
-      [&](InComponent in) {
-        return llvm::all_of(members, [&](FuncOp fn) {
-          return fn.getTermination() == Termination{in};
-        });
-      });
+bool everyProved(Members &&members) {
+  return llvm::all_of(members,
+                      [](FuncOp fn) { return fn.getTermination() == Termination::Proved; });
 }
 
 // Where an effect on a value lands, for the row of the function it is in:

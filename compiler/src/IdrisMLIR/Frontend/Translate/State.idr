@@ -1046,13 +1046,6 @@ Modules = SortedMap ModuleIdent LoadedModule
 -- function beside it.
 %prefix_record_projections off
 
-||| Whether Idris proved that every call of a definition ends: its
-||| termination check's verdict, which follows everything the definition
-||| calls, read once (`Boundary`). A constructor ends: applying one runs
-||| nothing.
-public export
-data Ends = ProvedToEnd | NotProvedToEnd
-
 ||| What a value of a type, held at run time, is to the choices
 ||| (`Choices`): a member of its type's choice whatever an instance
 ||| substitutes (an implementation's type, a polymorphic function's); never
@@ -1110,8 +1103,8 @@ record ExitTypes where
 ||| A definition of the frozen context as the translation reads it, each
 ||| part read once (`Boundary`): its place, the definition, its type as the
 ||| context's accessor reads it, its body when it matches (`Matched`),
-||| whether Idris proved it ends (`Ends`), what the registry makes of it
-||| (`Registered`), the hook that lowers its calls, read against its type
+||| whether Idris proved it ends (`Termination`), what the registry makes
+||| of it (`Registered`), the hook that lowers its calls, read against its type
 ||| and its library functions' definitions (`Resolve.Lowered`), for an
 ||| exit (`Hook.Exits`) what Idris's types say of the `believe_me` it ends
 ||| with (`ExitTypes`), where its values are members of a choice
@@ -1129,7 +1122,7 @@ record DefinitionRead (facts : Type) where
   def : GlobalDef
   type : ClosedTerm
   matched : Maybe Matched
-  ends : Ends
+  ends : Termination
   registered : Registered
   loweredBy : Maybe (Lowered CheckedLibrary)
   exitTypes : Maybe ExitTypes
@@ -1197,16 +1190,13 @@ data WalkedName = NamedByWalk String | NotWalked
 
 ||| What follows of a definition from the whole program's definitions,
 ||| found once from all of them, before any phase reads one
-||| (`TypeConstructors.readWhole`): its facts as a type constructor, what
-||| the walk that names blocks calls it, and what Idris proved of its
-||| loops, the component it is proved to end in or, with no proof, that it
-||| may diverge.
+||| (`TypeConstructors.readWhole`): its facts as a type constructor, and
+||| what the walk that names blocks calls it.
 public export
 record Nature where
   constructor MkNature
   asTypeConstructor : AsTypeConstructor
   called : WalkedName
-  termination : Termination
 
 ||| A definition as every phase after the boundary reads it: with what the
 ||| whole program's definitions say of it (`Nature`).
@@ -1399,18 +1389,15 @@ pairTypeIn r = (.pairAddress) <$> r.pair
 ||| What follows of a definition from the whole program's definitions,
 ||| read off what was found from all of them, each by address: the type
 ||| constructors' facts, a table that holds a type constructor's and no
-||| other's (`TypeConstructors`); what the walk that names blocks calls each
-||| definition it entered (`Boundary.blockNamesOf`); and the component each
-||| definition whose loops Idris proved to end is proved in (`Recursion`),
-||| one with no proof one that may diverge, whatever left it unproved.
+||| other's (`TypeConstructors`); and what the walk that names blocks calls
+||| each definition it entered (`Boundary.blockNamesOf`).
 export
 natureFrom : (tyCons : SortedMap Address TyConFacts) -> (called : SortedMap Address String) ->
-             (proved : SortedMap Address ComponentId) -> DefinitionRead facts -> Nature
-natureFrom tyCons called proved d =
+             DefinitionRead facts -> Nature
+natureFrom tyCons called d =
   let a = addressOf d.placement in
   MkNature (maybe NoTypeConstructor ATypeConstructor (lookup a tyCons))
            (maybe NotWalked NamedByWalk (lookup a called))
-           (maybe Unproved (\c => InComponent c.index) (lookup a proved))
 
 ||| The reading with every definition given what the whole program's
 ||| definitions say of it (`nature`), the entry as every other.

@@ -591,14 +591,16 @@ rootOf d = climb start (sizeAccessible start) d
 ||| Did Idris prove that every call of a definition ends? Its termination
 ||| check's verdict, read once at the boundary (`Defined.ends`), which
 ||| follows everything the definition calls, so a reduction through such a
-||| definition ends by Idris's proof. Idris checks a block as part of the
-||| definition it belongs to, whose calls the block's are, so a block ends
-||| when that definition does too.
-endsOf : Defined -> Front Ends
+||| definition ends by Idris's proof, and so does every run of a function
+||| translated from it. Idris checks a block as part of the definition it
+||| belongs to, whose calls the block's are, so a block ends when that
+||| definition does too.
+export
+endsOf : Defined -> Front Termination
 endsOf d = do
   owner <- rootOf d
   pure (case (d.ends, owner.ends) of
-          (ProvedToEnd, NotProvedToEnd) => NotProvedToEnd
+          (Proved, Unproved) => Unproved
           (own, _) => own)
 
 ||| The definitions a term refers to, each once, in the order first met.
@@ -648,8 +650,8 @@ partialIn tm = firstOf (functionsIn tm)
     firstOf (n :: ns) = do
       Just d <- defined n
         | Nothing => firstOf ns
-      ProvedToEnd <- endsOf d
-        | NotProvedToEnd => pure (Just (fullname d.def))
+      Proved <- endsOf d
+        | Unproved => pure (Just (fullname d.def))
       firstOf ns
 
 ||| A closed term as written, its metavariables filled in, normalised by

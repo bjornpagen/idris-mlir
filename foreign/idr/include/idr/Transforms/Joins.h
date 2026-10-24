@@ -64,17 +64,17 @@ struct Edge {
 };
 
 // Whether the group's repetition, where its jumps form a cycle, is known to
-// end: Idris proved together every function whose code its members are
-// (endingOf), the pass that made it bounds its turns, or no member jumps to
-// a member, so nothing repeats; or it may run forever, and each join region
-// of the loop the group makes begins with idr.may_loop.
+// end: Idris proved every function whose code its members are (endingOf),
+// the pass that made it bounds its turns, or no member jumps to a member,
+// so nothing repeats; or it may run forever, and each join region of the
+// loop the group makes begins with idr.may_loop.
 enum class Ending : std::uint8_t { Ends, MayNotEnd };
 
 // The ending of a group whose members are the code of `functions`, one at
 // least: Idris's one proof that a cycle of ours ends, every function on it
-// proved in one and the same component of its own, the proof the writer of
-// rows reads of a cycle of calls (rows::provedTogether). A cycle of
-// calls that becomes a cycle of jumps keeps the divergence it had.
+// proved, the proof the writer of rows reads of a cycle of calls
+// (rows::everyProved). A cycle of calls that becomes a cycle of jumps
+// keeps the divergence it had.
 Ending endingOf(llvm::ArrayRef<FuncOp> functions);
 
 // An op that becomes a jump to member `target`: the last op of its block

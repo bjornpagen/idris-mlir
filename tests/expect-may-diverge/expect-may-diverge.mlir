@@ -13,7 +13,7 @@ idr.program @rows root(@main) stage(first) {
   idr.func <{row = []}> @main() {
     idr.return
   }
-  idr.func <{row = ["divergence"]}> @spin(%n: i64) -> i64 attributes {terminates = #idr.terminates<component 0>} {
+  idr.func <{row = ["divergence"]}> @spin(%n: i64) -> i64 attributes {terminates = #idr.terminates} {
     %r = idr.loop tokens(%k) -> (i64) attributes {binders = [#idr.index_binders<[]>]} {
       idr.jump %k(%n : i64)
     } join tokens(%again)(%m: i64) {
@@ -32,7 +32,7 @@ idr.program @rows root(@main) stage(first) {
     return %r : i64
   }
   // expected-error @below {{expected may-diverge: }}
-  idr.func <{row = []}> @count(%n: i64) -> i64 attributes {terminates = #idr.terminates<component 1>} {
+  idr.func <{row = []}> @count(%n: i64) -> i64 attributes {terminates = #idr.terminates} {
     %r = idr.loop tokens(%k) -> (i64) attributes {binders = [#idr.index_binders<[]>]} {
       idr.jump %k(%n : i64)
     } join tokens(%again)(%m: i64) {
@@ -50,12 +50,12 @@ idr.program @rows root(@main) stage(first) {
     return %r : i64
   }
   // expected-error @below {{expected may-diverge: }}
-  idr.func <{row = ["crash"]}> @divides(%x: i64, %d: i64) -> i64 attributes {terminates = #idr.terminates<component 2>} {
+  idr.func <{row = ["crash"]}> @divides(%x: i64, %d: i64) -> i64 attributes {terminates = #idr.terminates} {
     %checked = idr.check.nonzero %d, division_by_zero at #idr.site<"Main.idr", 3, 5, "Main.divides"> : (i64) -> i64
     %y = arith.divui %x, %checked : i64
     return %y : i64
   }
-  idr.func <{row = ["divergence"]}> @wind(%n: i64) -> i64 attributes {terminates = #idr.terminates<component 3>} {
+  idr.func <{row = ["divergence"]}> @wind(%n: i64) -> i64 attributes {terminates = #idr.terminates} {
     %r = idr.loop tokens(%k) -> (i64) attributes {binders = [#idr.index_binders<[]>]} {
       idr.jump %k(%n : i64)
     } join tokens(%again)(%m: i64) {
@@ -74,7 +74,7 @@ idr.program @rows root(@main) stage(first) {
     return %r : i64
   }
   // expected-error @unknown {{expected may-diverge: }}
-  idr.func <{row = []}> @wind_1(%n: i64) -> i64 attributes {terminates = #idr.terminates<component 3>} {
+  idr.func <{row = []}> @wind_1(%n: i64) -> i64 attributes {terminates = #idr.terminates} {
     %r = idr.loop tokens(%k) -> (i64) attributes {binders = [#idr.index_binders<[]>]} {
       idr.jump %k(%n : i64)
     } join tokens(%again)(%m: i64) {

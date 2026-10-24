@@ -238,13 +238,13 @@ def Idr_BinderAttr : Idr_Attr<"Binder", "binder", []> {
 def Idr_TerminatesAttr : Idr_Attr<"Terminates", "terminates", []> {
   let summary = "how a function's own loops and recursion are known to end";
   let description = [{
-    On idr.func exactly when Idris proved its loops end, in the component
-    of its call graph named. A cycle of calls through the function, or a
-    loop a pass makes of its code, ends only where every function on it
-    holds the same component; it may run for ever otherwise.
+    On idr.func exactly when Idris proved that every call of it ends. A
+    cycle of calls through the function, or a loop a pass makes of its
+    code, ends where every function on it holds it; it may run for ever
+    otherwise.
   }];
-  let parameters = (ins Idr_HandParameter<"::idr::InComponent", "Proof">:$proof);
-  let assemblyFormat = [{ `<` $proof `>` }];
+  let parameters = (ins);
+  let assemblyFormat = [{  }];
 }
 
 def Idr_PutBoundsAttr : Idr_Attr<"PutBounds", "put_bounds", []> {

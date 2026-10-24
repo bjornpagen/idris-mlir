@@ -8,8 +8,8 @@
 // idr.may_loop where its join region begins), its calls in order, and
 // atoms drawn beyond what its body needs. Each row is the least the one
 // writer of rows would write: those atoms, divergence for a loop that may
-// not end, divergence for every member of a cycle of calls Idris did not
-// prove together, and every atom of each callee's row; every call holds
+// not end, divergence for every member of a cycle of calls with a member
+// Idris did not prove, and every atom of each callee's row; every call holds
 // its callee's row. Then, for every function and every atom, a pass drops
 // the atom from the function's row, or adds it, every call of the function
 // copying the change as the one writer of rows would, and a pass after it
@@ -28,7 +28,6 @@
 #include "idr/IR/IdrDialect.h"
 #include "idr/Support/Changed.h"
 #include "idr/Support/Enum.h"
-#include "idr/Support/Match.h"
 #include "idr/Testing/Draws.h"
 
 #include "mlir/IR/Builders.h"
@@ -66,9 +65,8 @@ enum class Change : std::uint8_t { Drop, Add };
 // prove to end.
 enum class Loop : std::uint8_t { None, Ends, MayNotEnd };
 
-// Whether a cycle of calls is known to end: Idris proved every member in
-// one and the same component of its own, or no call comes back, so nothing
-// repeats; or it may run forever.
+// Whether a cycle of calls is known to end: Idris proved every member, or
+// no call comes back, so nothing repeats; or it may run forever.
 enum class Ending : std::uint8_t { Ends, MayNotEnd };
 
 } // namespace
@@ -132,20 +130,15 @@ struct Shape {
 };
 
 // The one proof that a cycle of ours ends, as the writer of rows reads it:
-// Idris proved every member in one and the same component of its own.
+// Idris proved every member.
 Ending endingOf(const std::vector<idr::Termination> &terminations,
                 const llvm::SmallBitVector &members) {
-  return idr::match(
-      terminations[static_cast<unsigned>(members.find_first())],
-      [](idr::Unproved) { return Ending::MayNotEnd; },
-      [&](idr::InComponent in) {
-        return llvm::all_of(members.set_bits(),
-                            [&](unsigned member) {
-                              return terminations[member] == idr::Termination{in};
-                            })
-                   ? Ending::Ends
-                   : Ending::MayNotEnd;
-      });
+  return llvm::all_of(members.set_bits(),
+                      [&](unsigned member) {
+                        return terminations[member] == idr::Termination::Proved;
+                      })
+             ? Ending::Ends
+             : Ending::MayNotEnd;
 }
 
 // The cycle each function lies on, from the calls' transitive closure:
@@ -178,23 +171,19 @@ std::vector<Cycle> cyclesOf(const std::vector<idr::Termination> &terminations,
 }
 
 // The shape of a seed: two to five functions, each with a proof and a loop
-// as often as the seed's weights say, a proof in a component being in one
-// of as many as the seed allows, one or two, so the members of a cycle are
-// proved together or apart; each making up to as many calls as the seed
-// allows; each an atom beyond its needs as often as the seed says.
+// as often as the seed's weights say, so a cycle's members are all proved
+// or some are not; each making up to as many calls as the seed allows;
+// each an atom beyond its needs as often as the seed says.
 Shape shapeOf(std::uint64_t seed) {
   Draws draws(seed);
   unsigned functions = 2 + draws.below(4);
   unsigned busiest = 1 + draws.below(4);
   unsigned eighths = draws.below(5);
-  unsigned components = 1 + draws.below(2);
-  EnumArray<idr::TerminationCase, unsigned> proofWeights{{1 + draws.below(4), draws.below(4)}};
+  EnumArray<idr::Termination, unsigned> proofWeights{{1 + draws.below(4), draws.below(4)}};
   EnumArray<Loop, unsigned> loopWeights{{1 + draws.below(4), draws.below(4), draws.below(4)}};
   Shape shape;
   for (unsigned f = 0; f < functions; ++f) {
-    EnumArray<idr::TerminationCase, idr::Termination> proofs{
-        {idr::Unproved{}, idr::InComponent{draws.below(components)}}};
-    shape.terminations.push_back(proofs[draws.weighted(proofWeights)]);
+    shape.terminations.push_back(draws.weighted(proofWeights));
     shape.loops.push_back(draws.weighted(loopWeights));
     std::vector<unsigned> callees;
     for (unsigned c = draws.below(busiest); c > 0; --c)
@@ -262,11 +251,11 @@ Verdict covers(const Shape &shape, const std::vector<Row> &rows) {
 
 std::string nameOf(unsigned f) { return "f" + std::to_string(f); }
 
-idr::TerminatesAttr attributeOf(mlir::MLIRContext &context, const idr::Termination &termination) {
-  return idr::match(
-      termination, [](idr::Unproved) { return idr::TerminatesAttr(); },
-      [&](idr::InComponent in) { return idr::TerminatesAttr::get(&context, in); });
-}
+// The attribute each proof is on a function: none where Idris proved
+// nothing.
+constexpr EnumArray<idr::Termination, idr::TerminatesAttr (*)(mlir::MLIRContext &)> attributes{
+    {[](mlir::MLIRContext &) { return idr::TerminatesAttr(); },
+     [](mlir::MLIRContext &context) { return idr::TerminatesAttr::get(&context); }}};
 
 // An idr.loop of one join region, giving nothing, built at `b`'s insertion
 // point: its body jumps into the join region, whose block, empty, is
@@ -317,7 +306,7 @@ mlir::OwningOpRef<mlir::ModuleOp> programOf(mlir::MLIRContext &context, const Sh
     properties.sym_name = b.getStringAttr(nameOf(f));
     properties.function_type = mlir::TypeAttr::get(b.getFunctionType({}, {}));
     properties.row = rows[f];
-    properties.terminates = attributeOf(context, shape.terminations[f]);
+    properties.terminates = attributes[shape.terminations[f]](context);
     state.addRegion();
     functions.push_back(llvm::cast<idr::FuncOp>(b.create(state)));
   }

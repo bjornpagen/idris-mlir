@@ -63,10 +63,10 @@ captures r = (walkRegion seen (MkSeen empty empty [<]) r).order <>> []
 ||| An `idr.func`: its symbol, its telescope (the sorts of its erased index
 ||| parameters), its extents (the entries naming the index term each `?`
 ||| of its type's tensors is, in order of side, position and axis), its
-||| type, its body, and what Idris proved of its loops, written as the
-||| Idris component every loop through it stays in exactly when Idris's
-||| checker proved that component's calls decrease, and absent otherwise.
-||| Its row is the derivation's, written later from its ops.
+||| type, its body, and what Idris proved of its loops, `#idr.terminates`
+||| exactly when Idris's checker proved that every call of it ends, and
+||| absent otherwise. Its row is the derivation's, written later from its
+||| ops.
 export
 functionOp : String -> List (SortOf MlirType MlirAttr) -> List MlirAttr -> MlirType -> Region -> Termination -> Op
 functionOp sym telescope extents type body termination =
@@ -75,7 +75,7 @@ functionOp sym telescope extents type body termination =
              (StringAttr sym) (TypeAttr type) body
   where
     terminates : Termination -> Maybe MlirAttr
-    terminates (InComponent c) = Just (Idr (TerminatesAttr (MkComponentProof c)))
+    terminates Proved = Just (Idr TerminatesAttr)
     terminates Unproved = Nothing
 
 ||| What a lifted function's body was in its owner, which its symbol says.

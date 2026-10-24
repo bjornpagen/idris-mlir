@@ -28,8 +28,8 @@ using namespace idr;
 // proved its one member, as the writers read every cycle of the program.
 rows::Fold::Fold(FuncOp fn)
     : fn(fn), parts(fn.getArgumentTypes()), self(fn.getSymNameAttr()),
-      ownCycle(provedTogether(std::array{fn}) ? effects::Row{}
-                                              : effects::Row{effects::Atom::divergence}) {
+      ownCycle(everyProved(std::array{fn}) ? effects::Row{}
+                                           : effects::Row{effects::Atom::divergence}) {
   derived.written.resize(parts.writable());
   derived.puts.assign(parts.puttable(), Amount::finite(0));
 }

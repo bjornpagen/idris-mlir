@@ -525,12 +525,6 @@ doubleBits w d = do
 typePart : TypeRef -> List Part
 typePart r = [TypeAt r]
 
--- The layers of the `idr` dialect's types and attributes that hold no type
--- and no attribute, at the types of what the writer has numbered.
-
-numberTermination : ComponentProof MlirType MlirAttr -> ComponentProof TypeRef AttrRef
-numberTermination (MkComponentProof c) = MkComponentProof c
-
 -- The writer numbers what a type or an attribute holds by matching each
 -- layer it holds them in, the `idr` dialect's printed layers
 -- (IdrisMLIR.Encoding.Idr, .Wire) among them, numbering each type and
@@ -708,7 +702,7 @@ mutual
   ||| An `idr` attribute, each type and attribute it holds numbered.
   numberIdrAttr : Writer -> IdrAttr MlirType MlirAttr -> W (IdrAttr TypeRef AttrRef)
   numberIdrAttr w (BinderAttr d i) = (\d' => BinderAttr d' i) <$> attrNumber w d
-  numberIdrAttr w (TerminatesAttr t) = pure (TerminatesAttr (numberTermination t))
+  numberIdrAttr w TerminatesAttr = pure TerminatesAttr
   numberIdrAttr w (ExtentAttr sd p a t) = ExtentAttr sd p a <$> numberTermNodes w t
   numberIdrAttr w (ExtentsAttr es) = ExtentsAttr <$> attrNumbers w es
   numberIdrAttr w (FamilyAttr ms) = FamilyAttr <$> numberMembers w ms

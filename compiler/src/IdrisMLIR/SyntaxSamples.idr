@@ -171,7 +171,7 @@ attrs =
   , Idr (BigAttr (-12345678901234567890))
   , Idr (SiteAttr "Main.idr" 3 7 "Main.main")
   , Idr MutableAttr
-  , Idr (TerminatesAttr (MkComponentProof 2))
+  , Idr TerminatesAttr
   , Idr (IndexBindersAttr [SortOfNatSort, SortOfTypeSort, SortOfOpaqueSort])
   , Idr (IndexArgsAttr [TermNodeNatural 3, TermNodeLevel 0, TermNodeSuccessor 2, TermNodeLevel 0, TermNodeOpaque] 4)
   , Idr (EquationAttr [TermNodeLevel 0] [TermNodeSuccessor 1, TermNodeLevel 1])
@@ -344,7 +344,7 @@ sample =
 callee : Statement
 callee =
   let a = bound 0 i64
-  in stmt (Idr.funcOp {terminates' = Just (Idr (TerminatesAttr (MkComponentProof 0)))} (StringAttr "callee")
+  in stmt (Idr.funcOp {terminates' = Just (Idr TerminatesAttr)} (StringAttr "callee")
             (TypeAttr (FunctionType (MkSignature [i64] [i64]))) (block [a] [stmt (Idr.returnOp [a])]))
 
 ||| A function `@sample` suspends.

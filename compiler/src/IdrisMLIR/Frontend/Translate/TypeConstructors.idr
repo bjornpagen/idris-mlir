@@ -599,13 +599,10 @@ typeConstructorsOf r = foldlC add empty (values r.definitions)
 ||| constructors with it (`Boundary.constructorsRead`): each definition with
 ||| what follows of it from all of them (`Nature`), found once: its facts
 ||| as a type constructor, found here (`typeConstructorsOf`), whose table
-||| holds a type constructor's and no other's; what the walk that names
-||| blocks calls it (`called`, by address, `Boundary.blockNamesOf`); and the
-||| component Idris proved its loops end in (`proved`, by address,
-||| `Recursion.loopsOf`), a definition with no proof one that may diverge.
+||| holds a type constructor's and no other's; and what the walk that names
+||| blocks calls it (`called`, by address, `Boundary.blockNamesOf`).
 export
-readWhole : (proved : SortedMap Address ComponentId) -> (called : SortedMap Address String) ->
-            Reading Constructors -> Core Read
-readWhole proved called r = do
+readWhole : (called : SortedMap Address String) -> Reading Constructors -> Core Read
+readWhole called r = do
   facts <- typeConstructorsOf r
-  pure (natured (natureFrom facts called proved) r)
+  pure (natured (natureFrom facts called) r)

@@ -63,7 +63,7 @@ idr.program @rows root(@main) stage(first) {
   idr.func <{row = []}> @main() {
     idr.return
   }
-  idr.func <{row = []}> @descend(%n: i64) -> i64 attributes {terminates = #idr.terminates<component 0>} {
+  idr.func <{row = []}> @descend(%n: i64) -> i64 attributes {terminates = #idr.terminates} {
     %r = idr.lit.match %n : i64 -> (i64) {
       case 0(%key2: i64) {
         idr.yield %n : i64

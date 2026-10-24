@@ -49,17 +49,6 @@ partsTermNode (TermNodeLiteral payload') = [VarInt 5] ++ [AttrAt payload']
 partsTermNode (TermNodeConstructor payload' member' value' arity') = [VarInt 6] ++ [OptionalAttrAt payload'] ++ [VarInt member'] ++ [VarInt value'] ++ [VarInt arity']
 partsTermNode TermNodeOpaque = [VarInt 7]
 
-||| Idris proved the loops end in this component of its call graph
-public export
-data ComponentProof : (ty : Type) -> (at : Type) -> Type where
-  ||| Idris proved the loops end in this component of its call graph
-  MkComponentProof : (component' : Nat) -> ComponentProof ty at
-
-||| The parts of a `ComponentProof`, its types and attributes by their entries.
-export
-partsComponentProof : ComponentProof TypeRef AttrRef -> List Part
-partsComponentProof (MkComponentProof component') = [VarInt component']
-
 ||| the sort of an index position or a binder
 public export
 data SortOf : (ty : Type) -> (at : Type) -> Type where

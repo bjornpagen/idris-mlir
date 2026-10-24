@@ -174,8 +174,9 @@ translateDefinition p n m counted = do
              _ => pure []
   let body = tied loc p.signature.callee.params (allFins (Runtimes p.signature.kinds)) ties
                   (tiedExits loc p.signature.callee.result exits (length (telescopeOf p.signature.kinds)) p.signature.callee.params tree')
-  -- What Idris proved of its loops, read with the program (`Recursion`).
-  let termination = d.nature.termination
+  -- What Idris proved of its loops: the checker's verdict, a block's
+  -- read as part of the definition it belongs to (`Closed.endsOf`).
+  termination <- endsOf d
   extents <- signatureExtents p.signature.kinds p.signature.result
   updateState (derive { fns $= insert p.inst (MkTFn p.key standing (telescopeOf p.signature.kinds) (Runtimes p.signature.kinds) p.signature.callee
                                                       extents names body loc termination) })

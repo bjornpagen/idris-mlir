@@ -12,9 +12,9 @@
 ||| what it takes at each binder, are read off its type in normal form, once
 ||| the context is frozen; and what follows from the definitions alone is
 ||| found from them once: each type constructor's facts
-||| (`TypeConstructors`), each definition's loops (`Recursion`), and what
-||| each block is called (`blockNamesOf`). The translation reads these and
-||| nothing else of the context (`Errors.defined`).
+||| (`TypeConstructors`), and what each block is called (`blockNamesOf`).
+||| The translation reads these and nothing else of the context
+||| (`Errors.defined`).
 |||
 ||| A definition is met through a name some term the translation holds
 ||| refers to: a definition's type or body, or a normal form of terms made
@@ -22,19 +22,19 @@
 ||| the definitions it can meet are those the entry refers to, and those
 ||| they refer to in turn, through their types, their case trees, their
 ||| clauses' patterns and their one clause, the unknowns in them, a type
-||| constructor's constructors, the definition a block belongs to, the calls
-||| Idris's size-change graphs keep, and the library functions the
-||| registry's hooks of a definition name; and the pair Idris's `%pair`
-||| names, which the translation builds itself. Each definition is read
-||| once, from the live context, and decoded there, so a definition the
-||| entry cannot reach is never decoded; the frozen context is made of the
-||| definitions read, so what the reading holds at an entry is the frozen
-||| context's definition there (`Host.heldAt`, `IntMap.lookupMap`): once
-||| it is frozen, each unknown met is told, by the entry its term gives it,
-||| as the solution the checker gave it or a hole (`Solution`), from what
-||| that reading decoded, the pair is read as its three definitions
-||| (`PairRead`), and `IO` as its type constructor's address, so no phase
-||| after looks any of them up by name, and nothing is decoded twice.
+||| constructor's constructors, the definition a block belongs to, and the
+||| library functions the registry's hooks of a definition name; and the
+||| pair Idris's `%pair` names, which the translation builds itself. Each
+||| definition is read once, from the live context, and decoded there, so a
+||| definition the entry cannot reach is never decoded; the frozen context
+||| is made of the definitions read, so what the reading holds at an entry
+||| is the frozen context's definition there (`Host.heldAt`,
+||| `IntMap.lookupMap`): once it is frozen, each unknown met is told, by the
+||| entry its term gives it, as the solution the checker gave it or a hole
+||| (`Solution`), from what that reading decoded, the pair is read as its
+||| three definitions (`PairRead`), and `IO` as its type constructor's
+||| address, so no phase after looks any of them up by name, and nothing is
+||| decoded twice.
 module IdrisMLIR.Frontend.Translate.Boundary
 
 import Core.Case.CaseTree
@@ -49,13 +49,13 @@ import Libraries.Data.IntMap
 import IdrisMLIR.Frontend.Resolve
 import IdrisMLIR.Frontend.Translate.Closed
 import IdrisMLIR.Frontend.Translate.Definitions
-import IdrisMLIR.Frontend.Translate.Recursion
 import IdrisMLIR.Frontend.Translate.State
 import IdrisMLIR.Frontend.Translate.TypeConstructors
 import IdrisMLIR.Frontend.Walk
 import IdrisMLIR.Ids
 import IdrisMLIR.Registry
 import IdrisMLIR.Spec.Core.Rules
+import IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
@@ -229,7 +229,7 @@ record Unfrozen where
   type : ClosedTerm
   matched : Maybe Matched
   0 bodyRead : BodyRead (definition def) matched
-  ends : Ends
+  ends : Termination
   registered : Registered
 
 %prefix_record_projections on
@@ -246,7 +246,6 @@ referred d =
   references d.matched d.type
   ++ map ARef (constructors (definition d.def)
                ++ maybe [] (:: []) (parentOf (fullname d.def))
-               ++ map (.fnCall) (sizeChange d.def)
                ++ librariesOf d.registered)
   where
     constructors : Def -> List Name
@@ -269,26 +268,27 @@ onlyClauseOf body = case clauseCount body of
     pure (Just (vs ** rhs))
   _ => pure Nothing
 
-||| Whether Idris proved that the definition at entry `i` ends (`Ends`):
-||| the verdict its checked module holds, or, for a function that leaves it
-||| unchecked, the verdict of Idris's termination check, run here, once,
-||| since the check writes its verdicts into the context and the context is
-||| frozen only after every definition is read. The verdict is held as
-||| `Ends`, the one place every phase reads it, and the definition read
-||| stays as the live context gave it, which the frozen context is made of
-||| (`Host.frozenFrom`). A constructor ends: applying one runs nothing, and its
-||| own verdict is its type's positivity, which no reduction asks.
-verdictOf : {auto c : Ref Ctxt Defs} -> Int -> GlobalDef -> Core Ends
+||| Whether Idris proved that every call of the definition at entry `i`
+||| ends (`Termination`): the verdict its checked module holds, or, for a
+||| function that leaves it unchecked, the verdict of Idris's termination
+||| check, run here, once, since the check writes its verdicts into the
+||| context and the context is frozen only after every definition is read.
+||| The verdict is held as `Termination`, the one place every phase and the
+||| dialect read it, and the definition read stays as the live context gave
+||| it, which the frozen context is made of (`Host.frozenFrom`). A
+||| constructor ends: applying one runs nothing, and its own verdict is its
+||| type's positivity, which no reduction asks.
+verdictOf : {auto c : Ref Ctxt Defs} -> Int -> GlobalDef -> Core Termination
 verdictOf i def = case definition def of
-  DCon {} => pure ProvedToEnd
-  TCon {} => pure ProvedToEnd
+  DCon {} => pure Proved
+  TCon {} => pure Proved
   _ => case isTerminating (totality def) of
     Unchecked => endsBy <$> host.checkTerminating EmptyFC (Resolved i)
     verdict => pure (endsBy verdict)
   where
-    endsBy : Terminating -> Ends
-    endsBy IsTerminating = ProvedToEnd
-    endsBy _ = NotProvedToEnd
+    endsBy : Terminating -> Termination
+    endsBy IsTerminating = Proved
+    endsBy _ = Unproved
 
 ||| What the registry makes of the definition at entry `i` (`Registered`):
 ||| the hooks the registry, read once against the context, gives that entry
@@ -1203,12 +1203,12 @@ readProgram ifs entry fallback = do
     | Left refusal => pure (Left refusal)
   application <- applicationOf
   -- What follows from the definitions alone is found from them, before
-  -- any definition holds it: none of the three readings reads what the
-  -- others find, and each definition is given all three at once. The type
+  -- any definition holds it: neither of the two readings reads what the
+  -- other finds, and each definition is given both at once. The type
   -- constructors' facts read their constructors, read first, each
   -- definition's once; the entry and the pair are then read from those at
-  -- their entries, and the readings of loops and block names, which read
-  -- the definitions alone, hold them with what their constructors say
+  -- their entries, and the reading of block names, which reads the
+  -- definitions alone, holds them with what their constructors say
   -- forgotten.
   Right withConstructors <- constructed fallback fz definitions
     | Left refusal => pure (Left refusal)
@@ -1217,9 +1217,8 @@ readProgram ifs entry fallback = do
   let constructedReading = MkReading fz entryRead withConstructors application ifs solutions pairing ioAddress natPlus
   let fromDefinitions = MkReading fz (withNature () entryRead) definitions application ifs solutions
                                   (pairWith (withNature ()) <$> pairing) ioAddress natPlus
-  proved <- loopsOf fromDefinitions
   blocks <- blockNamesOf fromDefinitions entry
-  Right <$> readWhole proved blocks constructedReading
+  Right <$> readWhole blocks constructedReading
   where
     -- A definition read before the freeze, with what is read off its type
     -- in normal form once the context is frozen: where its values are

@@ -58,7 +58,7 @@ void rows::detail::addCycles(const solver::ProgramGraph &graph,
     if (!graph.onCycle(component))
       continue;
     IdRange<FunctionId> members = graph.members(component);
-    if (provedTogether(llvm::map_range(members, [&](FunctionId f) { return graph.op(f); })))
+    if (everyProved(llvm::map_range(members, [&](FunctionId f) { return graph.op(f); })))
       continue;
     for (FunctionId f : members)
       own[f] = own[f] | effects::Row{effects::Atom::divergence};
