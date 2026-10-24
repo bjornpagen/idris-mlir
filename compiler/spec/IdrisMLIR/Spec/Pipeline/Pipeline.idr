@@ -202,14 +202,16 @@ public export
 stat : Ident -> Line -> Line -> Statistic
 stat = MkStatistic
 
-||| `idr-target`: the module's target, from the build's target entry. The
-||| driver runs it first, and every later step reads the target there. A
-||| module that already holds another target is refused, never retargeted.
+||| `idr-target`: the module's target, from the build's target entry. Every
+||| slice of the pipeline runs it first, whatever stage the slice starts at,
+||| and the driver runs it alone on a lowered module, so every later step
+||| reads the target there. A module that already holds another target is
+||| refused, never retargeted.
 public export
 target : Pass
 target = MkPass ("target" ::: []) OnModule AnyStage Keeps [] [] [] NoOptions [LoadsLLVM, LoadsDLTI] Registered
   (MkDoc "Give the module its target: triple, CPU, features, data layout"
-     "Writes the build's target triple and CPU on the module as its `#llvm.target`, lets LLVM\nfill in the CPU's features and the data layout, and writes the module's target system\nspec: for the device `CPU`, the width in bits of its fixed vector registers. The triple\nand the CPU are the build's target entry; every later step reads them here. A module\nthat holds any of these facts otherwise was made for another target and is refused,\nnaming each fact as it holds it and as the build has it; it is never retargeted.")
+     "Writes the build's target triple, CPU and features on the module as its\n`#llvm.target`, lets LLVM derive the data layout, and writes the module's target system\nspec: for the device `CPU`, the width in bits of its fixed vector registers. The triple,\nthe CPU and its features are the build's target entry; every later step reads them\nhere. A module that holds any of these facts otherwise was made for another target and\nis refused, naming each fact as it holds it and as the build has it; it is never\nretargeted.")
 
 public export
 defunctionalize : Pass
@@ -459,17 +461,11 @@ orderedLoops = MkPass ("ordered" ::: ["loops"]) OnFunction (At Owned) Keeps [] [
      "Right before the lowering, on the buffer forms counting ran on: each generating op\nbecomes `scf.for` loops through upstream's tiling interface.")
 
 public export
-lowerRuntime : Pass
-lowerRuntime = MkPass ("lower" ::: ["runtime"]) OnProgram (At Owned) Keeps [] [] [] NoOptions
-  [LoadsLLVM] Registered
-  (MkDoc "Declare every runtime function the program's ops call, once" "")
-
-public export
 lower : Pass
 lower = MkPass ("lower" ::: []) OnProgram (moves Owned Lowered) Invalidates [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ] [] [] NoOptions
   [LoadsArith, LoadsSCF, LoadsUB, LoadsLLVM, LoadsCF, LoadsMath, LoadsMemRef, LoadsAffine] Registered
   (MkDoc "Lower each function to the LLVM dialect: llvm.func, llvm.call, llvm.return built directly"
-     "Every static datum the functions name made first, once, on the program. Then each\nfunction on its own, in parallel: every idr op and type takes its runtime layout,\nthe join ops lower with upstream's SCF patterns in one conversion, a call in tail\nposition becomes a musttail call under tailcc, and a function's row becomes LLVM's\nattributes.")
+     "Every runtime function declared and every static datum the functions name made first,\nonce, on the program. Then each function on its own, in parallel: every idr op and\ntype takes its runtime layout, the join ops lower with upstream's SCF patterns in one\nconversion, a call in tail position becomes a musttail call under tailcc, and a\nfunction's row becomes LLVM's attributes.")
 
 public export
 entry : Pass
@@ -547,7 +543,7 @@ passes =
   [ target, defunctionalize, knots, inPlace, deduplicate, contify, optimize, inline
   , columns, simplify, structureLoops, uniqueResults, bufferize, accumulate, rcCells, lifetimes
   , rcBorrows, rcPlace, rcExclusive, rcReuse, rcExpand, trmc, frames, tailLoops
-  , narrow, narrowWords, orderedLoops, lowerRuntime, lower, entry, narrowLanes
+  , narrow, narrowWords, orderedLoops, lower, entry, narrowLanes
   , tailCalls, expect, redirect, inlineLeaves, widenRows, writeRows ]
 
 ||| Every action a pass takes, in the passes' order: the tags a test draws
@@ -601,7 +597,6 @@ programPipeline =
   RunDeciding narrow "after counting, whose counts of the bigs it proves small it removes"
     (Run narrowWords "each function's bigs made words under the program's summaries" Done) $
   Nest OnFunction (Run orderedLoops "the generating ops as loops, right before the lowering" Done) $
-  Run lowerRuntime "every runtime function declared before any function is lowered" $
   Run lower "each function to the LLVM dialect" $
   Done
 

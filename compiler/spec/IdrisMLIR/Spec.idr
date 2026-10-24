@@ -148,7 +148,7 @@ componentWordClosed : Closed ComponentWord
 componentWordClosed = MkClosed
   { name = ident "Word"
   , shape = OneOf
-  , every = NoCount ::: [CountedAs Helpers.CellWord, CountedAs Helpers.MaybeCellWord, CountedAs Helpers.BigWord, CountedAs Helpers.AnyWord]
+  , every = NoCount ::: map CountedAs Helpers.words
   , complete = \case
       NoCount => Here
       CountedAs Helpers.CellWord => There Here

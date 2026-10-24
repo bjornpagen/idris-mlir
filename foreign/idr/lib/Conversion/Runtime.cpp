@@ -16,6 +16,9 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include <cassert>
+#include <cstddef>
+
 using namespace mlir;
 
 namespace idr::conversion {
@@ -72,39 +75,20 @@ Type llvmType(MLIRContext *ctx, ResultKind kind) {
   }
 }
 
-// The entry of `count` for a word of kind `word`: the kinds form a lattice
-// (a cell below a maybe-cell and a big, their join any), and each entry
-// tests exactly what its kind leaves open. An uncounted word has none.
-const idr::runtime::Function &incOf(layout::Word word) {
-  using enum layout::Word;
-  switch (word) {
-  case Cell:
-    return idr::runtime::helper::incCell;
-  case MaybeCell:
-    return idr::runtime::helper::incMaybeCell;
-  case Big:
-    return idr::runtime::helper::incBig;
-  case Any:
-  case Uncounted:
-    break;
-  }
-  return idr::runtime::helper::incAny;
-}
+// The counted kinds of word are Word's cases after its first, Uncounted,
+// which no entry counts, in the order the generated tables of the counting
+// entries hold them, both printed from the specification's one list of the
+// kinds; each kind's entry tests exactly what the kind leaves open.
+static_assert(static_cast<std::size_t>(layout::Word::Uncounted) == 0 &&
+              idr::runtime::increments.size() + 1 == EnumTraits<layout::Word>::count &&
+              idr::runtime::decrements.size() + 1 == EnumTraits<layout::Word>::count);
 
-const idr::runtime::Function &decOf(layout::Word word) {
-  using enum layout::Word;
-  switch (word) {
-  case Cell:
-    return idr::runtime::helper::decCell;
-  case MaybeCell:
-    return idr::runtime::helper::decMaybeCell;
-  case Big:
-    return idr::runtime::helper::decBig;
-  case Any:
-  case Uncounted:
-    break;
-  }
-  return idr::runtime::helper::decAny;
+// The entry of `entries`, one of those tables, for a counted word of kind
+// `word`: at the kind's place past Uncounted.
+const idr::runtime::Function &countingEntry(ArrayRef<const idr::runtime::Function *> entries,
+                                            layout::Word word) {
+  assert(word != layout::Word::Uncounted && "an uncounted word has no counting entry");
+  return *entries[static_cast<std::size_t>(word) - 1];
 }
 
 } // namespace
@@ -117,11 +101,11 @@ LLVM::LLVMFunctionType runtimeFunctionType(MLIRContext *ctx,
   return LLVM::LLVMFunctionType::get(llvmType(ctx, function.result), params);
 }
 
-// Detached: idr-lower-runtime inserts it, once per function of the table.
-// A byte argument and a truth result are narrower than an int, which a
-// caller widens where the target's C convention asks it to: zero-extended,
-// as the C compiler says of the definition, and LLVM applies the target's
-// rule.
+// Detached: idr-lower's serial phase inserts it, once per function of the
+// table. A byte argument and a truth result are narrower than an int, which
+// a caller widens where the target's C convention asks it to:
+// zero-extended, as the C compiler says of the definition, and LLVM applies
+// the target's rule.
 LLVM::LLVMFuncOp runtimeDeclaration(Location loc, const idr::runtime::Function &function) {
   OpBuilder b(loc.getContext());
   auto callee = LLVM::LLVMFuncOp::create(b, loc, StringRef(function.symbol),
@@ -226,11 +210,11 @@ void Runtime::dec(OpBuilder &b, Location loc, ArrayRef<layout::Component> compon
 }
 
 void Runtime::inc(OpBuilder &b, Location loc, layout::Word word, Value value) const {
-  call(b, loc, incOf(word), value);
+  call(b, loc, countingEntry(idr::runtime::increments, word), value);
 }
 
 void Runtime::dec(OpBuilder &b, Location loc, layout::Word word, Value value) const {
-  call(b, loc, decOf(word), value);
+  call(b, loc, countingEntry(idr::runtime::decrements, word), value);
 }
 
 Value Runtime::isUnique(OpBuilder &b, Location loc, Value cell) const {

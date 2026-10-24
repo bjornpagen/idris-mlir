@@ -806,6 +806,11 @@ inline constexpr std::array<OperandKind, 1> ioPutBigOperands{{OperandKind::Big}}
 inline constexpr Function ioPutBig{"idris_rt_io_put_big", ioPutBigOperands, ResultKind::Void};
 } // namespace helper
 
+// The entries that count one more reference, and one less, to a word of each counted
+// kind, each at its kind's place among the counted kinds.
+inline constexpr std::array<const Function *, 4> increments{{&helper::incCell, &helper::incMaybeCell, &helper::incBig, &helper::incAny}};
+inline constexpr std::array<const Function *, 4> decrements{{&helper::decCell, &helper::decMaybeCell, &helper::decBig, &helper::decAny}};
+
 // Every function of the runtime lowered code calls, each once.
 inline constexpr std::array<const Function *, 144> functions{{
     &Abi<::idr::IntHeadSOp>::entry,

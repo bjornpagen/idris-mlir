@@ -16,6 +16,7 @@ import IdrisMLIR.Spec.Generator.Wire
 import IdrisMLIR.Spec.Ops.Checks
 import IdrisMLIR.Spec.Pipeline.Pass
 import IdrisMLIR.Spec.Pipeline.Pipeline
+import IdrisMLIR.Spec.Runtime.Helpers
 
 import Data.Fin
 import Data.List
@@ -656,9 +657,25 @@ helperRow h =
   in [ "inline constexpr std::array<OperandKind, " ++ decimal (length f.cTakes) ++ "> " ++ identText h.name ++ "Operands" ++ arrayInit (operandKinds f) ++ ";"
      , "inline constexpr Function " ++ identText h.name ++ "{" ++ quoted f.cSymbol ++ ", " ++ identText h.name ++ "Operands, " ++ resultKindOf f.cReturns ++ "};" ]
 
+||| The entries that count a word of each counted kind, one table per
+||| count, printed from `entry`, each kind's entry at the kind's place in
+||| `words`, the order the kinds of a component's word list the counted
+||| kinds in: what the lowering counts a word by.
+countingEntries : Lines
+countingEntries =
+  slashComment [ "The entries that count one more reference, and one less, to a word of each counted"
+               , "kind, each at its kind's place among the counted kinds." ]
+  ++ [table "increments" Helpers.Increment, table "decrements" Helpers.Decrement, ""]
+  where
+    table : String -> Count -> String
+    table name c =
+      "inline constexpr std::array<const Function *, " ++ decimal (length Helpers.words) ++ "> " ++ name
+      ++ arrayInit (map (\w => "&helper::" ++ identText (fst (Helpers.entry c w))) Helpers.words) ++ ";"
+
 ||| Each op's row of the runtime's ABI, `Abi<Op>`, each helper the lowering
-||| calls, and every function once in `functions`, which the lowering
-||| declares: read by the lowering and the one runtime fold.
+||| calls, the counting entries of each kind of word, and every function
+||| once in `functions`, which the lowering declares: read by the lowering
+||| and the one runtime fold.
 export
 runtimeAbi : List AnyOp -> List RuntimeHelper -> Lines
 runtimeAbi ops helpers =
@@ -686,6 +703,7 @@ runtimeAbi ops helpers =
               , "" ]
            ++ concatMap abiRow ops
            ++ ["namespace helper {"] ++ concatMap helperRow helpers ++ ["} // namespace helper", ""]
+           ++ countingEntries
            ++ slashComment ["Every function of the runtime lowered code calls, each once."]
            ++ ["inline constexpr std::array<const Function *, " ++ decimal (length every) ++ "> functions{{"]
            ++ indent 4 (braced every)

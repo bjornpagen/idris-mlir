@@ -83,13 +83,13 @@ int compile(llvm::StringRef frontendPath, Compile invocation);
 // The module the artifacts name into the objects of its bins, written where
 // the artifacts say, on `context`, whose diagnostics fold into `outcome`:
 // the refusals a module written by the frontend holds, re-emitted; a
-// handoff module through the pipeline and LLVM; a module of the LLVM
-// dialect alone, the pipeline's output, through LLVM. `made` is the status
-// the frontend finished with, or accepted's for a module given as the
-// input: a frontend that failed must have written a refusal. The parse adds
-// the module's file to `sources`. Each pass and stage is timed under
-// `rootTiming`, and every pass statistic is folded into `outcome`. Failure
-// once a step has said why.
+// handoff module through the pipeline, whose first pass is idr-target, and
+// LLVM; a module of the LLVM dialect alone, the pipeline's output, through
+// idr-target and LLVM. `made` is the status the frontend finished with, or
+// accepted's for a module given as the input: a frontend that failed must
+// have written a refusal. The parse adds the module's file to `sources`.
+// Each pass and stage is timed under `rootTiming`, and every pass statistic
+// is folded into `outcome`. Failure once a step has said why.
 mlir::LogicalResult run(int made, const Compile &invocation, Artifacts &artifacts,
                         mlir::MLIRContext &context, llvm::SourceMgr &sources,
                         llvm::ThreadPoolInterface &pool, mlir::TimingScope &rootTiming,

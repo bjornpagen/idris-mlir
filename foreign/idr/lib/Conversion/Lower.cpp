@@ -2,11 +2,10 @@
 // Copyright (c) 2026 Bjorn Pagen
 // idr-lower, which takes the program's functions out of idr into the LLVM
 // dialect, and the dialects upstream's conversions to LLVM take after it.
-// Every runtime function was declared before it (idr-lower-runtime), and
-// every static datum is made in its serial phase, before any function is
-// lowered, into a table every function's lowering reads, so a function's
-// lowering writes nothing outside the function, and every function is
-// lowered at once.
+// Every runtime function is declared and every static datum made in its
+// serial phase, before any function is lowered, the static data into a
+// table every function's lowering reads, so a function's lowering writes
+// nothing outside the function, and every function is lowered at once.
 //
 // First the rows are written, last before they become LLVM's attributes.
 // Then, on the program: each call that gives a lifetime where its callee
@@ -261,6 +260,18 @@ struct Lower : idr::impl::IdrLowerBase<Lower> {
     // its caches as it is asked, so no function's lowering may ask it.
     LowerToLLVMOptions options(ctx, getAnalysis<DataLayoutAnalysis>().getAtOrAbove(program));
     options.allocLowering = LowerToLLVMOptions::AllocLowering::None;
+    // Every function of the runtime's generated table declared once, here,
+    // serially, in the table's order, so a function's lowering names its
+    // callee and writes nothing outside itself: which ones a program calls
+    // is decided only as its functions are lowered (the kind of each
+    // counted word, a cell's source), and a declaration no call names costs
+    // nothing past it. A runtime function's name is a C identifier, which
+    // holds no dot, and every program function's lowered name holds one
+    // (Mangle.h), so no declaration meets a program symbol.
+    Block &body = program->getRegion(0).front();
+    Block::iterator first = body.begin();
+    for (const idr::runtime::Function *function : idr::runtime::functions)
+      body.getOperations().insert(first, runtimeDeclaration(program.getLoc(), *function));
     // Every static datum, made once, here, serially, each memref.global read
     // once as the constant array it must be: what every function's lowering
     // names of static data, it reads off this table.

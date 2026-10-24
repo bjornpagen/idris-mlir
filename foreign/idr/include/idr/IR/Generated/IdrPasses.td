@@ -11,12 +11,13 @@ include "mlir/Pass/PassBase.td"
 def IdrTarget : Pass<"idr-target", "::mlir::ModuleOp"> {
   let summary = "Give the module its target: triple, CPU, features, data layout";
   let description = [{
-    Writes the build's target triple and CPU on the module as its `#llvm.target`, lets LLVM
-    fill in the CPU's features and the data layout, and writes the module's target system
-    spec: for the device `CPU`, the width in bits of its fixed vector registers. The triple
-    and the CPU are the build's target entry; every later step reads them here. A module
-    that holds any of these facts otherwise was made for another target and is refused,
-    naming each fact as it holds it and as the build has it; it is never retargeted.
+    Writes the build's target triple, CPU and features on the module as its
+    `#llvm.target`, lets LLVM derive the data layout, and writes the module's target system
+    spec: for the device `CPU`, the width in bits of its fixed vector registers. The triple,
+    the CPU and its features are the build's target entry; every later step reads them
+    here. A module that holds any of these facts otherwise was made for another target and
+    is refused, naming each fact as it holds it and as the build has it; it is never
+    retargeted.
   }];
   let baseClass = "::mlir::OperationPass<::mlir::ModuleOp>";
   let dependentDialects = ["::mlir::LLVM::LLVMDialect", "::mlir::DLTIDialect"];
@@ -356,20 +357,14 @@ def IdrOrderedLoops : Pass<"idr-ordered-loops", "::idr::FuncOp"> {
   let dependentDialects = ["::mlir::scf::SCFDialect", "::mlir::arith::ArithDialect", "::mlir::memref::MemRefDialect"];
 }
 
-def IdrLowerRuntime : Pass<"idr-lower-runtime", "::idr::ProgramOp"> {
-  let summary = "Declare every runtime function the program's ops call, once";
-  let baseClass = "::idr::StagedPass<DerivedT, ::idr::ProgramOp, ::idr::Stage::Owned, ::idr::Stage::Owned>";
-  let dependentDialects = ["::mlir::LLVM::LLVMDialect"];
-}
-
 def IdrLower : Pass<"idr-lower", "::idr::ProgramOp"> {
   let summary = "Lower each function to the LLVM dialect: llvm.func, llvm.call, llvm.return built directly";
   let description = [{
-    Every static datum the functions name made first, once, on the program. Then each
-    function on its own, in parallel: every idr op and type takes its runtime layout,
-    the join ops lower with upstream's SCF patterns in one conversion, a call in tail
-    position becomes a musttail call under tailcc, and a function's row becomes LLVM's
-    attributes.
+    Every runtime function declared and every static datum the functions name made first,
+    once, on the program. Then each function on its own, in parallel: every idr op and
+    type takes its runtime layout, the join ops lower with upstream's SCF patterns in one
+    conversion, a call in tail position becomes a musttail call under tailcc, and a
+    function's row becomes LLVM's attributes.
   }];
   let baseClass = "::idr::StagedPass<DerivedT, ::idr::ProgramOp, ::idr::Stage::Owned, ::idr::Stage::Lowered>";
   let statistics = [

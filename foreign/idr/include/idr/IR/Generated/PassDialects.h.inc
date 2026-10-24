@@ -138,11 +138,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #endif // GEN_PASS_DEF_IDRORDEREDLOOPS
 
-#ifdef GEN_PASS_DEF_IDRLOWERRUNTIME
-#include "idr/IR/IdrDialect.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#endif // GEN_PASS_DEF_IDRLOWERRUNTIME
-
 #ifdef GEN_PASS_DEF_IDRLOWER
 #include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"

@@ -3,11 +3,10 @@
 // What idr-lower adds to a function besides converted ops: calls of the
 // runtime's C functions, crashes at their sites, cells, counting by the
 // kind of each counted word, and references to static data. Every runtime
-// function is declared by idr-lower-runtime, and every static datum made in
-// idr-lower's serial phase, before any function is lowered, so a Runtime
-// writes nothing outside the function it lowers into: it holds no state but
-// the table of the static data made, read only, and one serves every
-// function at once.
+// function is declared and every static datum made in idr-lower's serial
+// phase, before any function is lowered, so a Runtime writes nothing
+// outside the function it lowers into: it holds no state but the table of
+// the static data made, read only, and one serves every function at once.
 
 #ifndef IDR_CONVERSION_RUNTIME_H
 #define IDR_CONVERSION_RUNTIME_H
@@ -19,7 +18,8 @@
 // The runtime's C ABI, then the C functions idr-lower calls, generated from
 // the dialect's specification: an op's, Abi<Op>::entry, and the lowering's
 // own, helper::<name>, each with how it takes its operands and gives its
-// result, and the list of them all, `functions`.
+// result, the counting entries of each kind of word, `increments` and
+// `decrements`, and the list of them all, `functions`.
 #include "idris_rt.h"
 #include "idr/IR/Generated/RuntimeAbi.h.inc"
 
@@ -40,9 +40,9 @@ namespace idr::conversion {
 inline constexpr llvm::StringLiteral entrySymbol = "main";
 
 // The declaration of the runtime function `function`, detached, in no
-// module: the one declaration builder, which idr-lower-runtime uses. Its
-// type is the function's kinds'; a Bool parameter or result is zeroext, as
-// the C ABI extends a bool in its caller and its callee, and a function
+// module: the one declaration builder, which idr-lower's serial phase uses.
+// Its type is the function's kinds'; a Bool parameter or result is zeroext,
+// as the C ABI extends a bool in its caller and its callee, and a function
 // that does not return is noreturn, so LLVM treats what follows a call as
 // unreachable.
 mlir::LLVM::LLVMFuncOp runtimeDeclaration(mlir::Location loc,
@@ -90,11 +90,11 @@ public:
   const Statics &statics() const { return staticData; }
 
   // Calls `function` with `args`, C values already of its kinds. The call
-  // names its callee, which idr-lower-runtime declared with the same type,
-  // so MLIR's verification of the call's symbol use checks it against that
-  // one declaration. A function that never returns says so at the call too,
-  // since linking the runtime replaces the declaration's attributes by the
-  // definition's.
+  // names its callee, which idr-lower's serial phase declared with the same
+  // type, so MLIR's verification of the call's symbol use checks it against
+  // that one declaration. A function that never returns says so at the call
+  // too, since linking the runtime replaces the declaration's attributes by
+  // the definition's.
   mlir::LLVM::CallOp call(mlir::OpBuilder &b, mlir::Location loc,
                           const idr::runtime::Function &function, mlir::ValueRange args) const;
 

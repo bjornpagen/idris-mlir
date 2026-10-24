@@ -33,7 +33,8 @@ import IdrisMLIR.Spec.Core.Text
 public export
 data WordKind = CellWord | MaybeCellWord | BigWord | AnyWord
 
-||| Every kind, in the order their entries are printed.
+||| Every kind, in the order their entries are printed, which is the order
+||| the kinds of a component's word list them in after no count.
 public export
 words : List WordKind
 words = [CellWord, MaybeCellWord, BigWord, AnyWord]
@@ -53,7 +54,10 @@ passing AnyWord = TakesPointerTo "void"
 public export
 data Count = Increment | Decrement
 
-||| A counting entry's name in the lowering's table and its symbol.
+||| A counting entry's name in the lowering's table and its symbol: the
+||| generator prints, from it, the table of the entries by kind the lowering
+||| counts a word by.
+export
 entry : Count -> WordKind -> (Ident, Symbol)
 entry Increment CellWord = (ident "incCell", symbol "inc_cell")
 entry Increment MaybeCellWord = (ident "incMaybeCell", symbol "inc_maybe_cell")

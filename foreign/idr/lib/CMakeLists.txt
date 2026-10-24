@@ -30,7 +30,6 @@ add_mlir_library(IdrConversion
 	Conversion/Lower/Accounts.cpp
 	Conversion/Lower/Attributes.cpp
 	Conversion/Lower/Counting.cpp
-	Conversion/Lower/Declarations.cpp
 	Conversion/Lower/Destinations.cpp
 	Conversion/Lower/Drops.cpp
 	Conversion/Lower/Functions.cpp
