@@ -127,6 +127,7 @@
 #ifdef GEN_PASS_DEF_IDRNARROWWORDS
 #include "idr/IR/IdrDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #endif // GEN_PASS_DEF_IDRNARROWWORDS
 

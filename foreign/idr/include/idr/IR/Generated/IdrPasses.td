@@ -331,7 +331,6 @@ def IdrNarrow : Pass<"idr-narrow", "::idr::ProgramOp"> {
   let summary = "Make the bigs and naturals proved to fit a small plain words";
   let baseClass = "::idr::StagedPass<DerivedT, ::idr::ProgramOp, ::idr::Stage::Owned, ::idr::Stage::Owned>";
   let statistics = [
-    Statistic<"numVersioned", "versioned", "Loops versioned on a small descending natural">,
     Statistic<"numWork", "work", "Steps the pass's solves took, the same at any thread count">,
   ];
   let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect"];
@@ -341,9 +340,10 @@ def IdrNarrowWords : Pass<"idr-narrow-words", "::idr::FuncOp"> {
   let summary = "Make the bigs and naturals of one function proved to fit a small words";
   let baseClass = "::idr::StagedPass<DerivedT, ::idr::FuncOp, ::idr::Stage::Owned, ::idr::Stage::Owned>";
   let statistics = [
+    Statistic<"numVersioned", "versioned", "Loops versioned on a small descending natural">,
     Statistic<"numWork", "work", "Steps the pass's solves took, the same at any thread count">,
   ];
-  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::ub::UBDialect"];
+  let dependentDialects = ["::mlir::arith::ArithDialect", "::mlir::scf::SCFDialect", "::mlir::ub::UBDialect"];
 }
 
 def IdrOrderedLoops : Pass<"idr-ordered-loops", "::idr::FuncOp"> {

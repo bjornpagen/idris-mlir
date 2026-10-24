@@ -435,8 +435,7 @@ tailLoops = MkPass ("tail" ::: ["loops"]) OnFunction (At Owned) Apply Keeps
 public export
 narrow : Pass
 narrow = MkPass ("narrow" ::: []) OnProgram (At Owned) Decide Edits
-  [ stat "numVersioned" "versioned" "Loops versioned on a small descending natural"
-  , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
+  [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [ MkAction ("narrow" ::: ["fold"]) "a function's conversions folded and the unread ones erased"
   , MkAction ("narrow" ::: ["version"]) "a loop versioned on its descending natural"
   , MkAction ("narrow" ::: ["joint"]) "a joint's carried bigs made words" ] []
@@ -445,9 +444,11 @@ narrow = MkPass ("narrow" ::: []) OnProgram (At Owned) Decide Edits
 
 public export
 narrowWords : Pass
-narrowWords = MkPass ("narrow" ::: ["words"]) OnFunction (At Owned) Apply Keeps [ stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
+narrowWords = MkPass ("narrow" ::: ["words"]) OnFunction (At Owned) Apply Invalidates
+  [ stat "numVersioned" "versioned" "Loops versioned on a small descending natural"
+  , stat "numWork" "work" "Steps the pass's solves took, the same at any thread count" ]
   [MkAction ("narrow" ::: ["word"]) "an op on bigs made an op on words"] [] NoOptions
-  [LoadsArith, LoadsUB] Registered
+  [LoadsArith, LoadsSCF, LoadsUB] Registered
   (MkDoc "Make the bigs and naturals of one function proved to fit a small words" "")
 
 public export

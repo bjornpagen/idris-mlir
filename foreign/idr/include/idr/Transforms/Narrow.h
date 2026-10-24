@@ -2,15 +2,16 @@
 // Copyright (c) 2026 Bjorn Pagen
 // Integers computed in fewer bits where an analysis proves they fit.
 //
-// idr-narrow makes the bigs and naturals that fit a small plain i64 words,
-// after versioning, across the module, each loop whose natural only
-// descends; then idr-narrow-words, the word rewrite, runs per function on
-// its own solve under the program's Ranges, which idr-narrow holds for it
-// (the function's values numbered and bounded, Facts; the values carried
-// round loops and out of merges, the joints, Carried.cpp; the ops, the
-// words, Ops.cpp). idr-narrow-lanes makes the integer lanes of a
-// vectorized loop compute in 32 bits under a runtime bound on its sizes,
-// found on a copy of the loop (Copy) whose ops' widths it reads.
+// idr-narrow makes the bigs and naturals that fit a small plain i64 words:
+// it decides the program's Ranges, which read the bounds of each function's
+// values off its one solve, and holds them while idr-narrow-words runs on
+// each function, versioning each loop whose natural only descends and then
+// rewriting under those bounds (the function's values numbered and
+// bounded, Bounded; its facts, Facts; the values carried round loops and
+// out of merges, the joints, Carried.cpp; the ops, the words, Ops.cpp).
+// idr-narrow-lanes makes the integer lanes of a vectorized loop compute in
+// 32 bits under a runtime bound on its sizes, found on a copy of the loop
+// (Copy) whose ops' widths it reads.
 #ifndef IDR_TRANSFORMS_NARROW_H
 #define IDR_TRANSFORMS_NARROW_H
 
@@ -38,6 +39,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <utility>
 #include <variant>
 
@@ -50,13 +52,8 @@ namespace idr {
 
 namespace idr::narrow {
 
-// The bounds of `value` as `analysis` found them: the range its type
-// proves where the analysis lost it, none where it never reached it, and
-// the program's poison, which may be taken to be any value, a small. The
-// one read of a value's bounds. The passes that read it run on a counted
-// program (the owned stage), where every value that holds references is
-// graded.
-ranges::Bounds boundsOf(const Ranges::Solved &analysis, mlir::Value value);
+class Bounded;
+
 // Whether `value` is a view: it holds references, and none of its own.
 bool borrowed(mlir::Value value);
 
@@ -89,9 +86,11 @@ void eraseGiven(mlir::RewriterBase &rewriter, mlir::Value given);
 // that kept the reference leaves nothing to give up.
 void giveUp(mlir::OpBuilder &b, mlir::Location loc, const Replaced &replaced);
 
-// The versioning of each scf.while whose natural only descends, under
-// `analysis`; adds the loops versioned to `versioned`.
-void populateVersionPatterns(mlir::RewritePatternSet &patterns, const Ranges::Solved &analysis,
+// The versioning of each scf.while whose natural only descends and is not
+// already bounded small, under `bounded`, the function's values as it holds
+// them before any loop is versioned; adds the loops versioned to
+// `versioned`.
+void populateVersionPatterns(mlir::RewritePatternSet &patterns, const Bounded &bounded,
                              uint64_t &versioned);
 
 //===----------------------------------------------------------------------===//
@@ -110,11 +109,36 @@ void populateVersionPatterns(mlir::RewritePatternSet &patterns, const Ranges::So
 class Facts;
 
 // A value of the function as its solve saw it, numbered by the body's one
-// numbering before anything is rewritten.
+// numbering before anything is rewritten: the walk order in which Ranges
+// reads a function's bounds, so a value's id is its place in that row.
 struct Analysed {
   using Minter = solver::Numbering<Analysed>;
 };
 using ValueId = Id<Analysed>;
+
+// One function's values numbered, each with its bounds as the program's
+// Ranges read them off a solve of the function as it is now: where the
+// versions and the word rewrite ask a value's bounds. The passes that read
+// it run on a counted program (the owned stage), where every value that
+// holds references is graded.
+class Bounded {
+public:
+  // `read`, a bound per value of `fn` in the walk order, as Ranges read it.
+  Bounded(FuncOp fn, std::span<const ranges::Bounds> read);
+
+  // The id of `value`, a value of the function as numbered.
+  ValueId at(mlir::Value value) const { return numbering.at(value); }
+  ranges::Bounds of(ValueId v) const { return row[v.index()]; }
+  ranges::Bounds of(mlir::Value value) const { return of(at(value)); }
+  // Each id's value: the numbering's table, its map kept for the questions
+  // that arrive by value.
+  IndexVector<ValueId, mlir::Value> values() const;
+
+private:
+  // The body's one numbering, the one map keyed by an IR handle.
+  solver::Numbering<Analysed> numbering;
+  std::span<const ranges::Bounds> row;
+};
 
 // What a value is, as the walk numbered it: no big, or a big. A small, a
 // big made of a word, is static, so no count op meets one: the rewrite's
@@ -162,25 +186,24 @@ struct Word {
 };
 using Step = std::variant<Enter, Leave, Word>;
 
-// One function's facts, over its own solve: its values numbered, what each
-// is and its bounds, the webs of what its joints carry, and the steps of
-// its rewrite. Nothing it learns outlives the run.
+// One function's facts, over its bounds: its values numbered, what each is
+// and its bounds, the webs of what its joints carry, and the steps of its
+// rewrite. Nothing it learns outlives the run.
 class Facts {
 public:
-  // The body's one numbering numbers `fn`'s values; one walk records its
-  // steps; then the bounds of every value a step reads are read off
-  // `analysis` once, and the webs are joined.
-  Facts(FuncOp fn, const Ranges::Solved &analysis);
+  // One walk records the steps of `fn`, whose values `bounds` numbers and
+  // bounds; then the webs are joined.
+  Facts(FuncOp fn, Bounded bounds);
 
   Count<ValueId> count() const { return values.size(); }
   // The value numbered `v`, as it was: the rewrite retypes some and erases
   // others, so only the rewrite's own steps read it, each before it
   // changes the value.
   mlir::Value value(ValueId v) const { return values[v]; }
-  ranges::Bounds bounds(ValueId v) const { return bounded[v]; }
+  ranges::Bounds bounds(ValueId v) const { return bounded.of(v); }
   Carrier carrier(ValueId v) const { return carriers[v]; }
   // Whether `v` is a big that fits a small.
-  bool fits(ValueId v) const { return carriers[v] != Carrier::NoBig && bounded[v].fits(); }
+  bool fits(ValueId v) const { return carriers[v] != Carrier::NoBig && bounded.of(v).fits(); }
   // The web `v` is in: one value of it, the same for every member. A web
   // is the values one joint's operand becomes, joined across every joint,
   // so a value one joint forwards into another's region is decided once.
@@ -208,7 +231,7 @@ public:
 
   // The id of `value`, a value of the function as numbered, which the
   // rewrite kept.
-  ValueId at(mlir::Value value) const { return numbering.at(value); }
+  ValueId at(mlir::Value value) const { return bounded.at(value); }
 
 private:
   llvm::ArrayRef<ValueId> own(std::uint32_t first, std::uint32_t end) const {
@@ -225,14 +248,12 @@ private:
     std::uint32_t carries, carriesEnd, arguments, argumentsEnd, results, resultsEnd;
   };
   Classified classify(mlir::Operation *joint);
-  // The bounds of each value a step reads, off `analysis`.
-  IndexVector<ValueId, ranges::Bounds> read(const Ranges::Solved &analysis) const;
   // Each value's web, joined over every class of every joint.
   IndexVector<ValueId, ValueId> join() const;
 
-  // The body's one numbering, the one map keyed by an IR handle, read
-  // where a question arrives by value.
-  solver::Numbering<Analysed> numbering;
+  // The values numbered and bounded, read where a question arrives by
+  // value.
+  Bounded bounded;
   footprint::Vector<Step> walked;
   footprint::Vector<Carry> classes;
   footprint::Vector<Pass> passed;
@@ -242,7 +263,6 @@ private:
   // Made once the walk has numbered every value.
   IndexVector<ValueId, mlir::Value> values;
   IndexVector<ValueId, Carrier> carriers;
-  IndexVector<ValueId, ranges::Bounds> bounded;
   IndexVector<ValueId, ValueId> webs;
 };
 

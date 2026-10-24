@@ -97,9 +97,9 @@ bool descends(Value yielded, BlockArgument arg, scf::WhileOp loop) {
   return true;
 }
 
-// The first natural argument of `loop` that only descends and that the
-// analysis does not already prove small, or none.
-std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Ranges::Solved &analysis) {
+// The first natural argument of `loop` that only descends and that its
+// bounds do not already prove small, or none.
+std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Bounded &bounded) {
   // A slot that carries a borrowed value passes it out of the loop
   // borrowed, which a branch between two copies of the loop would have to
   // take owned: such a loop stays one loop.
@@ -108,7 +108,7 @@ std::optional<unsigned> descendingArgument(scf::WhileOp loop, const Ranges::Solv
   Block &before = loop.getBefore().front();
   auto yield = cast<scf::YieldOp>(loop.getAfter().front().getTerminator());
   for (BlockArgument arg : before.getArguments())
-    if (isa<NatType>(unrestricted(arg.getType())) && !boundsOf(analysis, arg).fits() &&
+    if (isa<NatType>(unrestricted(arg.getType())) && !bounded.of(arg).fits() &&
         descends(yield.getOperand(arg.getArgNumber()), arg, loop))
       return arg.getArgNumber();
   return std::nullopt;
@@ -181,11 +181,11 @@ void version(RewriterBase &rewriter, scf::WhileOp loop, unsigned index) {
 }
 
 struct VersionDescending : OpRewritePattern<scf::WhileOp> {
-  VersionDescending(MLIRContext *ctx, const Ranges::Solved &analysis, uint64_t &versioned)
-      : OpRewritePattern(ctx), analysis(analysis), versioned(versioned) {}
+  VersionDescending(MLIRContext *ctx, const Bounded &bounded, uint64_t &versioned)
+      : OpRewritePattern(ctx), bounded(bounded), versioned(versioned) {}
 
   LogicalResult matchAndRewrite(scf::WhileOp loop, PatternRewriter &rewriter) const override {
-    std::optional<unsigned> index = descendingArgument(loop, analysis);
+    std::optional<unsigned> index = descendingArgument(loop, bounded);
     if (!index)
       return failure();
     if (!support::perform<NarrowVersionAction>(loop,
@@ -195,15 +195,15 @@ struct VersionDescending : OpRewritePattern<scf::WhileOp> {
     return success();
   }
 
-  const Ranges::Solved &analysis;
+  const Bounded &bounded;
   uint64_t &versioned;
 };
 
 } // namespace
 
-void populateVersionPatterns(RewritePatternSet &patterns, const Ranges::Solved &analysis,
+void populateVersionPatterns(RewritePatternSet &patterns, const Bounded &bounded,
                              uint64_t &versioned) {
-  patterns.add<VersionDescending>(patterns.getContext(), analysis, versioned);
+  patterns.add<VersionDescending>(patterns.getContext(), bounded, versioned);
 }
 
 } // namespace idr::narrow

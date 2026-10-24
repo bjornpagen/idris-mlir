@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: 0BSD
 // Copyright (c) 2026 Bjorn Pagen
 // The facts of one function the word rewrite reads: its values numbered by
-// the body's one numbering, the steps of the rewrite recorded in its order,
-// each value's bounds read off the solve once, and the webs its joints
-// carry; the words and smalls that stand for each other, and a small given
-// where a value its count frees is asked; and how a big whose place a word
-// takes in a use is read and gives its reference up.
+// the body's one numbering, each with the bounds Ranges read off its solve
+// in that order, the steps of the rewrite recorded in its order, and the
+// webs its joints carry; the words and smalls that stand for each other,
+// and a small given where a value its count frees is asked; and how a big
+// whose place a word takes in a use is read and gives its reference up.
 
 #include "idr/IR/Flow.h"
 #include "idr/IR/Grades.h"
@@ -17,13 +17,15 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "mlir/Interfaces/InferIntRangeInterface.h"
 
 #include "llvm/ADT/IntEqClasses.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <cassert>
 #include <optional>
+#include <span>
+#include <utility>
 
 using namespace mlir;
 
@@ -50,21 +52,17 @@ bool touchesBigs(Operation *op) {
 
 } // namespace
 
-Bounds boundsOf(const Ranges::Solved &analysis, Value value) {
-  // The program's poison may be taken to be any value, so a small one.
-  if (value.getDefiningOp<ub::PoisonOp>())
-    return {0, 0};
-  // Code the analysis never reached has no range, and proves nothing.
-  std::optional<ConstantIntRanges> range = analysis.rangeOf(value);
-  if (!range)
-    return {};
-  // What the value's type proves holds wherever the analysis lost it, as a
-  // natural's lower bound 0; a type that proves no range leaves the
-  // analysis's as it is.
-  IntegerValueRange proved = ranges::ofType(value.getType());
-  if (!proved.isUninitialized())
-    range = range->intersection(proved.getValue());
-  return ranges::boundsOf(*range);
+// Ranges and the numbering read the function in the one walk order, so
+// they agree on how many values it holds, where the function is the one
+// Ranges solved.
+Bounded::Bounded(FuncOp fn, std::span<const Bounds> read) : numbering(fn), row(read) {
+  assert(row.size() == numbering.size().value() &&
+         "a function's bounds, read for the function as it is now");
+}
+
+IndexVector<ValueId, Value> Bounded::values() const {
+  solver::Numbering<Analysed> copy = numbering;
+  return std::move(copy).finish().values;
 }
 
 // A view holds references and none of its own: freed when its lifetime
@@ -164,13 +162,13 @@ void giveSmalls(WordRewriter &rewriter) {
   }
 }
 
-Facts::Facts(FuncOp fn, const Ranges::Solved &analysis)
-    : numbering(fn), values(walk(fn)), carriers(values.size(),
-                                 [&](ValueId v) {
-                                   return isCarriedAsBig(values[v].getType()) ? Carrier::Big
-                                                                              : Carrier::NoBig;
-                                 }),
-      bounded(read(analysis)), webs(join()) {}
+Facts::Facts(FuncOp fn, Bounded bounds)
+    : bounded(std::move(bounds)), values(walk(fn)),
+      carriers(values.size(),
+               [&](ValueId v) {
+                 return isCarriedAsBig(values[v].getType()) ? Carrier::Big : Carrier::NoBig;
+               }),
+      webs(join()) {}
 
 IndexVector<ValueId, Value> Facts::walk(FuncOp fn) {
   // The joints the walk is inside, each with the place of its Enter step,
@@ -194,15 +192,12 @@ IndexVector<ValueId, Value> Facts::walk(FuncOp fn) {
       return;
     auto first = static_cast<std::uint32_t>(numbered.size());
     for (Value operand : op->getOperands())
-      numbered.push_back(numbering.at(operand));
+      numbered.push_back(bounded.at(operand));
     for (Value result : op->getResults())
-      numbered.push_back(numbering.at(result));
+      numbered.push_back(bounded.at(result));
     walked.push_back(Word{op, first});
   });
-  // The numbering's table of values, its map kept for the questions that
-  // arrive by value.
-  solver::Numbering<Analysed> copy = numbering;
-  return std::move(copy).finish().values;
+  return bounded.values();
 }
 
 // What flows is what `joint` and the terminators of its regions forward:
@@ -253,10 +248,10 @@ Facts::Classified Facts::classify(Operation *joint) {
       if (joined[static_cast<unsigned>(at)] != number)
         continue;
       auto [operand, input] = edge;
-      ValueId into = numbering.at(input);
+      ValueId into = bounded.at(input);
       auto passes = llvm::ArrayRef<Pass>(passed).drop_front(carry.passes);
       if (llvm::none_of(passes, [&](const Pass &pass) { return pass.operand == operand; }))
-        passed.push_back(Pass{operand, numbering.at(operand->get()), into});
+        passed.push_back(Pass{operand, bounded.at(operand->get()), into});
       if (llvm::is_contained(llvm::ArrayRef<ValueId>(carried).drop_front(carry.inputs), into))
         continue;
       carried.push_back(into);
@@ -281,7 +276,7 @@ Facts::Classified Facts::classify(Operation *joint) {
       for (BlockArgument arg : block.getArguments()) {
         if (!isCarriedAsBig(arg.getType()))
           continue;
-        ValueId v = numbering.at(arg);
+        ValueId v = bounded.at(arg);
         if (!llvm::is_contained(
                 llvm::ArrayRef<ValueId>(owns).slice(out.arguments, classed - out.arguments), v))
           owns.push_back(v);
@@ -290,31 +285,12 @@ Facts::Classified Facts::classify(Operation *joint) {
   for (OpResult result : joint->getResults()) {
     if (!isCarriedAsBig(result.getType()))
       continue;
-    ValueId v = numbering.at(result);
+    ValueId v = bounded.at(result);
     if (out.carries == out.carriesEnd || !held(v))
       owns.push_back(v);
   }
   out.resultsEnd = static_cast<std::uint32_t>(owns.size());
   return out;
-}
-
-// The values a step reads, each read off the solve once; no other value is
-// ever asked its bounds.
-IndexVector<ValueId, Bounds> Facts::read(const Ranges::Solved &analysis) const {
-  BitSet<ValueId> wanted(values.size());
-  for (const Pass &pass : passed) {
-    (void)wanted.raise(pass.from);
-    (void)wanted.raise(pass.into);
-  }
-  for (ValueId v : carried)
-    (void)wanted.raise(v);
-  for (ValueId v : owns)
-    (void)wanted.raise(v);
-  for (ValueId v : numbered)
-    (void)wanted.raise(v);
-  return IndexVector<ValueId, Bounds>(values.size(), [&](ValueId v) {
-    return wanted.test(v) ? boundsOf(analysis, values[v]) : Bounds{};
-  });
 }
 
 // A value two joints both carry, as a jump forwards into an enclosing join

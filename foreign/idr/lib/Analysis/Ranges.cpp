@@ -7,6 +7,7 @@
 // program's poison as any value.
 #include "idr/Analysis/Ranges.h"
 
+#include "idr/Analysis/Solver/Extraction.h"
 #include "idr/Analysis/Solver/Schedule.h"
 #include "idr/Analysis/Solver/Trace.h"
 #include "idr/IR/IdrDialect.h"
@@ -19,6 +20,8 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/TypeID.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Twine.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #include <ranges>
 
@@ -166,7 +169,35 @@ auto unreached(unsigned n) {
 
 namespace idr {
 
-Ranges::Solved::Solved() : dataflow(DataFlowConfig().setInterprocedural(false)) {}
+namespace {
+
+// The bounds of `value` as `dataflow` found them: the program's poison,
+// which may be taken to be any value, a small; none where the solve never
+// reached it, which proves nothing; else its range cut to what its type
+// proves, which holds wherever the solve lost it, as a natural's lower
+// bound 0. A type that proves no range leaves the solve's as it is. The one
+// read of a solve into a value's bounds.
+ranges::Bounds boundsOf(const DataFlowSolver &dataflow, Value value) {
+  if (value.getDefiningOp<ub::PoisonOp>())
+    return {0, 0};
+  std::optional<ConstantIntRanges> range = Ranges::rangeOf(dataflow, value);
+  if (!range)
+    return {};
+  IntegerValueRange proved = ranges::ofType(value.getType());
+  if (!proved.isUninitialized())
+    range = range->intersection(proved.getValue());
+  return ranges::boundsOf(*range);
+}
+
+// The bounds of every value of `fn`, read off `dataflow`, in the one walk
+// order every reader numbers the function in.
+footprint::Vector<ranges::Bounds> boundsOfEach(const DataFlowSolver &dataflow, FuncOp fn) {
+  footprint::Vector<ranges::Bounds> row;
+  solver::inWalkOrder(fn, [&](Value value) { row.push_back(boundsOf(dataflow, value)); });
+  return row;
+}
+
+} // namespace
 
 std::optional<ConstantIntRanges> Ranges::rangeOf(const DataFlowSolver &solver, Value value) {
   const auto *state = solver.lookupState<IntegerValueRangeLattice>(value);
@@ -175,18 +206,26 @@ std::optional<ConstantIntRanges> Ranges::rangeOf(const DataFlowSolver &solver, V
   return state->getValue().getValue();
 }
 
-FailureOr<std::unique_ptr<const Ranges::Solved>> Ranges::solve(FuncOp fn,
-                                                               solver::Work &work) const {
-  std::unique_ptr<Solved> solved(new Solved());
+template <class Read>
+  requires std::invocable<Read &, const mlir::DataFlowSolver &>
+void Ranges::solve(FuncOp fn, solver::Work &work, Read &&read) const {
+  DataFlowSolver dataflow(DataFlowConfig().setInterprocedural(false));
   // The integer range analysis is silent without dead code analysis, and
   // reads constants through constant propagation.
-  loadBaselineAnalyses(solved->dataflow);
-  auto *ranges = solved->dataflow.load<SummarizedRanges>(fn, arguments[graph.id(fn)], *this);
-  LogicalResult ran = solved->dataflow.initializeAndRun(fn);
+  loadBaselineAnalyses(dataflow);
+  auto *ranges = dataflow.load<SummarizedRanges>(fn, arguments[graph.id(fn)], *this);
+  LogicalResult ran = dataflow.initializeAndRun(fn);
   work.add(ranges->transfers());
   if (failed(ran))
-    return failure();
-  return std::unique_ptr<const Solved>(std::move(solved));
+    llvm::reportFatalInternalError(llvm::Twine("idr-narrow: MLIR's integer range solve of ") +
+                                   fn.getSymName() + " failed");
+  read(static_cast<const DataFlowSolver &>(dataflow));
+}
+
+footprint::Vector<ranges::Bounds> Ranges::boundsOfRewritten(FuncOp fn, solver::Work &work) const {
+  footprint::Vector<ranges::Bounds> row;
+  solve(fn, work, [&](const DataFlowSolver &dataflow) { row = boundsOfEach(dataflow, fn); });
+  return row;
 }
 
 Ranges::Ranges(Operation *program, AnalysisManager &am)
@@ -196,10 +235,12 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
                 FuncOp fn = graph.op(f);
                 return unreached(fn ? fn.getNumResults() : 0);
               }),
-      arguments(graph.size(), [&](solver::FunctionId f) {
-        FuncOp fn = graph.op(f);
-        return unreached(fn ? fn.getNumArguments() : 0);
-      }) {
+      arguments(graph.size(),
+                [&](solver::FunctionId f) {
+                  FuncOp fn = graph.op(f);
+                  return unreached(fn ? fn.getNumArguments() : 0);
+                }),
+      bounded(graph.size()) {
   MLIRContext &context = *program->getContext();
 
   // What each function returns, callees first: the join over its returns
@@ -212,16 +253,15 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       solver::SolveUnit unit("idr-narrow returns", fn.getSymName());
-      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, counted);
-      if (failed(solved))
-        continue;
       // A function returns through idr.return alone, whose parent is the
       // function; a yield ends a region of an op inside it.
       std::span<IntegerValueRange> out = returns[f];
-      fn.getBody().walk([&](ReturnOp ret) {
-        for (auto [into, operand] : llvm::zip_equal(out, ret->getOperands()))
-          if (std::optional<ConstantIntRanges> range = (*solved)->rangeOf(operand))
-            joinInto(into, IntegerValueRange(*range));
+      solve(fn, counted, [&](const DataFlowSolver &dataflow) {
+        fn.getBody().walk([&](ReturnOp ret) {
+          for (auto [into, operand] : llvm::zip_equal(out, ret->getOperands()))
+            if (std::optional<ConstantIntRanges> range = rangeOf(dataflow, operand))
+              joinInto(into, IntegerValueRange(*range));
+        });
       });
     }
     return counted.steps();
@@ -230,8 +270,9 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
   // What each function is passed, callers first: the join over its callers
   // of what each passes it, read from the callers' finished components in
   // id order. A component that feeds itself starts every member at its
-  // type's range. Each member then keeps what it passes each callee of
-  // another component, in callee order, for that callee's component.
+  // type's range. Each member's solve is then under its final summaries:
+  // it keeps what it passes each callee of another component, in callee
+  // order, for that callee's component, and the bounds of its values.
   IndexVector<solver::FunctionId, footprint::Vector<Passed>> passed(graph.size());
   solver::inSchedule<CallersFirst>(graph, context, spent, [&](solver::SccId c) {
     solver::Work counted;
@@ -257,29 +298,28 @@ Ranges::Ranges(Operation *program, AnalysisManager &am)
     for (solver::FunctionId f : graph.members(c)) {
       FuncOp fn = graph.op(f);
       solver::SolveUnit unit("idr-narrow arguments", fn.getSymName());
-      FailureOr<std::unique_ptr<const Solved>> solved = solve(fn, counted);
-      // What a call passes: what its solve found, nothing where the solve
-      // never reached it; a caller whose solve failed knows nothing of what
-      // it passes, so it passes every value the operand's type allows.
-      auto passing = [&](Value operand) -> IntegerValueRange {
-        if (failed(solved))
-          return IntegerValueRange::getMaxRange(operand);
-        if (std::optional<ConstantIntRanges> range = (*solved)->rangeOf(operand))
-          return IntegerValueRange(*range);
-        return IntegerValueRange();
-      };
-      footprint::Vector<Passed> &mine = passed[f];
-      fn.getBody().walk([&](CallOp call) {
-        solver::FunctionId callee = graph.id(call.getCalleeAttr());
-        if (graph.sccOf(callee) == c)
-          return;
-        auto it = llvm::partition_point(
-            mine, [&](const Passed &entry) { return entry.callee < callee; });
-        if (it == mine.end() || it->callee != callee)
-          it = mine.insert(
-              it, Passed{callee, footprint::Vector<IntegerValueRange>(call.getArgs().size())});
-        for (auto [into, operand] : llvm::zip_equal(it->arguments, call.getArgs()))
-          joinInto(into, passing(operand));
+      solve(fn, counted, [&](const DataFlowSolver &dataflow) {
+        // What a call passes: what the solve found, nothing where the
+        // solve never reached it.
+        auto passing = [&](Value operand) -> IntegerValueRange {
+          if (std::optional<ConstantIntRanges> range = rangeOf(dataflow, operand))
+            return IntegerValueRange(*range);
+          return IntegerValueRange();
+        };
+        footprint::Vector<Passed> &mine = passed[f];
+        fn.getBody().walk([&](CallOp call) {
+          solver::FunctionId callee = graph.id(call.getCalleeAttr());
+          if (graph.sccOf(callee) == c)
+            return;
+          auto it = llvm::partition_point(
+              mine, [&](const Passed &entry) { return entry.callee < callee; });
+          if (it == mine.end() || it->callee != callee)
+            it = mine.insert(
+                it, Passed{callee, footprint::Vector<IntegerValueRange>(call.getArgs().size())});
+          for (auto [into, operand] : llvm::zip_equal(it->arguments, call.getArgs()))
+            joinInto(into, passing(operand));
+        });
+        bounded[f] = boundsOfEach(dataflow, fn);
       });
     }
     return counted.steps();

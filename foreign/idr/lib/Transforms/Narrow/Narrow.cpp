@@ -5,17 +5,19 @@
 // versioned so that its copy proves it.
 //
 // The analysis is MLIR's, seeing our ops through their ranges, each
-// function solved alone under the program's summaries (Ranges, an analysis
-// of the program's analysis manager); this pass only reads it and
-// rewrites. Nothing it learns is stored: the rewritten IR is the fact.
-// Versioning runs on the program, since a versioned loop's copy holds
-// values no summary saw, and the summaries are decided again after it; the
-// word rewrite, idr-narrow-words, then runs on each function in parallel,
-// each verified on its own, solving its function under the summaries it
-// reads from the parent's cache. A narrowed op becomes `arith` on
-// the values, which idr.big.to_int and the bigs made of integers convert
-// where the web meets a big it does not prove; the pairs they form inside a
-// web fold away, each by its own folder, in one walk.
+// function solved alone under the program's summaries, and the bounds of
+// its values read off its one solve under the final ones (Ranges, an
+// analysis of the program's analysis manager): idr-narrow decides it, and
+// idr-narrow-words, on each function in parallel, each verified on its
+// own, reads its function's bounds from the parent's cache and rewrites.
+// Nothing it learns is stored: the rewritten IR is the fact. A loop's
+// version is its function's own rewrite: its two copies start inside what
+// the loop started from, so what the function passes and returns stays
+// inside the summaries, and only a function with a version is solved
+// again, under them, for the values its copies hold. A narrowed op becomes
+// `arith` on the values, which idr.big.to_int and the bigs made of integers
+// convert where the web meets a big it does not prove; the pairs they form
+// inside a web fold away, each by its own folder, in one walk.
 
 #include "idr/Transforms/Narrow.h"
 
@@ -36,7 +38,6 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/Pass/AnalysisManager.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/IR/PatternMatch.h"
@@ -68,12 +69,12 @@ struct NarrowFoldAction : support::TaggedAction<NarrowFoldAction> {
   static constexpr std::string_view tag = ::idr::actions::narrowFold;
 };
 
-// The word rewrite of one function, solved under the summaries idr-narrow
-// decided for the program and holds in its analysis manager while it runs
-// this pass. Its work is its own solve's; the summaries' decide step is
-// idr-narrow's, which ran it. Its word patterns are built once, before any
-// function, and shared by every run, which reads its own facts through the
-// rewriter it applies them with.
+// The versions and the word rewrite of one function, under the bounds
+// idr-narrow decided for the program and holds in its analysis manager
+// while it runs this pass. Its work is the solve of a function it gave a
+// version; the summaries' decide step is idr-narrow's, which ran it. Its
+// word patterns are built once, before any function, and shared by every
+// run, which reads its own facts through the rewriter it applies them with.
 struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
   LogicalResult initialize(MLIRContext *ctx) override {
     RewritePatternSet patterns(ctx);
@@ -84,19 +85,29 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
 
   void runOnProgram(ProgramOp program) {
     FuncOp fn = getOperation();
-    // Only idr-narrow decides the program's summaries and holds them for
-    // this pass.
+    // Only idr-narrow decides the program's summaries and the bounds of
+    // each function's values, and holds them for this pass.
     const Ranges &ranges = solver::decided(getCachedParentAnalysis<Ranges>(program));
+    // Each loop whose natural only descends is versioned under the bounds
+    // of the function's one solve. A version's copies hold values no solve
+    // saw, so a function with one is solved again under the summaries,
+    // which still hold.
+    Bounded solved(fn, ranges.boundsOf(fn));
+    uint64_t versioned = 0;
+    RewritePatternSet versions(&getContext());
+    populateVersionPatterns(versions, solved, versioned);
+    walkAndApplyPatterns(fn, std::move(versions));
+    Changed changed = versioned == 0 ? Changed::No : Changed::Yes;
     solver::Work work;
-    FailureOr<std::unique_ptr<const Ranges::Solved>> solved = ranges.solve(fn, work);
-    if (failed(solved)) {
-      fn.emitError("internal error: idr-narrow-words: the range analysis failed");
-      return signalPassFailure();
-    }
+    footprint::Vector<ranges::Bounds> rewritten;
+    if (changed == Changed::Yes)
+      rewritten = ranges.boundsOfRewritten(fn, work);
+    numVersioned += versioned;
     numWork += work.steps();
-    Facts facts(fn, **solved);
+    Facts facts = changed == Changed::No ? Facts(fn, std::move(solved))
+                                         : Facts(fn, Bounded(fn, rewritten));
     Decisions decided(facts.count());
-    Changed changed = decideJoints(facts, decided);
+    changed |= decideJoints(facts, decided);
 
     // One pass over the steps, in the walk's order: a joint's arguments
     // become words as it is entered, and a literal match on a big that fits
@@ -185,10 +196,10 @@ struct NarrowWords : idr::impl::IdrNarrowWordsBase<NarrowWords> {
     });
     if (changed == Changed::No)
       return markAllAnalysesPreserved();
-    // What follows a call may have changed: a count op or a conversion
-    // after it gone. No web holding what a tail call gives was carried, so
-    // what a call in tail position gives still goes straight to its tail;
-    // every call takes its fact again from the function's tails.
+    // What follows a call may have changed: a loop versioned, a count op or
+    // a conversion after it gone. No web holding what a tail call gives was
+    // carried, so what a call in tail position gives still goes straight to
+    // its tail; every call takes its fact again from the function's tails.
     (void)optimize::decideTails(fn);
   }
 
@@ -199,38 +210,10 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
   using IdrNarrowBase::IdrNarrowBase;
 
   void runOnProgram(ProgramOp program) {
-    uint64_t versioned = 0;
-    // The pass's work: each decide step of the summaries it ran, and each
-    // function's solve under them.
-    solver::Work work;
-    {
-      // Each function's loops are versioned under its own solve, which the
-      // program's summaries start.
-      const Ranges &ranges = getAnalysis<Ranges>();
-      work.add(ranges.work());
-      for (FuncOp fn : program.getOps<FuncOp>()) {
-        FailureOr<std::unique_ptr<const Ranges::Solved>> solved = ranges.solve(fn, work);
-        if (failed(solved)) {
-          fn.emitError("internal error: idr-narrow: the range analysis failed");
-          return signalPassFailure();
-        }
-        RewritePatternSet patterns(&getContext());
-        populateVersionPatterns(patterns, **solved, versioned);
-        walkAndApplyPatterns(fn, std::move(patterns));
-      }
-    }
-    // A versioned loop's copy holds values no summary saw, so the summaries
-    // are decided again, dropped with every analysis the versions change: no
-    // declaration changes, and no symbol is added or removed. Otherwise the
-    // first summaries are the ones the functions read.
-    if (versioned != 0) {
-      AnalysisManager::PreservedAnalyses kept;
-      kept.preserve<Layouts, SymbolTable>();
-      getAnalysisManager().invalidate(kept);
-      work.add(getAnalysis<Ranges>().work());
-    }
-
-    // The functions read the program's summaries from this pass's analysis
+    // The pass's work: the solves of the summaries and the bounds, decided
+    // once.
+    numWork += getAnalysis<Ranges>().work();
+    // The functions read the program's bounds from this pass's analysis
     // manager, which holds them through the nested run. Which passes run
     // there is the pipeline's to say: its list pairs this decide step with
     // its apply group.
@@ -238,8 +221,6 @@ struct Narrow : idr::impl::IdrNarrowBase<Narrow> {
     ::idr::pipeline::applyGroupOfIdrNarrow(nested);
     if (failed(runPipeline(nested, program)))
       return signalPassFailure();
-    numVersioned += versioned;
-    numWork += work.steps();
     // No declaration changes, and no symbol is added or removed.
     markAnalysesPreserved<Layouts, SymbolTable>();
   }
