@@ -33,6 +33,7 @@ import Data.List.Quantifiers
 import Data.List1
 import Data.Maybe
 import Data.SnocList
+import Data.SortedSet
 import Data.String
 import Data.Vect
 
@@ -42,17 +43,27 @@ import Data.Vect
 -- Scopes
 ------------------------------------------------------------------------------
 
+||| What a jump gives a join region's parameter: an argument at the binder
+||| the region binds it at; or nothing, for a parameter the region's body
+||| never names, which the region does not bind, so what the jump's operand
+||| holds is neither passed nor kept alive past the jump. A local
+||| definition's region takes the parameters its definition takes (a case
+||| block's, the whole environment its block was written in), which its
+||| body need not read.
+public export
+data Passing = PassedAt Binder | NotPassed
+
 %prefix_record_projections off
 
 ||| What a jump to a join point needs of it: the token that designates it,
-||| its parameters, at the types its region binds them at, and the depth of
-||| the telescope where its op stands, after which its region binds its
-||| erased binders.
+||| how it passes each of the region's parameters (`Passing`), and the
+||| depth of the telescope where its op stands, after which its region binds
+||| its erased binders.
 public export
 record Reach (k : Nat) where
   constructor MkReach
   token : Value
-  params : Vect k Binder
+  params : Vect k Passing
   depth : Nat
 
 %prefix_record_projections on
@@ -297,7 +308,7 @@ mutual
   names from k (App _ _ _ f x) = names from k f || names from k x
   names from k (Suspend _ _ body) = names from k body
   names from k (Resume _ _ e) = names from k e
-  names from k (Unreachable _) = False
+  names from k (Unreachable _ _) = False
   names from k (Assume _ _ _ body) = names from k body
   names from k (Crash _ _) = False
   names from k (CrashWith _ m) = names from k m
@@ -369,9 +380,7 @@ mutual
   litArmsName from k (OnBigs arms) = keyedName from k arms
 
   natArmsName : (from, k : Nat) -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) -> Bool
-  natArmsName from k (OnlyZero z) = names from k z
-  natArmsName from k (OnlySucc _ s) = names (S from) k s
-  natArmsName from k (Both z _ s) = names from k z || names (S from) k s
+  natArmsName from k (NatArms z _ s) = names from k z || names (S from) k s
 
   targetsName : (from, k : Nat) -> All (Target s n) ts -> Bool
   targetsName from k [] = False
@@ -467,24 +476,70 @@ holding ix l binder t captures build =
 -- Join points
 ------------------------------------------------------------------------------
 
+||| How the jumps to each join point of an op pass its region's parameters.
+Passes : List Nat -> Type
+Passes = All (\k => Vect k Passing)
+
+||| What a visit that only reads collects of a term's scope: the variables
+||| it met, each by its position.
+record Met (a : Type) where
+  constructor MkMet
+  variables : SortedSet Nat
+
+Functor Met where
+  map f (MkMet vs) = MkMet vs
+
+Applicative Met where
+  pure _ = MkMet SortedSet.empty
+  MkMet a <*> MkMet b = MkMet (SortedSet.union a b)
+
+||| The variables of its scope a term names, each by its position, read in
+||| one walk (`visitTerm`).
+variablesIn : TermAt js n -> SortedSet Nat
+variablesIn t = (visitTerm meeting t).variables
+  where
+    meeting : Visit Met n n
+    meeting = MkVisit (\x => MkMet (SortedSet.singleton (finToNat x))) (\_ => MkMet SortedSet.empty) Unmoved
+
+||| A join region's parameters as its jumps pass them: each one its body
+||| names at its binder, parameter `i` being the body's variable `i`, the
+||| variables it names read off it in one walk (`variablesIn`); none of the
+||| others.
+passingOf : Vect k Binder -> TermAt s (Under k n) -> Vect k Passing
+passingOf params body = go (variablesIn body) 0 params
+  where
+    go : SortedSet Nat -> Nat -> Vect j Binder -> Vect j Passing
+    go named i [] = []
+    go named i (b :: bs) = (if contains i named then PassedAt b else NotPassed) :: go named (S i) bs
+
+||| How the jumps to each of a join op's join points pass its region's
+||| parameters (`passingOf`), read once per op.
+passesOf : All (TargetF (Sub Em) s nv) ts -> Passes ts
+passesOf [] = []
+passesOf (MkTargetF _ _ _ _ params body :: rest) = passingOf params body.term :: passesOf rest
+
 ||| The tokens of a join op, one per join point, each a region's argument,
 ||| and what a jump to each needs, its op's telescope `depth` deep.
-reaching : Loc -> Nat -> All (TargetF f s nv) ts -> E (All Reach ts, List Argument)
+reaching : Loc -> Nat -> Passes ts -> E (All Reach ts, List Argument)
 reaching l depth [] = pure ([], [])
-reaching l depth (MkTargetF _ _ _ _ params _ :: rest) = do
+reaching l depth (passes :: rest) = do
   n <- fresh
   let token = MkValue (Bound n 0) MlirType.TokenType
   (reaches, args) <- reaching l depth rest
-  pure (MkReach token params depth :: reaches, MkArgument token (At l) :: args)
+  pure (MkReach token passes depth :: reaches, MkArgument token (At l) :: args)
 
 ||| A join region's parameters as its arguments, each named as the program
-||| names it; the world binds no value.
-parametersOf : Index -> Loc -> Vect k Shown -> Vect k Binder -> E (Vect k InScope, List Argument)
+||| names it, as its jumps pass them (`Passing`): the world binds no value,
+||| and a parameter its body never names none either, never looked at.
+parametersOf : Index -> Loc -> Vect k Shown -> Vect k Passing -> E (Vect k InScope, List Argument)
 parametersOf ix l [] [] = pure ([], [])
-parametersOf ix l (_ :: rest) (MkBinder _ WorldT :: bs) = do
+parametersOf ix l (_ :: rest) (NotPassed :: bs) = do
   (vs, args) <- parametersOf ix l rest bs
   pure (World :: vs, args)
-parametersOf ix l (name :: rest) (b :: bs) = do
+parametersOf ix l (_ :: rest) (PassedAt (MkBinder _ WorldT) :: bs) = do
+  (vs, args) <- parametersOf ix l rest bs
+  pure (World :: vs, args)
+parametersOf ix l (name :: rest) (PassedAt b :: bs) = do
   (v, o) <- freshVal ix b.type b.quantity
   st <- get
   put ({ nextBinder $= S } st)
@@ -514,8 +569,8 @@ repeats : Loc -> E ()
 repeats l = do
   t <- gets (.termination)
   case t of
-    Terminates _ => pure ()
-    MayDiverge => statement l Idr.mayLoopOp
+    InComponent _ => pure ()
+    Unproved => statement l Idr.mayLoopOp
 
 ||| A join op, by its member's builder: its body, a region entered once,
 ||| which begins with one token per join point and sees them after those
@@ -524,35 +579,36 @@ repeats l = do
 ||| sees the join points its member lets it see (`regionTokens`), begins
 ||| with what its member says of a region that runs again (`begins`: a
 ||| join's none, a loop's `repeats`), binds its erased binders at the next
-||| levels and its parameters as its arguments, and is code of the
-||| definition it is. They rejoin at the op's results as a match's cases
-||| do.
+||| levels and the parameters its jumps pass as its arguments
+||| (`passingOf`), and is code of the definition it is. They rejoin at the
+||| op's results as a match's cases do.
 joined : {0 js, s, ts : List Nat} -> {0 nv : Nat} ->
          Index -> Loc -> Scope js nv -> Wanted -> (MlirAttr -> MLIR.Region -> List MLIR.Region -> List MlirType -> Op)
-      -> (regionTokens : E (All Reach s, List Argument)) -> (begins : Loc -> E ())
+      -> (regionTokens : Passes ts -> E (All Reach s, List Argument)) -> (begins : Loc -> E ())
       -> All (TargetF (Sub Em) s nv) ts -> Sub Em (js ++ ts) nv -> E (Maybe Val)
 joined ix l sc w member regionTokens begins targets body = do
-  (own, tokens) <- reaching l (length sc.telescope) targets
+  let passes = passesOf targets
+  (own, tokens) <- reaching l (length sc.telescope) passes
   (res, ops) <- collect (body.result (MkScope sc.vars sc.telescope (sc.targets ++ own))
                                      ({ binder := Nothing } w))
-  regions <- regionsOf targets
+  regions <- regionsOf passes targets passes
   let binders = ArrayAttr (forget (mapProperty {q = const MlirAttr} (\t => Idr (IndexBindersAttr (map (sortOf ix) (sortsOf t))))
                                                targets))
   match ix l w (\cs, d, rs => member binders d (caseRegions cs) rs) regions (Just (MkArm tokens res ops))
   where
-    region : TargetF (Sub Em) s nv k -> E Case
-    region (MkTargetF {k} tl code sorts given params rbody) = do
-      (reach, tokens) <- regionTokens
-      (vals, args) <- parametersOf ix tl given params
+    region : Passes ts -> TargetF (Sub Em) s nv k -> Vect k Passing -> E Case
+    region passes (MkTargetF {k} tl code sorts given _ rbody) passing = do
+      (reach, tokens) <- regionTokens passes
+      (vals, args) <- parametersOf ix tl given passing
       (res, ops) <- collect $ do
         begins tl
         inCodeOf code $
           rbody.result (bind vals (MkScope sc.vars (sc.telescope ++ sorts) reach)) ({ binder := Nothing } w)
       pure (MkCase 0 (MkArm (tokens ++ args) res ops))
 
-    regionsOf : All (TargetF (Sub Em) s nv) ts' -> E (List Case)
-    regionsOf [] = pure []
-    regionsOf (t :: rest) = (::) <$> region t <*> regionsOf rest
+    regionsOf : Passes ts -> All (TargetF (Sub Em) s nv) ts' -> Passes ts' -> E (List Case)
+    regionsOf passes [] [] = pure []
+    regionsOf passes (t :: rest) (p :: ps) = (::) <$> region passes t p <*> regionsOf passes rest ps
 
 ------------------------------------------------------------------------------
 -- The algebra
@@ -701,10 +757,10 @@ alg ix (CaseF l f x arms) sc w = do
 -- where the default reads it.
 alg ix (CaseLitF l x arms) sc w = case arms of
   OnlyDefault d => d.result sc w
-  OnInts t keyed => literalsOf (\n => litAttr (LInt t n)) keyed
-  OnChars keyed => literalsOf (\c => litAttr (LChar c)) keyed
-  OnStrings keyed => literalsOf (\s => litAttr (LStr s)) keyed
-  OnBigs keyed => literalsOf (\n => litAttr (LBig n)) keyed
+  OnInts t keyed => literalsOf (\n => keyAttr (IntKey t n)) keyed
+  OnChars keyed => literalsOf (\c => keyAttr (CharKey c)) keyed
+  OnStrings keyed => literalsOf (\s => keyAttr (StrKey s)) keyed
+  OnBigs keyed => literalsOf (\n => keyAttr (BigKey n)) keyed
   where
     literals : (kt -> MlirAttr) -> List (kt, Sub Em js nv) -> Sub Em js nv -> E (Maybe Val)
     literals key [] d = d.result sc w
@@ -726,20 +782,17 @@ alg ix (CaseLitF l x arms) sc w = case arms of
 -- arm computes it from the value it binds, which is not zero there. The
 -- zero arm binds the scrutinee too, which is zero there, as every region
 -- of a literal match binds it.
-alg ix (CaseNatF l x arms) sc w = case arms of
-  OnlyZero z => z.result sc w
-  OnlySucc p s => successor p s sc w (standing (sc.vars x))
-  Both z p s => do
-    let n = standing (sc.vars x)
-    (atZero, zarg) <- rebound ix l n
-    (zr, zops) <- collect (z.result (refining x atZero sc) ({ binder := Nothing } w))
-    (back, arg) <- rebound ix l n
-    (sr, sops) <- collect (successor p s (refining x back sc) ({ binder := Nothing } w) back)
-    match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [litAttr (LNat 0)]) (operand ix n) [] dr (caseRegions cs) ts)
-          [MkCase 0 (MkArm [zarg] zr zops)] (Just (MkArm [arg] sr sops))
+alg ix (CaseNatF l x (NatArms z p s)) sc w = do
+  let n = standing (sc.vars x)
+  (atZero, zarg) <- rebound ix l n
+  (zr, zops) <- collect (z.result (refining x atZero sc) ({ binder := Nothing } w))
+  (back, arg) <- rebound ix l n
+  (sr, sops) <- collect (successor (refining x back sc) ({ binder := Nothing } w) back)
+  match ix l w (\cs, dr, ts => Idr.litMatchOp (ArrayAttr [keyAttr (BigKey 0)]) (operand ix n) [] dr (caseRegions cs) ts)
+        [MkCase 0 (MkArm [zarg] zr zops)] (Just (MkArm [arg] sr sops))
   where
-    successor : Shown -> Sub Em js (Under 1 nv) -> Scope js nv -> Wanted -> Val -> E (Maybe Val)
-    successor p s scope w' n = do
+    successor : Scope js nv -> Wanted -> Val -> E (Maybe Val)
+    successor scope w' n = do
       b <- binding p Many
       pv <- value {binder = Just b} ix l (NatT IOpaque) (Idr.natPredOp (operand ix !(coerce ix l Many n)))
       s.result (bind [Whole pv] scope) w'
@@ -875,7 +928,7 @@ alg ix (TabulateIOF {k} l rt es w body step done) sc wanted = do
       let e = typeOf (head step.fields)
       v <- mlirValue l (gradedType ix Many made e) (Idr.dataFieldOp (fieldIndex 0) (operand ix res) [])
       pure (val v.name e Many made)
-alg ix (UnreachableF l) sc _ = do
+alg ix (UnreachableF l _) sc _ = do
   statement l UB.unreachableOp
   pure Nothing
 -- An erased equality Idris proved holds in a region, its sides index terms
@@ -931,20 +984,27 @@ alg ix (ExtentsBackF {k} l x body) sc w = do
 -- regions may jump among themselves, each one saying whether it may
 -- repeat for ever (`repeats`).
 alg ix (JoinF l InBody targets body) sc w =
-  joined ix l sc w (\bs, d, rs, results => Idr.joinOp bs [] d rs results) (pure (sc.targets, [])) (\_ => pure ())
+  joined ix l sc w (\bs, d, rs, results => Idr.joinOp bs [] d rs results) (\_ => pure (sc.targets, [])) (\_ => pure ())
          targets body
 alg ix (JoinF l InEveryRegion targets body) sc w =
   joined ix l sc w (\bs, d, rs, results => Idr.loopOp bs [] d rs results)
-         (mapFst (\own => sc.targets ++ own) <$> reaching l (length sc.telescope) targets) repeats targets body
--- A jump passes its join point's parameters their arguments, at the types
--- its region binds them at with its erased binders given the jump's
--- terms, and ends its region: control goes on in the region its token
--- designates.
+         (\passes => mapFst (\own => sc.targets ++ own) <$> reaching l (length sc.telescope) passes) repeats targets body
+-- A jump passes its join point's parameters their arguments, each one its
+-- region binds at the type it binds it at with its erased binders given the
+-- jump's terms, and ends its region: control goes on in the region its
+-- token designates. An argument for a parameter the region does not bind
+-- is computed where the jump is, as eager evaluation computes every
+-- argument, and passed nowhere (`Passing`).
 alg ix (JumpF l e terms as) sc w = do
   let reach = indexAll e sc.targets
       instantiated = levelsBelow reach.depth ++ terms
-      slots = map (\b => Just (MkBinder b.quantity (substTy instantiated b.type))) reach.params
-  Just vs <- operands ix l (offTail sc) (zip slots as)
+  Just vs <- (traverse (argument instantiated) (zip reach.params as)).written
     | Nothing => pure Nothing
-  statement l (Idr.jumpOp {terms' = Just (indexArgsOf ix terms)} reach.token (map (operand ix) (present (toList vs))))
+  statement l (Idr.jumpOp {terms' = Just (indexArgsOf ix terms)} reach.token
+                          (map (operand ix) (present (catMaybes (toList vs)))))
   pure Nothing
+  where
+    argument : List ITerm -> (Passing, Sub Em [] nv) -> Operands (Maybe Val)
+    argument instantiated (PassedAt b, a) =
+      Just <$> operand1 ix l (offTail sc) (Just (MkBinder b.quantity (substTy instantiated b.type))) a
+    argument instantiated (NotPassed, a) = MkOperands (map (const Nothing) <$> a.result (offTail sc) (expecting Nothing))

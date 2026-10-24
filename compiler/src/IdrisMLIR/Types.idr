@@ -101,6 +101,23 @@ orderedDims : Ordered -> List Dim
 orderedDims Cell = []
 orderedDims Elements = [Dynamic]
 
+||| A literal a match keys on, and an index term's literal: a fixed-width
+||| integer of its type, a character by its code point, a string, or a
+||| number held as a big integer, an `Integer` or a natural, which
+||| `idr.lit.match` keys alike. A double is none: its equality is no
+||| identity (two zeros, and a NaN unequal to itself), so no match keys on
+||| one and no index is one.
+public export
+data LitKey = IntKey IntTy Integer | CharKey Integer | StrKey String | BigKey Integer
+
+||| Whether two keys are one.
+sameKey : LitKey -> LitKey -> Bool
+sameKey (IntKey s a) (IntKey t b) = s == t && a == b
+sameKey (CharKey a) (CharKey b) = a == b
+sameKey (StrKey a) (StrKey b) = a == b
+sameKey (BigKey a) (BigKey b) = a == b
+sameKey _ _ = False
+
 mutual
   ||| What is known of an erased index, in the scope it is written in: a
   ||| natural as a number; a level of the scope's telescope of erased
@@ -108,20 +125,20 @@ mutual
   ||| constructor binders, outermost first); a term plus a constant; a sum
   ||| of levels plus a count, each level once with how often it occurs, in
   ||| ascending order of level, two occurrences at least in all (what base's
-  ||| `plus` on naturals computes); a literal of a scalar sort, or a type; a
-  ||| constructor of a family member applied to its binders and then its
-  ||| fields, in declaration order; or nothing, an index outside the
-  ||| language, which refines nothing. Only normal forms are built (`succ`,
-  ||| `sumOf`, `iCon`): no successor of a number or of a successor, no sum
-  ||| of one level once, and a numeral family's constructors read as
-  ||| numbers.
+  ||| `plus` on naturals computes); a literal of a scalar sort (`LitKey`),
+  ||| or a type; a constructor of a family member applied to its binders
+  ||| and then its fields, in declaration order; or nothing, an index
+  ||| outside the language, which refines nothing. Only normal forms are
+  ||| built (`succ`, `sumOf`, `iCon`): no successor of a number or of a
+  ||| successor, no sum of one level once, and a numeral family's
+  ||| constructors read as numbers.
   public export
   data ITerm
     = INat Nat
     | IVar Nat
     | ISucc ITerm Nat
     | ISum (List1 (Nat, Nat)) Nat
-    | ILit Lit
+    | ILit LitKey
     | IType Ty
     | ICon FamilyId Nat (List ITerm)
     | IOpaque
@@ -253,7 +270,7 @@ mutual
   sameTerm (IVar a) (IVar b) = a == b
   sameTerm (ISucc t a) (ISucc u b) = a == b && sameTerm t u
   sameTerm (ISum ps a) (ISum qs b) = a == b && forget ps == forget qs
-  sameTerm (ILit a) (ILit b) = sameLit a b
+  sameTerm (ILit a) (ILit b) = sameKey a b
   sameTerm (IType a) (IType b) = sameTy a b
   sameTerm (ICon f c as) (ICon g d bs) = f == g && c == d && sameTerms as bs
   sameTerm IOpaque IOpaque = True

@@ -141,39 +141,31 @@ resultSize Dynamic otherwise = otherwise
 -- Casts
 ------------------------------------------------------------------------------
 
-||| How a value fits a slot: as it is; cast to the slot's type, a tensor
-||| of the slot's element and rank whose type differs from the slot's only
-||| in which dimensions are static; reindexed to it (`idr.data.reindex`), a
-||| value of the slot's family at index terms the scope's refinements make
-||| equal to the slot's, one known to be a constructor the slot's type does
-||| not name, a natural linked to another term than the slot's, or a tensor
-||| of the slot's dimensions whose element is one of these to the slot's
-||| element; cast to the slot's dimensions and then so reindexed, a tensor
-||| that differs from the slot in both; or not at all, the frontend's
-||| error. Any other value is of the slot's type, but for the extents of
-||| the tensors in it, which a closure's type holds dynamic. A value of one
-||| family where its slot takes another is one type translated as two, and
-||| a match on the slot's would take the constructors the value was built
-||| with as never built; so is an array whose element no reindex makes the
-||| slot's, or a value that is no array where its slot takes one, since the
-||| op that takes the array reads each element at the slot's element type.
-data Fitting = AsIs | CastTo Ty | Reindex Ty | CastThenReindex Ty Ty | Mismatch String Ty
+||| How a value fits the slot that takes it, by what the two types the
+||| frontend wrote for it differ in: nothing, and it is as it is; which
+||| extents of a tensor are static, and it is cast to the slot's
+||| (`tensor.cast`); index terms anywhere in its type (a family's, a
+||| natural's, a tensor element's, a closure's or a suspension's), or which
+||| constructor a value of a family is known to be, and it is reindexed to
+||| the slot's type (`idr.data.reindex`); or both, a tensor cast to the
+||| slot's dimensions and then reindexed. A closure's or a suspension's
+||| type holds every extent in it dynamic, so no extent sets two apart.
+||| That the two types are one up to these is the dialect's to hold, where
+||| the module is read: a reindex relates two types only by a refinement of
+||| index terms, part by part, a cast only two tensors of one rank whose
+||| static extents agree, and every op that takes a value holds it to its
+||| operand's type, so no value here is taken as another type than its own.
+data Fitting = AsIs | CastTo Ty | Reindex Ty | CastThenReindex Ty Ty
 
 fitting : Maybe Ty -> Ty -> Refinement -> Fitting
-fitting (Just slot@(TensorT ds e)) (TensorT es e') _ =
-  if length ds /= length es then Mismatch "an array" slot
-  else if e == e' then (if ds == es then AsIs else CastTo slot)
-  else case fitting (Just e) e' AnyConstructor of
-    Reindex _ => if ds == es then Reindex slot else CastThenReindex (TensorT ds e') slot
-    _ => Mismatch "an array" slot
-fitting (Just slot@(TensorT _ _)) _ _ = Mismatch "a value" slot
-fitting (Just slot@(DataT f ts)) (DataT g us) r =
-  if f /= g then Mismatch "a value" slot
-  else case r of
-    AnyConstructor => if ts == us then AsIs else Reindex slot
-    OneOf _ => Reindex slot
-fitting (Just slot@(NatT t)) (NatT u) _ = if t == u then AsIs else Reindex slot
-fitting (Just slot) t _ = if dynamicDims t == dynamicDims slot then AsIs else Mismatch "a value" slot
+fitting (Just slot@(TensorT ds e)) (TensorT es e') _ = case (ds == es, e == e') of
+  (True, True) => AsIs
+  (False, True) => CastTo slot
+  (True, False) => Reindex slot
+  (False, False) => CastThenReindex (TensorT ds e') slot
+fitting (Just slot@(TensorT _ _)) _ _ = CastTo slot
+fitting (Just slot) _ (OneOf _) = Reindex slot
+fitting (Just slot) t AnyConstructor = if dynamicDims t == dynamicDims slot then AsIs else Reindex slot
 fitting Nothing _ _ = AsIs
 
 ||| `v` cast to `t`, a tensor type that differs from its own only in which
@@ -197,14 +189,6 @@ fitBy ix l AsIs v = pure v
 fitBy ix l (CastTo t) v = castTo ix l binder t v
 fitBy ix l (Reindex t) v = reindexTo ix l binder t v
 fitBy ix l (CastThenReindex through t) v = reindexTo ix l binder t !(castTo ix l Nothing through v)
--- Kept: the core term holds the type each slot takes, and each form the
--- type of the value it gives (`Term.termType`), but no proof that the two
--- agree but for the extents and index terms a cast or a reindex fixes. A
--- term is not indexed by its type: a `let` of a value the translation
--- binds (`OfValue`) and a value a settled term computes are typed by what
--- makes them, not by a binder of the scope, so what makes a value and
--- what holds it are two readings of one Idris type.
-fitBy ix l (Mismatch what expected) v = unfit (MkUnfit l what v.type expected)
 
 ||| `v` where a slot of type `slot` takes it, as `fitting` fits it, the
 ||| variable `binder` bound to the last op it is given.

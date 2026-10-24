@@ -89,16 +89,14 @@ reaches ix = reachesIn (MkAmong ix.families empty)
 -- Types
 ------------------------------------------------------------------------------
 
-||| A literal as the attribute that holds it: an index term's, or a key of
-||| `idr.lit.match`.
+||| A key of `idr.lit.match`, or an index term's literal, as the attribute
+||| that holds it (`LitKey`).
 export
-litAttr : Lit -> MlirAttr
-litAttr (LInt t n) = IntegerAttr (twos (width t) n) (OfWidth (width t))
-litAttr (LChar c) = IntegerAttr c (OfWidth 32)
-litAttr (LStr s) = StringAttr s
-litAttr (LDouble d) = FloatAttr d F64Type
-litAttr (LBig n) = Idr (BigAttr n)
-litAttr (LNat n) = Idr (BigAttr n)
+keyAttr : LitKey -> MlirAttr
+keyAttr (IntKey t n) = IntegerAttr (twos (width t) n) (OfWidth (width t))
+keyAttr (CharKey c) = IntegerAttr c (OfWidth 32)
+keyAttr (StrKey s) = StringAttr s
+keyAttr (BigKey n) = Idr (BigAttr n)
 
 ||| The axes of an array a function gives: `?` at every one, whatever its
 ||| size (`returned`).
@@ -211,7 +209,7 @@ mutual
   -- A sum, its count and how many levels it holds, then each level after
   -- how often it occurs, in ascending order of level.
   nodeIn a (ISum ps k) = TermNodeSum k (length (toList ps)) :: (toList ps >>= \(l, m) => [TermNodeMultiple m, TermNodeLevel l])
-  nodeIn a (ILit l) = [TermNodeLiteral (litAttr l)]
+  nodeIn a (ILit k) = [TermNodeLiteral (keyAttr k)]
   nodeIn a (IType t) = [TermNodeLiteral (TypeAttr (typeIn a t))]
   nodeIn a (ICon f c args) = case lookup f a.members of
     Just m => TermNodeConstructor Nothing m c (length args) :: nodesIn a args

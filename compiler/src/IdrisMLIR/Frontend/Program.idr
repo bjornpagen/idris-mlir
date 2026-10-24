@@ -66,24 +66,20 @@ write path text = do
 
 ||| The module, written as Emit makes it, top-level op by top-level op, so
 ||| that no text of the whole module is held. It streams to its path, and a
-||| module not written whole is removed, so a failed emit leaves no partial
-||| module there: Emit's failure is the compiler's at the site Emit names,
-||| and the writer's is the file's. There is no write beside the path and
-||| rename onto it: base has no rename, and `%foreign` is outside the
-||| language this compiler compiles, which the frontend is written in.
+||| module not written whole is removed, so a failed write leaves no partial
+||| module there. There is no write beside the path and rename onto it:
+||| base has no rename, and `%foreign` is outside the language this
+||| compiler compiles, which the frontend is written in.
 writeModule : String -> Source -> Core ()
 writeModule path src = do
   makeParent path
   Right h <- coreLift (openFile path WriteTruncate)
     | Left err => throw (InternalError ("cannot write " ++ path ++ ": " ++ show err))
-  emitted <- coreLift (emit h src)
+  written <- coreLift (emit h src)
   coreLift (closeFile h)
-  case emitted of
-    Written => pure ()
-    EmitFailed u => do
-      ignore (coreLift (removeFile path))
-      throw (InternalError (show u.site ++ ": internal error: Emit: " ++ show u))
-    WriteFailed msg => do
+  case written of
+    Right () => pure ()
+    Left msg => do
       ignore (coreLift (removeFile path))
       throw (InternalError ("cannot write " ++ path ++ ": " ++ msg))
 

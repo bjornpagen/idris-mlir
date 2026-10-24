@@ -2051,7 +2051,7 @@ mutual
                                      (Let loc (shown "action") (Checked (MkBinder Many action)) (weakenUnder 1 (Data.Vect.last ns))
                                           (Let loc (shown "exited") (OfValue Many)
                                                (App loc actionWorld acted (Var loc FZ) (Var loc (FS FZ)))
-                                               (Unreachable loc)))))
+                                               (Unreachable loc Exited)))))
 
       -- A call of a monomorphic library function a hook of the callee
       -- names, which the boundary read against its definition

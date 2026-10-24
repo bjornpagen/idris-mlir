@@ -34,6 +34,7 @@ import IdrisMLIR.Spec.Control.Joins
 import IdrisMLIR.Spec.Runtime.Endings
 import IdrisMLIR.Spec.Core.Text
 import IdrisMLIR.Spec.Families.Group
+import public IdrisMLIR.Spec.Functions.Termination
 import IdrisMLIR.Spec.Grades.Grade
 import IdrisMLIR.Types
 
@@ -281,10 +282,22 @@ data LitMatch t
   | OnStrings (LitArmsOf String t)
   | OnBigs (LitArmsOf Integer t)
 
-||| A match on a natural's possible arms: zero, a successor binding its
-||| predecessor (named), or both.
+||| A match on a natural's arms: zero's, and a successor's, binding its
+||| predecessor (named). An arm no value takes is there, ending in what
+||| justifies it (`Unreachable`).
 public export
-data NatArmsOf z s = OnlyZero z | OnlySucc Shown s | Both z Shown s
+data NatArmsOf z s = NatArms z Shown s
+
+||| Why a term never runs, which Idris proved or the program fixes: a
+||| clause the definition marks `impossible`; a place no clause of a
+||| covering definition reaches, which Idris's coverage check proved no
+||| input does; a value of a constructor no value there is built with, one
+||| Idris proved impossible there (a covering definition gives it no arm,
+||| or its family has none), or one the value's shape rules out (every
+||| call built it with another); a dispatch of a choice the program builds
+||| no member of; or what follows an exit, which never returns.
+public export
+data Never = ImpossibleClause | NoClause | ImpossibleConstructor | NoMember | Exited
 
 ||| The join points a join op's regions may jump to, by where its member
 ||| puts its tokens: an `idr.join`'s see only those around the op, so none
@@ -361,8 +374,8 @@ mutual
     ||| A force of a suspension of a value of type `value`, the type its
     ||| operand gives.
     Resume : Loc -> (value : Ty) -> TermAt [] n -> TermAt js n
-    ||| A term Idris proved never runs: a match with no possible arm.
-    Unreachable : Loc -> TermAt js n
+    ||| A term that never runs, and why (`Never`).
+    Unreachable : Loc -> Never -> TermAt js n
     ||| A region in which an erased equality Idris proved holds, its two
     ||| sides index terms of the scope: a match on an erased `Refl`, which
     ||| `replace` and `rewrite` are. The body's value leaves it at the type
@@ -606,7 +619,7 @@ mutual
   visitTerm v (App l a r f x) = App l (movedBinder v.levels a) (movedTy v.levels r) <$> visitTerm v f <*> visitTerm v x
   visitTerm v (Suspend l t body) = Suspend l (movedTy v.levels t) <$> visitTerm v body
   visitTerm v (Resume l t e) = Resume l (movedTy v.levels t) <$> visitTerm v e
-  visitTerm v (Unreachable l) = pure (Unreachable l)
+  visitTerm v (Unreachable l why) = pure (Unreachable l why)
   visitTerm v (Assume l a b body) = Assume l (moved v.levels a) (moved v.levels b) <$> visitTerm v body
   visitTerm v (Crash l m) = pure (Crash l m)
   visitTerm v (CrashWith l m) = CrashWith l <$> visitTerm v m
@@ -673,9 +686,7 @@ mutual
 
   visitNatArms : Applicative g => Visit g n m -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) ->
                  g (NatArmsOf (TermAt js m) (TermAt js (Under 1 m)))
-  visitNatArms v (OnlyZero z) = OnlyZero <$> visitTerm v z
-  visitNatArms v (OnlySucc p s) = OnlySucc p <$> visitTerm (underVisit {k = 1} v) s
-  visitNatArms v (Both z p s) = (\z', s' => Both z' p s') <$> visitTerm v z <*> visitTerm (underVisit {k = 1} v) s
+  visitNatArms v (NatArms z p s) = (\z', s' => NatArms z' p s') <$> visitTerm v z <*> visitTerm (underVisit {k = 1} v) s
 
   visitAlt : Applicative g => Visit g n m -> AltAt js n -> g (AltAt js m)
   visitAlt v (MkAlt {k} c fs body) = MkAlt c fs <$> visitTerm (underVisit {k} v) body
@@ -754,7 +765,7 @@ mutual
     AppF : Loc -> Binder -> Ty -> f [] n -> f [] n -> TermF f js n
     SuspendF : Loc -> Ty -> f [] n -> TermF f js n
     ResumeF : Loc -> Ty -> f [] n -> TermF f js n
-    UnreachableF : Loc -> TermF f js n
+    UnreachableF : Loc -> Never -> TermF f js n
     AssumeF : Loc -> ITerm -> ITerm -> f js n -> TermF f js n
     CrashF : Loc -> Cause -> TermF f js n
     CrashWithF : Loc -> f [] n -> TermF f js n
@@ -808,7 +819,7 @@ mutual
   para alg (App l a r f x) = alg (AppF l a r (sub alg f) (sub alg x))
   para alg (Suspend l t body) = alg (SuspendF l t (sub alg body))
   para alg (Resume l t e) = alg (ResumeF l t (sub alg e))
-  para alg (Unreachable l) = alg (UnreachableF l)
+  para alg (Unreachable l why) = alg (UnreachableF l why)
   para alg (Assume l a b body) = alg (AssumeF l a b (sub alg body))
   para alg (Crash l m) = alg (CrashF l m)
   para alg (CrashWith l m) = alg (CrashWithF l (sub alg m))
@@ -875,9 +886,7 @@ mutual
 
   paraNatArms : {0 f : List Nat -> Nat -> Type} -> ({0 js' : List Nat} -> {0 m : Nat} -> TermF (Sub f) js' m -> f js' m) ->
                 NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) -> NatArmsOf (Sub f js n) (Sub f js (Under 1 n))
-  paraNatArms alg (OnlyZero z) = OnlyZero (sub alg z)
-  paraNatArms alg (OnlySucc p s) = OnlySucc p (sub alg s)
-  paraNatArms alg (Both z p s) = Both (sub alg z) p (sub alg s)
+  paraNatArms alg (NatArms z p s) = NatArms (sub alg z) p (sub alg s)
 
   paraAlt : {0 f : List Nat -> Nat -> Type} -> ({0 js' : List Nat} -> {0 m : Nat} -> TermF (Sub f) js' m -> f js' m) ->
             AltAt js n -> AltF (Sub f) js n
@@ -1022,14 +1031,12 @@ mutual
   termType dp scope (Let _ _ b v body) = termType dp (letTypes dp scope b v) body
   termType dp scope (Case _ _ _ arms) = armsType dp scope arms
   termType dp scope (CaseLit _ _ arms) = litArmsType dp scope arms
-  termType dp scope (CaseNat _ _ (OnlyZero z)) = termType dp scope z
-  termType dp scope (CaseNat _ _ (OnlySucc _ s)) = termType dp (predTypes scope) s
-  termType dp scope (CaseNat _ _ (Both z _ s)) = termType dp scope z <|> termType dp (predTypes scope) s
+  termType dp scope (CaseNat _ _ (NatArms z _ s)) = termType dp scope z <|> termType dp (predTypes scope) s
   termType dp scope (Lam _ _ b r _) = Just (FunT b r)
   termType dp scope (App _ _ r _ _) = Just r
   termType dp scope (Suspend _ t _) = Just (LazyT t)
   termType dp scope (Resume _ t _) = Just t
-  termType dp scope (Unreachable _) = Nothing
+  termType dp scope (Unreachable _ _) = Nothing
   termType dp scope (Assume _ _ _ body) = termType dp scope body
   termType dp scope (Crash _ _) = Nothing
   termType dp scope (CrashWith _ _) = Nothing
@@ -1206,7 +1213,7 @@ mutual
     NoUse => App l a r <$> visitTerm (awayFrom w) f <*> visitTerm (awayFrom w) x
   jumpsTo w (Suspend l t body) = Suspend l t <$> visitTerm (awayFrom w) body
   jumpsTo w (Resume l t e) = Resume l t <$> visitTerm (awayFrom w) e
-  jumpsTo w (Unreachable l) = pure (Unreachable l)
+  jumpsTo w (Unreachable l why) = pure (Unreachable l why)
   jumpsTo w (Assume l a b body) = Assume l a b <$> jumpsTo w body
   jumpsTo w (Crash l m) = pure (Crash l m)
   jumpsTo w (CrashWith l m) = CrashWith l <$> visitTerm (awayFrom w) m
@@ -1267,9 +1274,7 @@ mutual
 
   jumpsNatArms : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) ->
                  Maybe (NatArmsOf (TermAt (k :: js) m) (TermAt (k :: js) (Under 1 m)))
-  jumpsNatArms w (OnlyZero z) = OnlyZero <$> jumpsTo w z
-  jumpsNatArms w (OnlySucc p s) = OnlySucc p <$> jumpsTo (withoutUnder {j = 1} w) s
-  jumpsNatArms w (Both z p s) = (\z', s' => Both z' p s') <$> jumpsTo w z <*> jumpsTo (withoutUnder {j = 1} w) s
+  jumpsNatArms w (NatArms z p s) = (\z', s' => NatArms z' p s') <$> jumpsTo w z <*> jumpsTo (withoutUnder {j = 1} w) s
 
   jumpsTargets : {k : Nat} -> (without : Fin n -> Maybe (Fin m)) -> All (Target s n) ts -> Maybe (All (Target (k :: s) m) ts)
   jumpsTargets w [] = pure []
@@ -1441,9 +1446,7 @@ mutual
   callsLitArms (OnBigs arms) = callsKeyed arms
 
   callsNatArms : NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) -> BodyCalls
-  callsNatArms (OnlyZero z) = callsOf z
-  callsNatArms (OnlySucc _ s) = callsOf s
-  callsNatArms (Both z _ s) = callsOf z <+> callsOf s
+  callsNatArms (NatArms z _ s) = callsOf z <+> callsOf s
 
   callsTargets : All (Target s n) ts -> BodyCalls
   callsTargets [] = neutral
@@ -1509,7 +1512,7 @@ mutual
   overTails at o e dp sc (Join {nonEmpty} l scope targets body) =
     Join {nonEmpty} l scope (overTargets at e dp sc targets) (overTails at UnderJoin e dp sc body)
   overTails at o e dp sc (Jump l j terms as) = Jump l j terms as
-  overTails at o e dp sc (Unreachable l) = Unreachable l
+  overTails at o e dp sc (Unreachable l why) = Unreachable l why
   overTails at o e dp sc (Crash l m) = Crash l m
   overTails at o e dp sc (CrashWith l m) = CrashWith l m
 
@@ -1549,10 +1552,8 @@ mutual
 
   overNatArms : AtTail n -> Around js -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p ->
                 NatArmsOf (TermAt js p) (TermAt js (Under 1 p)) -> NatArmsOf (TermAt js p) (TermAt js (Under 1 p))
-  overNatArms at o e dp sc (OnlyZero z) = OnlyZero (overTails at o e dp sc z)
-  overNatArms at o e dp sc (OnlySucc x s) = OnlySucc x (overTails at o (Free {k = 1} . e) dp (predTypes sc) s)
-  overNatArms at o e dp sc (Both z x s) =
-    Both (overTails at o e dp sc z) x (overTails at o (Free {k = 1} . e) dp (predTypes sc) s)
+  overNatArms at o e dp sc (NatArms z x s) =
+    NatArms (overTails at o e dp sc z) x (overTails at o (Free {k = 1} . e) dp (predTypes sc) s)
 
   overTargets : AtTail n -> (Fin n -> Fin p) -> (dp : Nat) -> ScopeTypes p -> All (Target s p) ts -> All (Target s p) ts
   overTargets at e dp sc [] = []
@@ -1584,18 +1585,6 @@ tiedExits l ty ds@(_ :: _) dp params body = overTails (tying l ty ds) Outermost 
 -- Programs
 ------------------------------------------------------------------------------
 
-||| What Idris proved of a function instance's loops, which is where the
-||| divergence of a call through it comes from: every loop through it is
-||| a loop of the one Idris component (its strongly connected component of
-||| Idris's call graph) named, whose size-change graphs decrease; or no
-||| proof covers a loop through it, which may then run for ever. A function
-||| another one's lambda or delay became takes its owner's; one the
-||| frontend made with no definition of its own (the program's root, a
-||| dispatch, a member at a use) has no proof, since only a loop through it
-||| asks and no component of Idris's holds that loop.
-public export
-data Termination = Terminates ComponentId | MayDiverge
-
 ||| What a local definition's value is, as far as a call of it may jump to
 ||| it: `IO`'s, read by `IO`'s identity at its result type (`IOFamily`),
 ||| which a call's value may be run on the world as; or a value of any
@@ -1621,9 +1610,17 @@ data Standing = OwnFunction | LocalDefinition LocalValue
 ||| a parameter Idris erased being none, and its result), the one value
 ||| every call of it holds too; which index term each `?` of its
 ||| signature's tensors is (`Extents`); the name Idris gave each runtime
-||| parameter; its body; and what Idris proved of its loops. Its
-||| projections are postfix only: a prefix `extents` would be
-||| `Shapes.extents` too.
+||| parameter; its body; and what Idris proved of its loops (the
+||| specification's `Termination`, which the dialect's attribute and C++
+||| read): every loop through it is a loop of the one Idris component (its
+||| strongly connected component of Idris's call graph) numbered, whose
+||| size-change graphs decrease, or no proof covers a loop through it,
+||| which may then run for ever. A function another one's lambda or delay
+||| became takes its owner's; one the frontend made with no definition of
+||| its own (the program's root, a dispatch, a member at a use) has no
+||| proof, since only a loop through it asks and no component of Idris's
+||| holds that loop. Its projections are postfix only: a prefix `extents`
+||| would be `Shapes.extents` too.
 public export
 record TFn where
   constructor MkTFn
@@ -1853,7 +1850,7 @@ mutual
   joinsIn {js} g t@(App l a r f x) = jumpOr {js} g (tailHead t) (App l a r f x)
   joinsIn g (Suspend l ty body) = Suspend l ty body
   joinsIn g (Resume l ty e) = Resume l ty e
-  joinsIn g (Unreachable l) = Unreachable l
+  joinsIn g (Unreachable l why) = Unreachable l why
   joinsIn g (Assume l a b body) = Assume l a b (joinsIn g body)
   joinsIn g (Crash l m) = Crash l m
   joinsIn g (CrashWith l m) = CrashWith l m
@@ -1906,9 +1903,7 @@ mutual
 
   joinsNatArms : (g : List LocalJoin) -> NatArmsOf (TermAt js n) (TermAt js (Under 1 n)) ->
                  NatArmsOf (TermAt (stacked g js) n) (TermAt (stacked g js) (Under 1 n))
-  joinsNatArms g (OnlyZero z) = OnlyZero (joinsIn g z)
-  joinsNatArms g (OnlySucc p s) = OnlySucc p (joinsIn g s)
-  joinsNatArms g (Both z p s) = Both (joinsIn g z) p (joinsIn g s)
+  joinsNatArms g (NatArms z p s) = NatArms (joinsIn g z) p (joinsIn g s)
 
   joinsTargets : (g : List LocalJoin) -> All (Target s n) ts -> All (Target (stacked g s) n) ts
   joinsTargets g [] = []
@@ -1926,8 +1921,8 @@ withRegions t [] = t
 withRegions t (m :: ms) = withRegions (both t m.termination) ms
   where
     both : Termination -> Termination -> Termination
-    both MayDiverge _ = MayDiverge
-    both _ MayDiverge = MayDiverge
+    both Unproved _ = Unproved
+    both _ Unproved = Unproved
     both own _ = own
 
 ||| A group of families: a strongly connected component of the graph of

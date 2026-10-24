@@ -68,15 +68,15 @@ captures r = (walkRegion seen (MkSeen empty empty [<]) r).order <>> []
 ||| checker proved that component's calls decrease, and absent otherwise.
 ||| Its row is the derivation's, written later from its ops.
 export
-functionOp : String -> List (SortOf MlirType MlirAttr) -> List MlirAttr -> MlirType -> Region -> Term.Termination -> Op
+functionOp : String -> List (SortOf MlirType MlirAttr) -> List MlirAttr -> MlirType -> Region -> Termination -> Op
 functionOp sym telescope extents type body termination =
   Idr.funcOp {binders' = Just (Idr (IndexBindersAttr telescope)), extents' = Just (Idr (ExtentsAttr extents)),
               terminates' = terminates termination}
              (StringAttr sym) (TypeAttr type) body
   where
-    terminates : Term.Termination -> Maybe MlirAttr
-    terminates (Terminates c) = Just (Idr (TerminatesAttr (MkComponentProof c.index)))
-    terminates MayDiverge = Nothing
+    terminates : Termination -> Maybe MlirAttr
+    terminates (InComponent c) = Just (Idr (TerminatesAttr (MkComponentProof c)))
+    terminates Unproved = Nothing
 
 ||| What a lifted function's body was in its owner, which its symbol says.
 public export

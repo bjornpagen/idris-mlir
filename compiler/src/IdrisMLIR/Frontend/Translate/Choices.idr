@@ -548,7 +548,7 @@ dispatcher : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> Dispatch ->
 dispatcher d = asFunction d.signature d.choice
   where
     matching : {0 p : Nat} -> Loc -> Fin p -> List (Alt p) -> Term p
-    matching loc x [] = Unreachable loc
+    matching loc x [] = Unreachable loc NoMember
     matching loc x (a :: as) = Case loc d.family x (Exhaustive (a ::: as))
 
     -- What an arm calls, given the dispatch's parameters in order, as many
@@ -625,7 +625,7 @@ dispatcher d = asFunction d.signature d.choice
             pure (matching loc chosen arms)
       extents <- signatureExtents kinds result
       updateState (derive { fns $= insert d.inst (MkTFn d.key OwnFunction (telescopeOf kinds) (Runtimes kinds) callee
-                                                        extents (map (const (shown "x")) callee.params) body loc MayDiverge) })
+                                                        extents (map (const (shown "x")) callee.params) body loc Unproved) })
 
 ||| Dispatches in the order of their identities.
 byInstance : Dispatch -> Dispatch -> Ordering

@@ -1413,7 +1413,7 @@ natureFrom tyCons called proved d =
   let a = addressOf d.placement in
   MkNature (maybe NoTypeConstructor ATypeConstructor (lookup a tyCons))
            (maybe NotWalked NamedByWalk (lookup a called))
-           (maybe MayDiverge Terminates (lookup a proved))
+           (maybe Unproved (\c => InComponent c.index) (lookup a proved))
 
 ||| The reading with every definition given what the whole program's
 ||| definitions say of it (`nature`), the entry as every other.

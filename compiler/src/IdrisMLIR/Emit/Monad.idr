@@ -47,31 +47,9 @@ export
 initial : TFn -> ES
 initial f = MkES 0 [<] f.callee.fn f.callee.symbol (shown f.key.origin) f.termination [<] 0 f.arity
 
-||| What Emit cannot write, a bug of the frontend: at `site`, a value of
-||| type `given` where the slot taking it has type `expected`, the two apart
-||| by more than a cast or a reindex fits. `what` says, for the message,
-||| what the value is.
-public export
-record Unfit where
-  constructor MkUnfit
-  site : Loc
-  what : String
-  given : Ty
-  expected : Ty
-
-||| What was given where what was expected; the site is the message's own.
-export
-Show Unfit where
-  show u = u.what ++ " of type " ++ show u.given ++ " where " ++ show u.expected ++ " is expected"
-
 public export
 E : Type -> Type
-E = StateT ES (Either Unfit)
-
-||| A value Emit cannot fit into the slot taking it (`Unfit`).
-export
-unfit : Unfit -> E a
-unfit u = lift (Left u)
+E = State ES
 
 ||| The next binder's number in the function: a statement's or a block
 ||| argument's, each value it binds named by it (`Bound`).

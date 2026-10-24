@@ -61,23 +61,10 @@ each (x :: xs) f = do
     | Left e => pure (Left e)
   each xs f
 
-||| What writing a program's module came to: written; Emit's own failure,
-||| a bug of the frontend at the site it names (`Unfit`); or the writer's,
-||| which could not write the file. Essential: the two failures are of two
-||| kinds, one of the compiler and one of the file system it writes to.
-public export
-data Emitted = Written | EmitFailed Unfit | WriteFailed String
-
 ||| Each of `fs` written by `w`, function by function, stopping at the
-||| first that Emit cannot write or the writer cannot write.
-functions : Writer -> Index -> List TFn -> IO Emitted
-functions w ix [] = pure Written
-functions w ix (f :: fs) = case evalStateT (initial f) (function ix f) of
-  Left u => pure (EmitFailed u)
-  Right ss => do
-    Right () <- each ss (\(_, s) => writeTopLevel w s)
-      | Left e => pure (WriteFailed e)
-    functions w ix fs
+||| first the writer cannot write.
+functions : Writer -> Index -> List TFn -> IO (Either String ())
+functions w ix fs = each fs (\f => each (evalState (initial f) (function ix f)) (\(_, s) => writeTopLevel w s))
 
 ||| Writes the module of a program, the `idr` module idris-mlir reads, to
 ||| `h` as bytecode, one function and those it owns at a time, so that the
@@ -91,15 +78,14 @@ functions w ix (f :: fs) = case evalStateT (initial f) (function ix f) of
 ||| failure leaves the file unwritten or partly written; the caller
 ||| discards it.
 export
-emit : File -> Source -> IO Emitted
+emit : File -> Source -> IO (Either String ())
 emit h src = do
   Right w <- newWriter
-    | Left e => pure (WriteFailed e)
-  Written <- functions w (index src) (src.others ++ [src.root])
-    | failed => pure failed
-  either WriteFailed (const Written) <$>
-    finish w h [ (At src.root.loc, \body => Builtin.moduleOp body)
-               , (At src.root.loc, Idr.programOp (StringAttr src.root.callee.symbol) (SymbolRefAttr (MkSymbolRef src.root.callee.symbol [])) Higher) ]
+    | Left e => pure (Left e)
+  Right () <- functions w (index src) (src.others ++ [src.root])
+    | Left e => pure (Left e)
+  finish w h [ (At src.root.loc, \body => Builtin.moduleOp body)
+             , (At src.root.loc, Idr.programOp (StringAttr src.root.callee.symbol) (SymbolRefAttr (MkSymbolRef src.root.callee.symbol [])) Higher) ]
 
 ||| A refusal of a program, as its module carries it: the rule refused
 ||| under, where, and what it says.

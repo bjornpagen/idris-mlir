@@ -225,7 +225,7 @@ translateApplication p uses counted = do
   loc <- toLoc fc
   extents <- signatureExtents p.signature.kinds p.signature.result
   updateState (derive { fns $= insert p.inst (MkTFn p.key OwnFunction (telescopeOf p.signature.kinds) (Runtimes p.signature.kinds) p.signature.callee
-                                                      extents names body loc MayDiverge) })
+                                                      extents names body loc Unproved) })
 
 ||| Translates one function instance, of a definition or of a member at a
 ||| use. An instance given an implementation that holds a choice the
@@ -585,5 +585,5 @@ translateIOProgram fc main = do
   -- through it; what main does is main's, which the passes find through
   -- the call.
   let root = MkTFn rootKey OwnFunction [] 1 (MkCallee RootFn (keyText rootKey) [MkBinder Once WorldT] mainIO.family.gives)
-                   (MkExtents [[]] []) [shown "world"] body loc MayDiverge
+                   (MkExtents [[]] []) [shown "world"] body loc Unproved
   pure (Just (assemble st.table root))

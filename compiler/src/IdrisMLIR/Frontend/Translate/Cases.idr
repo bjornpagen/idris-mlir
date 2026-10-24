@@ -235,7 +235,7 @@ variableOf _ = Nothing
 ||| (Idris proved no input reaches it), a crash otherwise.
 missingCase : {0 nv : Nat} -> Ctx kc -> Loc -> IdrisMLIR.Term.Term nv
 missingCase ctx loc =
-  if ctx.complete then Unreachable loc else Crash loc NoClauseMatched
+  if ctx.complete then Unreachable loc NoClause else Crash loc NoClauseMatched
 
 ||| The head a type is matched by, and the types it is applied to, as
 ||| Idris's trees name a type's alternative: a type constructor by its
@@ -251,46 +251,64 @@ typeHead t = case getFnArgs t of
   (Bind fc _ (Pi _ _ _ s) sc, []) => pure (Just (arrowConName, [s, subst (Erased fc Placeholder) sc]))
   _ => pure Nothing
 
-||| An arm of a match as its tree gives it: none, one no value takes (Idris
-||| proved it impossible, or the value's shape rules it out), or one that
-||| runs. An arm no value takes is left out of the match.
-data Arm t = Absent | Dead | Present t
+||| An arm of a match as its tree gives it: none, or one. An arm no value
+||| takes (Idris proved it impossible, or the value's shape rules it out)
+||| is one, its term `Unreachable` with why.
+data Arm t = Absent | Present t
 
 Functor Arm where
   map f Absent = Absent
-  map f Dead = Dead
   map f (Present t) = Present (f t)
 
-||| An arm, or, where the tree gives none, another.
-orElse : Arm t -> Arm t -> Arm t
+||| An arm's term, or, where the tree gives none, another.
+orElse : Arm t -> t -> t
 orElse Absent other = other
-orElse arm _ = arm
+orElse (Present t) _ = t
 
-||| What runs where the tree has no arm: nothing in a covering definition,
-||| a crash otherwise.
-missingArm : {0 nv : Nat} -> Ctx kc -> Loc -> Arm (IdrisMLIR.Term.Term nv)
-missingArm ctx loc = if ctx.complete then Dead else Present (Crash loc NoClauseMatched)
+||| What runs for a constructor the tree has no arm for: in a covering
+||| definition nothing, Idris having proved no value there is built with
+||| it; a crash otherwise.
+missingArm : {0 nv : Nat} -> Ctx kc -> Loc -> IdrisMLIR.Term.Term nv
+missingArm ctx loc = if ctx.complete then Unreachable loc ImpossibleConstructor else Crash loc NoClauseMatched
+
+||| What a match's default stands for, by what its alternatives and the
+||| matched value's shape leave to it: no value, since the alternatives name
+||| every constructor, so it is erased; no value either, since the shape
+||| says the value was built with one they name, so no value takes it; or
+||| the values of the constructors they leave.
+data DefaultFor = NoneLeft | RuledOut | TheRest
+
+||| What a match's default stands for, from whether its alternatives name
+||| every constructor (`every`) and whether they name the one the value's
+||| shape says it was built with (`built`).
+defaultFor : (every, built : Bool) -> DefaultFor
+defaultFor True _ = NoneLeft
+defaultFor False True = RuledOut
+defaultFor False False = TheRest
+
+||| A match's default arm, as what it stands for says, its tree's term
+||| translated only where it runs.
+defaultArm : {0 nv : Nat} -> Loc -> DefaultFor -> Front (IdrisMLIR.Term.Term nv) -> Front (Arm (IdrisMLIR.Term.Term nv))
+defaultArm loc NoneLeft _ = pure Absent
+defaultArm loc RuledOut _ = pure (Present (Unreachable loc ImpossibleConstructor))
+defaultArm loc TheRest rhs = Present <$> rhs
 
 ||| A match on a value of the family `inst`, by its possible arms: its
-||| alternatives and its default when one runs, its alternatives when none
-||| does; with no possible arm, the match is unreachable.
+||| alternatives and its default when the tree gives one, its alternatives
+||| when it gives none, which Idris proved cover every constructor a value
+||| there is built with; with no arm at all, no value there is built with
+||| any constructor, and the match is unreachable.
 armsOf : Loc -> FamilyId -> Fin n -> List (Alt n) -> Arm (IdrisMLIR.Term.Term n) -> IdrisMLIR.Term.Term n
 armsOf loc inst i alts (Present d) = Case loc inst i (Defaulted alts d)
-armsOf loc inst i (a :: as) _ = Case loc inst i (Exhaustive (a ::: as))
-armsOf loc inst i [] _ = Unreachable loc
-
-||| A literal as a match keys it: a fixed-width integer at its type, a
-||| character by its code point, a string, or a number held as a big
-||| integer (an `Integer` or a natural). A double is no key: no match on
-||| one is translated.
-data CaseKey = IntKey IntTy Integer | CharKey Integer | StrKey String | BigKey Integer
+armsOf loc inst i (a :: as) Absent = Case loc inst i (Exhaustive (a ::: as))
+armsOf loc inst i [] Absent = Unreachable loc ImpossibleConstructor
 
 ||| A match's literal alternatives after the first, each keyed as `key`
 ||| reads it, the first's kind. A constant does not carry the type of the
 ||| place it is matched at, and the checked module's tree is where the
 ||| frontend first reads its constants: one whose tree matches constants of
 ||| two types at one place is refused here, as the compiled module it is.
-keysAs : {auto s : Ref TState TS} -> FC -> (owner : String) -> (CaseKey -> Maybe k) -> List (CaseKey, t) ->
+keysAs : {auto s : Ref TState TS} -> FC -> (owner : String) -> (LitKey -> Maybe k) -> List (LitKey, t) ->
          Front (List (k, t))
 keysAs fc owner key [] = pure []
 keysAs fc owner key ((c, b) :: rest) = case key c of
@@ -299,43 +317,34 @@ keysAs fc owner key ((c, b) :: rest) = case key c of
 
 ||| The arms of a match on literals of one kind: the first alternative, the
 ||| others keyed as `key` reads them, and the default when one runs.
-keyedArms : {auto s : Ref TState TS} -> FC -> (owner : String) -> (CaseKey -> Maybe k) -> (k, t) ->
-            List (CaseKey, t) -> Maybe t -> Front (LitArmsOf k t)
+keyedArms : {auto s : Ref TState TS} -> FC -> (owner : String) -> (LitKey -> Maybe k) -> (k, t) ->
+            List (LitKey, t) -> Maybe t -> Front (LitArmsOf k t)
 keyedArms fc owner key first rest (Just d) = (\ks => LitDefault (first ::: ks) d) <$> keysAs fc owner key rest
 keyedArms fc owner key first rest Nothing = (\ks => LitNoDefault (first ::: ks)) <$> keysAs fc owner key rest
 
 ||| A match on literals keyed by the kind of its first alternative's.
-litMatch : {auto s : Ref TState TS} -> FC -> (owner : String) -> (CaseKey, t) -> List (CaseKey, t) -> Maybe t ->
+litMatch : {auto s : Ref TState TS} -> FC -> (owner : String) -> (LitKey, t) -> List (LitKey, t) -> Maybe t ->
            Front (LitMatch t)
 litMatch fc owner (IntKey it n, b) rest d = OnInts it <$> keyedArms fc owner intKey (n, b) rest d
   where
-    intKey : CaseKey -> Maybe Integer
+    intKey : LitKey -> Maybe Integer
     intKey (IntKey it' m) = if it' == it then Just m else Nothing
     intKey _ = Nothing
 litMatch fc owner (CharKey n, b) rest d = OnChars <$> keyedArms fc owner charKey (n, b) rest d
   where
-    charKey : CaseKey -> Maybe Integer
+    charKey : LitKey -> Maybe Integer
     charKey (CharKey m) = Just m
     charKey _ = Nothing
 litMatch fc owner (StrKey str, b) rest d = OnStrings <$> keyedArms fc owner strKey (str, b) rest d
   where
-    strKey : CaseKey -> Maybe String
+    strKey : LitKey -> Maybe String
     strKey (StrKey s') = Just s'
     strKey _ = Nothing
 litMatch fc owner (BigKey n, b) rest d = OnBigs <$> keyedArms fc owner bigKey (n, b) rest d
   where
-    bigKey : CaseKey -> Maybe Integer
+    bigKey : LitKey -> Maybe Integer
     bigKey (BigKey m) = Just m
     bigKey _ = Nothing
-
-||| A match on a natural's possible arms; with no possible arm, the match is
-||| unreachable.
-natArms : Loc -> Fin n -> Arm (IdrisMLIR.Term.Term n) -> Arm (Shown, IdrisMLIR.Term.Term (Under 1 n)) ->
-          IdrisMLIR.Term.Term n
-natArms loc x (Present z) (Present (p, s)) = CaseNat loc x (Both z p s)
-natArms loc x (Present z) _ = CaseNat loc x (OnlyZero z)
-natArms loc x _ (Present (p, s)) = CaseNat loc x (OnlySucc p s)
-natArms loc x _ _ = Unreachable loc
 
 ||| Does the shape of the matched value, if known, rule out the alternative
 ||| for this constructor? A value built with another constructor never
@@ -526,7 +535,7 @@ mutual
   -- has only that leaf. In a definition with missing cases it is one of
   -- them, and crashes.
   tree ctx env cls (Unmatched msg) = missingCase ctx <$> toLoc ctx.fc
-  tree ctx env cls Impossible = Unreachable <$> toLoc ctx.fc
+  tree ctx env cls Impossible = (\loc => Unreachable loc ImpossibleClause) <$> toLoc ctx.fc
   tree ctx env cls (Case {name} idx p scTy alts) = do
     loc <- toLoc ctx.fc
     case lookupVar idx p env of
@@ -572,39 +581,29 @@ mutual
         let d = def <|> (if ctx.complete then Nothing else Just (missingCase ctx loc))
         case litAlts of
           a :: as => CaseLit loc i <$> litMatch ctx.fc ctx.owner a as d
-          [] => pure (maybe (Unreachable loc) (CaseLit loc i . OnlyDefault) d)
+          [] => pure (maybe (Unreachable loc NoClause) (CaseLit loc i . OnlyDefault) d)
 
-      -- The data instance a match on constructors is on, read off the
-      -- matched value's types, its binder's, which every runtime value has:
-      -- the family its Core type names, where it is one the constructor
-      -- `con` belongs to; else the one its Idris type names (`ity`), where
-      -- the Core type names a choice (an implementation's value, which no
-      -- constructor of Idris's builds) or a type the registry represents
-      -- itself. Essential: a type the registry gives a representation of its
-      -- own (a value array, abstract, which only the functions the registry
-      -- knows open, their bodies not translated; an ordered array or a
-      -- machine word likewise) is no family, so a match on its constructor
-      -- is the registry's mismatch.
-      instanceOf : Ty -> ClosedTerm -> Defined -> Front DataFamily
-      instanceOf core ity con = do
-        st <- getState
-        let cn = fullname con.def
-        let fromCore = case core of
-                         DataT d _ => lookupFact (.dataFamilies) d st >>= \df => df <$ constructorIn df con
-                         _ => Nothing
-        case fromCore of
-          Just df => pure df
-          Nothing => do
-            ity' <- normaliseClosed ity
-            Just (df, _) <- dataOf ctx.fc ctx.owner ity'
-              | Nothing => do
-                  Just _ <- arrayView ity'
-                    | Nothing => reject ctx.fc ctx.owner HookShape
-                                   ("the type of " ++ show cn ++ " has the representation the registry gives it: " ++
-                                    "its constructor is matched")
-                  reject ctx.fc ctx.owner HookShape
-                         ("the array type of " ++ show cn ++ " is opaque: its constructor is matched")
-            pure df
+      -- The data instance a match on constructors is on: the family of the
+      -- type the tree matches at this node (`scTy`, a term of the tree's
+      -- variables, closed over what each stands for), whose constructors
+      -- the boundary read with its type constructor's facts, in tag order,
+      -- each its own layout. Essential: a type the registry gives a
+      -- representation of its own (a value array, abstract, which only the
+      -- functions the registry knows open, their bodies not translated; an
+      -- ordered array or a machine word likewise) is no family, so a match
+      -- on its constructor `cn` is the registry's mismatch.
+      instanceOf : Name -> Front DataFamily
+      instanceOf cn = do
+        matched <- normaliseClosed (closeWritten ctx.fc env scTy)
+        Just (df, _) <- dataOf ctx.fc ctx.owner matched
+          | Nothing => do
+              Just _ <- arrayView matched
+                | Nothing => reject ctx.fc ctx.owner HookShape
+                               ("the type of " ++ show cn ++ " has the representation the registry gives it: " ++
+                                "its constructor is matched")
+              reject ctx.fc ctx.owner HookShape
+                     ("the array type of " ++ show cn ++ " is opaque: its constructor is matched")
+        pure df
 
       -- A match on the constructors of a runtime value of Core type `core`
       -- and Idris type `ity`, its shape where known, the first `cn`: one on
@@ -623,10 +622,10 @@ mutual
           -- number by the dialect.
           (Just _, NatT _) => natCase ctx env cls scrutinee shape loc i ity !(namesBothRoles as) as cons
           _ => do
-            df <- instanceOf core ity con
+            df <- instanceOf (fullname con.def)
             let every = namesEvery (map (\l => l.con.tag) (toList df.layouts)) as
             built <- builtNamed shape as
-            (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape every built df as cons
+            (named, conAlts, fallback) <- conAlternatives ctx env cls scrutinee shape (defaultFor every built) df as cons
             -- The constructors a tree with no default leaves out are one
             -- default: impossible when the definition is covering, a
             -- crash otherwise.
@@ -741,38 +740,39 @@ mutual
             (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) -> Front (Term nv)
   natCase ctx env cls scrutinee shape loc x ity every alts cons = do
     built <- builtNamed shape alts
-    (z, s, d) <- natAlternatives ctx env cls scrutinee shape ity (every || built) loc x alts cons
+    (z, s, d) <- natAlternatives ctx env cls scrutinee shape ity (defaultFor every built) loc x alts cons
     -- Where the tree has no arm for zero or a successor, the default runs,
-    -- or, with none, what runs where the tree has no arm.
+    -- or, with none, what runs where the tree has no arm; with neither
+    -- arm, that is the match.
     let otherwise = orElse d (missingArm ctx loc)
     pure $ case (z, s) of
-      (Absent, Absent) => case otherwise of
-        Present t => t
-        _ => Unreachable loc
-      _ => natArms loc x (orElse z otherwise) (orElse s (map (\t => (shown "_", weakenUnder 1 t)) otherwise))
+      (Absent, Absent) => otherwise
+      _ => let (p, successor) = orElse s (shown "_", weakenUnder 1 otherwise) in
+           CaseNat loc x (NatArms (orElse z otherwise) p successor)
 
   ||| The alternatives of a match on a `Nat`-like value: zero's, the
   ||| successor's (over the predecessor, named, its erased arguments
-  ||| compile-time values), and the default, unless no value takes it
-  ||| (`deadDefault`). The value's shape, if known, rules one of the two out,
-  ||| and gives the predecessor its own; the predecessor is of the value's
-  ||| type (`ity`).
+  ||| compile-time values), and the default, as what its alternatives and
+  ||| the value's shape leave to it says (`DefaultFor`). The value's shape,
+  ||| if known, rules one of the two out, whose arm no value takes, and
+  ||| gives the predecessor its own; the predecessor is of the value's type
+  ||| (`ity`).
   natAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
-                    Maybe ClosedTerm -> ClosedTerm -> Bool -> Loc -> Fin nv ->
+                    Maybe ClosedTerm -> ClosedTerm -> DefaultFor -> Loc -> Fin nv ->
                     (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) ->
                     Front (Arm (Term nv), Arm (Shown, Term (Under 1 nv)), Arm (Term nv))
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x [] _ = pure (Absent, Absent, Absent)
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (ConCase cn _ args rhs :: rest) cons = do
+  natAlternatives ctx env cls scrutinee shape ity left loc x [] _ = pure (Absent, Absent, Absent)
+  natAlternatives ctx env cls scrutinee shape ity left loc x (ConCase cn _ args rhs :: rest) cons = do
     con <- lookupDef ctx.fc ctx.owner cn
     let taken = con.taken
     dead <- excludedBy shape (fullname con.def)
     let cls' = afterCon args scrutinee cls
     case natRole con.def of
       Just Zero => do
-        z <- if dead then pure Dead
+        z <- if dead then pure (Present (Unreachable loc ImpossibleConstructor))
              else Present <$> tree ctx (prepend (everyVar args (TypeValue (Erased ctx.fc Placeholder))) env) cls' rhs
-        (_, s, d) <- natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextCon cons)
+        (_, s, d) <- natAlternatives ctx env cls scrutinee shape ity left loc x rest (nextCon cons)
         pure (z, s, d)
       Just Succ => do
         -- The constructor's type shows a binder for each argument its
@@ -789,13 +789,13 @@ mutual
                                          RuntimeValue _ => predInfo
                                          _ => TypeValue (Erased ctx.fc Placeholder)) taken counted
         let pred = maybe (shown "_") (binderName . fst) (find (isValue . snd) (zip args taken))
-        body <- if dead then pure Dead
+        body <- if dead then pure (Present (pred, Unreachable loc ImpossibleConstructor))
                 else (\b => Present (pred, b)) <$> tree ctx (under {k = 1} infos env) cls' rhs
-        (z, _, d) <- natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextCon cons)
+        (z, _, d) <- natAlternatives ctx env cls scrutinee shape ity left loc x rest (nextCon cons)
         pure (z, body, d)
       -- A constructor no natural is built with: no value takes its
       -- alternative.
-      Nothing => natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextCon cons)
+      Nothing => natAlternatives ctx env cls scrutinee shape ity left loc x rest (nextCon cons)
     where
       -- Does a constructor take a value at the argument?
       isValue : ArgumentAt -> Bool
@@ -807,12 +807,12 @@ mutual
       predecessor (a :: as) (RuntimeValue _ :: _) = Just a
       predecessor (a :: as) (_ :: ps) = predecessor as ps
       predecessor _ _ = Nothing
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (DefaultCase rhs :: _) _ =
-    pure (Absent, Absent, !(if deadDefault then pure Dead else Present <$> tree ctx env cls rhs))
+  natAlternatives ctx env cls scrutinee shape ity left loc x (DefaultCase rhs :: _) _ =
+    pure (Absent, Absent, !(defaultArm loc left (tree ctx env cls rhs)))
   -- A constant: no natural, a constructor's value, takes its alternative.
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (ConstCase _ _ :: rest) cons =
-    natAlternatives ctx env cls scrutinee shape ity deadDefault loc x rest (nextConst cons)
-  natAlternatives ctx env cls scrutinee shape ity deadDefault loc x (DelayCase {} :: _) _ impossible
+  natAlternatives ctx env cls scrutinee shape ity left loc x (ConstCase _ _ :: rest) cons =
+    natAlternatives ctx env cls scrutinee shape ity left loc x rest (nextConst cons)
+  natAlternatives ctx env cls scrutinee shape ity left loc x (DelayCase {} :: _) _ impossible
 
   ||| A match on a compile-time value: the implementation at its
   ||| constructor, and the alternative's variables stand for its arguments,
@@ -1011,19 +1011,18 @@ mutual
 
   ||| The constructors a match's alternatives name, its possible
   ||| alternatives, each over its fields, named as the alternative names
-  ||| them, and the default: none when the alternatives name every
-  ||| constructor (`every`), one no value takes when they name the one the
-  ||| value's shape says it was built with (`built`). The shape, if known,
-  ||| rules out every other constructor and gives the fields their shapes;
-  ||| an alternative it rules out, or of a constructor with no value yet,
-  ||| is no possible one.
+  ||| them, and the default, as what the alternatives and the value's shape
+  ||| leave to it says (`DefaultFor`). The shape, if known, rules out every
+  ||| other constructor and gives the fields their shapes; an alternative
+  ||| it rules out, or of a constructor with no value yet, is no possible
+  ||| one.
   conAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
-                    Maybe ClosedTerm -> Bool -> Bool -> DataFamily ->
+                    Maybe ClosedTerm -> DefaultFor -> DataFamily ->
                     (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConAlts alts) ->
                     Front (SortedSet Nat, List (Alt nv), Arm (Term nv))
-  conAlternatives ctx env cls scrutinee shape every built df [] _ = pure (empty, [], Absent)
-  conAlternatives ctx env cls scrutinee shape every built df (ConCase cn _ args rhs :: rest) cons = do
+  conAlternatives ctx env cls scrutinee shape left df [] _ = pure (empty, [], Absent)
+  conAlternatives ctx env cls scrutinee shape left df (ConCase cn _ args rhs :: rest) cons = do
     found <- lookupDef ctx.fc ctx.owner cn
     let def = found.def
     -- Its tag is its place among its type's constructors, where the family
@@ -1047,7 +1046,7 @@ mutual
       body <- tree ({ depth $= (+ length info.con.binders) } ctx) (under {k = fieldCount info.args} infos env)
                    (afterCon args scrutinee cls) rhs
       pure (Just (MkAlt info.con (fieldNames args info.args bound) body))
-    (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape every built df rest (nextCon cons)
+    (others, alts, fallback) <- conAlternatives ctx env cls scrutinee shape left df rest (nextCon cons)
     pure (insert (finToNat cid.index) others, maybe alts (:: alts) alt, fallback)
     where
       -- Runtime field `i` is the alternative's `Bound i`, of its type in
@@ -1058,26 +1057,25 @@ mutual
           Just s' => shaped (Bound {n = nv} f) t ity s'
           Nothing => Runtime (Bound {n = nv} f) (BothTypes t ity)
         Nothing => TypeValue (Erased EmptyFC Placeholder)
-  conAlternatives ctx env cls scrutinee shape every built df (DefaultCase rhs :: _) _ =
-    if every then pure (empty, [], Absent)
-      else if built then pure (empty, [], Dead)
-      else (\d => (empty, [], Present d)) <$> tree ctx env cls rhs
+  conAlternatives ctx env cls scrutinee shape left df (DefaultCase rhs :: _) _ = do
+    loc <- toLoc ctx.fc
+    (\d => (empty, [], d)) <$> defaultArm loc left (tree ctx env cls rhs)
   -- A constant: no constructor's value takes its alternative.
-  conAlternatives ctx env cls scrutinee shape every built df (ConstCase _ _ :: rest) cons =
-    conAlternatives ctx env cls scrutinee shape every built df rest (nextConst cons)
-  conAlternatives ctx env cls scrutinee shape every built df (DelayCase {} :: _) _ impossible
+  conAlternatives ctx env cls scrutinee shape left df (ConstCase _ _ :: rest) cons =
+    conAlternatives ctx env cls scrutinee shape left df rest (nextConst cons)
+  conAlternatives ctx env cls scrutinee shape left df (DelayCase {} :: _) _ impossible
 
   ||| The alternatives of a match on literals, each keyed by its constant,
   ||| and the default when one runs.
   litAlternatives : {auto c : Ref Ctxt Defs} -> {auto s : Ref TState TS} -> {vars : Scope} ->
                     Ctx kc -> StandsFor kc OfTree vars (Fin nv) -> Clauses vars -> Var vars ->
                     (alts : List (CaseAlt vars)) -> (0 _ : OfKind ConstAlts alts) ->
-                    Front (List (CaseKey, Term nv), Maybe (Term nv))
+                    Front (List (LitKey, Term nv), Maybe (Term nv))
   litAlternatives ctx env cls scrutinee [] _ = pure ([], Nothing)
   litAlternatives ctx env cls scrutinee (ConstCase c rhs :: rest) consts = do
     Just lit <- pure (constantLit c)
       | Nothing => reject ctx.fc ctx.owner StringPrimitive ("a match on " ++ show c)
-    key <- the (Front CaseKey) $ case lit of
+    key <- the (Front LitKey) $ case lit of
       LInt t n => pure (IntKey t n)
       LChar n => pure (CharKey n)
       LStr str => pure (StrKey str)
