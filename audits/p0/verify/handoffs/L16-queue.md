@@ -992,3 +992,12 @@ touching the frontend or the checker reruns the five on its export.
   (escape-lifting covering every node, an escape-free quote type),
   `Core/Unify.idr:646, 1787`, `TTImp/Elab/Check.idr:231` (L17). A record
   parameter whose type is an unsolved `%search` writes back as `_`.
+- From L14ac (C290's first part landed): numeral.to_nat, str.pack and
+  str.concat need a cell-by-cell reading of a run in the shared place
+  (`families::numeralValue` in `Refinement.cpp`, the place's attribute side
+  in `Fold.h`); the structural folds (lazy.force of lazy.delay, lin.cast of
+  a cast, tie_shape, data.field and data.tag of a data.con) need a reader
+  for the op that built an operand and a fold result that may be an
+  operand; data.reindex follows C293's split; an integer at a big's or
+  natural's type as a field of a built constructor needs the literal check
+  over the graph's values (`Just 5 : Maybe Integer`) (L14, with L04).
