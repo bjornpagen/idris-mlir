@@ -281,6 +281,10 @@ void addAsmInterface(IdrDialect &dialect);
 // Adds the dialect's bytecode interface: every type and attribute written
 // by its generated record.
 void addBytecodeInterface(IdrDialect &dialect);
+
+// Attaches ConstantAttrInterface to upstream's constants a constant's fields
+// and static data hold: the builtin strings, integers and floats.
+void addUpstreamConstants(IdrDialect &dialect);
 } // namespace detail
 
 } // namespace idr

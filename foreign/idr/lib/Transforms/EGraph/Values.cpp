@@ -948,23 +948,33 @@ std::vector<std::pair<TypeID, Borrowed>> borrowings() {
   return out;
 }
 
-// A constant an op holds is read by the attribute instance's readers and
-// kept as the graph's: a string or a big, a reference of the graph's own
-// beside the scope's, which the scope releases.
+// A constant an op holds is read as what it says a fold reads of it, and
+// kept as the graph's: a string or a big made by the attribute instance's
+// readers, a reference of the graph's own beside the scope's, which the
+// scope releases; a constructor or a closure held as it is. Any other
+// attribute is no constant.
 Facts heldFacts(Attribute value) {
-  if (std::optional<APInt> integer = fold::integerOf(value))
-    return {ConstantIntRanges::constant(*integer), std::nullopt};
-  if (std::optional<double> real = fold::realOf(value))
-    return {std::nullopt, Real{std::bit_cast<std::uint64_t>(*real)}};
-  fold::Scope scope(value.getContext());
-  if (std::optional<const idris_rt_str *> str = fold::strOf(scope, value))
-    return {std::nullopt, Text::share(*str)};
-  if (std::optional<idris_rt_big> big = fold::bigOf(scope, value))
-    return factsOfBig(Big::share(*big));
-  // Any other constant of ours is a constructor or a closure, held as it is.
-  if (isa<ConstantAttrInterface>(value))
-    return {std::nullopt, Data::held(value)};
-  return {};
+  auto constant = dyn_cast<ConstantAttrInterface>(value);
+  if (!constant)
+    return {};
+  return match(
+      constant.getFoldValue(),
+      [](const fold_value::Integer &integer) -> Facts {
+        return {ConstantIntRanges::constant(integer.value), std::nullopt};
+      },
+      [](fold_value::Real real) -> Facts {
+        return {std::nullopt, Real{std::bit_cast<std::uint64_t>(real.value)}};
+      },
+      [&](fold_value::Text text) -> Facts {
+        fold::Scope scope(value.getContext());
+        return {std::nullopt, Text::share(*fold::strOf(scope, text.value))};
+      },
+      [&](fold_value::Big big) -> Facts {
+        fold::Scope scope(value.getContext());
+        return factsOfBig(Big::share(*fold::bigOf(scope, big.value.get())));
+      },
+      [&](fold_value::Whole) -> Facts { return {std::nullopt, Data::held(value)}; },
+      [](fold_value::Unread) -> Facts { return {}; });
 }
 
 Facts factsOf(const Constant &constant) {

@@ -4,11 +4,12 @@
 // constant through its fields and captures: a constructor against its data
 // type's body, and a closure against its function's own signature, once per
 // module verify through the collection the symbol-use walk hands over. Each
-// constant of ours answers for itself, through ConstantAttrInterface: at
-// which types idr.constant holds it, how it is laid out as static data,
-// how it holds closures, and what it names and holds; the upstream
-// constants idr.constant and a field hold are classified once, here, beside
-// them.
+// constant answers for itself, through ConstantAttrInterface: at which
+// types idr.constant holds it, how it is laid out as static data, how it
+// holds closures, what it names and holds, and what a fold reads of it.
+// Ours answer by their classes; upstream's strings, integers and floats,
+// which a constant's fields and static data hold, answer as the external
+// models defined here, the one place they are named.
 
 #include "idr/IR/IdrDialect.h"
 #include "idr/IR/Families/Families.h"
@@ -27,6 +28,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <cassert>
+#include <optional>
 #include <string>
 
 using namespace mlir;
@@ -50,6 +52,13 @@ bool holdsClosure(Type type) {
       [](OneOf<carrying::Reference, carrying::Nothing> auto) { return false; });
 }
 
+// A literal of a type that says it is one of its literals: a big, and a
+// string.
+bool literalOf(Attribute value, Type type) {
+  auto literal = dyn_cast<LiteralTypeInterface>(unrestricted(type));
+  return literal && literal.isLiteral(value);
+}
+
 } // namespace
 
 bool ConAttr::isBuildableAt(Type type) const { return holdsConstructor(getData(), type); }
@@ -67,10 +76,7 @@ bool idr::fold::closureStandsAt(Type type) {
 
 // A big is a literal of the types that say a big is one of theirs: an
 // Integer's, and a natural's where it is never negative.
-bool BigAttr::isBuildableAt(Type type) const {
-  auto literal = dyn_cast<LiteralTypeInterface>(unrestricted(type));
-  return literal && literal.isLiteral(*this);
-}
+bool BigAttr::isBuildableAt(Type type) const { return literalOf(*this, type); }
 
 //===----------------------------------------------------------------------===//
 // How a constant of ours holds closures
@@ -82,8 +88,7 @@ ClosureHolding ConAttr::getClosureHolding() const { return AttrOf<ConAttr>{*this
 ClosureHolding ClosureAttr::getClosureHolding() const { return AttrOf<ClosureAttr>{*this}; }
 ClosureHolding BigAttr::getClosureHolding() const { return HoldsNoClosure{}; }
 
-// Upstream's constants hold no interface of ours, and none holds a
-// closure: a string, an integer, a Double.
+// An attribute that is no constant holds no closure.
 ClosureHolding idr::closureHoldingOf(Attribute value) {
   auto constant = dyn_cast<ConstantAttrInterface>(value);
   return constant ? constant.getClosureHolding() : ClosureHolding(HoldsNoClosure{});
@@ -262,16 +267,12 @@ StaticForm ClosureAttr::getStaticForm(Type) const {
 
 StaticForm BigAttr::getStaticForm(Type) const { return static_form::Big{{*this}}; }
 
-// Upstream's constants hold no interface of ours, so they are named here,
-// the one place: a string's literal, an integer's or a Double's, and poison,
-// which the lowering makes for a value no path reads.
+// Every constant answers for itself. Essential, the one attribute static
+// data holds that is no constant: poison, ub's, which the lowering makes for
+// a value no path reads.
 StaticForm idr::staticFormOf(Attribute value, Type held) {
   if (auto constant = dyn_cast<ConstantAttrInterface>(value))
     return constant.getStaticForm(held);
-  if (auto text = dyn_cast<StringAttr>(value))
-    return static_form::Text{text};
-  if (isa<IntegerAttr, FloatAttr>(value))
-    return static_form::Word{cast<TypedAttr>(value)};
   if (isa<ub::PoisonAttr>(value))
     return static_form::Nothing{};
   std::string written;
@@ -279,6 +280,83 @@ StaticForm idr::staticFormOf(Attribute value, Type held) {
   stream << value;
   llvm::reportFatalInternalError(llvm::Twine("static data of ") + written +
                                  ", which is no constant");
+}
+
+//===----------------------------------------------------------------------===//
+// What a fold reads of a constant of ours
+//===----------------------------------------------------------------------===//
+
+// A big's integer; a constructor and a closure whole.
+FoldValue BigAttr::getFoldValue() const { return fold_value::Big{{*this}}; }
+FoldValue ConAttr::getFoldValue() const { return fold_value::Whole{}; }
+FoldValue ClosureAttr::getFoldValue() const { return fold_value::Whole{}; }
+
+//===----------------------------------------------------------------------===//
+// Upstream's constants
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// What every upstream constant answers alike: it names nothing, so it has no
+// part to check, and it holds no closure.
+template <class Model, class A>
+struct UpstreamConstant : ConstantAttrInterface::ExternalModel<Model, A> {
+  LogicalResult verifyParts(Attribute, Operation *, SymbolTableCollection &, Type,
+                            function_ref<void(Attribute, Type)>) const {
+    return success();
+  }
+  ClosureHolding getClosureHolding(Attribute) const { return HoldsNoClosure{}; }
+};
+
+// A string is the literal of the type that says it is one of its literals,
+// a string's; it is laid out at its own datum, and a fold reads its text.
+struct StringConstant : UpstreamConstant<StringConstant, StringAttr> {
+  bool isBuildableAt(Attribute value, Type type) const { return literalOf(value, type); }
+  StaticForm getStaticForm(Attribute value, Type) const {
+    return static_form::Text{cast<StringAttr>(value)};
+  }
+  FoldValue getFoldValue(Attribute value) const {
+    return fold_value::Text{cast<StringAttr>(value)};
+  }
+};
+
+// An integer and a Double are literals of their types too, but idr.constant
+// holds neither: their constant is arith's, which every fold and pattern of
+// arith reads, one constant op per value. A field holds one as a word of
+// exactly its type (fold::buildable), and static data lays it out as that
+// word.
+template <class Model, class A>
+struct WordConstant : UpstreamConstant<Model, A> {
+  bool isBuildableAt(Attribute, Type) const { return false; }
+  StaticForm getStaticForm(Attribute value, Type) const {
+    return static_form::Word{cast<A>(value)};
+  }
+};
+
+struct IntegerConstant : WordConstant<IntegerConstant, IntegerAttr> {
+  FoldValue getFoldValue(Attribute value) const {
+    return fold_value::Integer{cast<IntegerAttr>(value).getValue()};
+  }
+};
+
+// Essential, a float's width is its value's, which its class leaves open:
+// a fold reads a Double as the runtime's operands are read (fold::realOf),
+// and a float of another width not at all.
+struct FloatConstant : WordConstant<FloatConstant, FloatAttr> {
+  FoldValue getFoldValue(Attribute value) const {
+    if (std::optional<double> real = fold::realOf(value))
+      return fold_value::Real{*real};
+    return fold_value::Unread{};
+  }
+};
+
+} // namespace
+
+void idr::detail::addUpstreamConstants(IdrDialect &dialect) {
+  MLIRContext &context = *dialect.getContext();
+  StringAttr::attachInterface<StringConstant>(context);
+  IntegerAttr::attachInterface<IntegerConstant>(context);
+  FloatAttr::attachInterface<FloatConstant>(context);
 }
 
 //===----------------------------------------------------------------------===//
@@ -304,9 +382,9 @@ using Checked = footprint::DenseMap<Part, llvm::detail::DenseSetEmpty, llvm::Den
 // That `op` holds a constant of its type, through every field and capture,
 // with every symbol resolved. Each part is one the leaf rule of a
 // constant's fields and captures accepts (fold::buildable), which the
-// folders of constructors and closures ask too; a constant of ours then
-// checks what it names and hands over its parts, and a string, an integer
-// or a Double holds none.
+// folders of constructors and closures ask too, so it is a constant, which
+// then checks what it names and hands over its parts: a string, an integer
+// or a Double names none.
 LogicalResult verifyConstant(ConstantOp op, SymbolTableCollection &symbols) {
   Parts parts{Part(op.getValue(), unrestricted(op.getType()))};
   Checked checked;
@@ -319,8 +397,7 @@ LogicalResult verifyConstant(ConstantOp op, SymbolTableCollection &symbols) {
     if (!fold::buildable(part.first, part.second))
       return op.emitOpError("has a constant ")
              << part.first << " where " << part.second << " is expected";
-    auto constant = dyn_cast<ConstantAttrInterface>(part.first);
-    if (constant && failed(constant.verifyParts(op, symbols, part.second, held)))
+    if (failed(cast<ConstantAttrInterface>(part.first).verifyParts(op, symbols, part.second, held)))
       return failure();
   }
   return success();
@@ -358,25 +435,20 @@ fold::Storage storageOf(Attribute value) {
 
 } // namespace
 
-// The kinds of value idr.constant holds: constructors, closures and the
-// literals of a type that says what its literals are; an integer's literal
-// and a Double's are arith.constant's. Its grade is the one rule of where a
-// constant stands (fold::constantStandsAt), which a constant the e-graph
-// computes asks too: static data, used any number of times and, where its
-// type holds references, held static, graded from what it holds, so
-// nothing frees it and no count writes it; a small big, which has no cell,
-// at any hold. A linear value of it is cast from it.
+// The kinds of value idr.constant holds, as each constant answers:
+// constructors, closures and the literals of a type that says what its
+// literals are; an integer's literal and a Double's are arith.constant's.
+// Its grade is the one rule of where a constant stands
+// (fold::constantStandsAt), which a constant the e-graph computes asks too:
+// static data, used any number of times and, where its type holds
+// references, held static, graded from what it holds, so nothing frees it
+// and no count writes it; a small big, which has no cell, at any hold. A
+// linear value of it is cast from it.
 bool ConstantOp::isBuildableWith(Attribute value, Type type) {
   if (!fold::constantStandsAt(type, storageOf(value)))
     return false;
-  type = unrestricted(type);
-  if (auto constant = dyn_cast<ConstantAttrInterface>(value))
-    return constant.isBuildableAt(type);
-  // A string is its type's literal. An integer and a Double are literals
-  // of their types too, but their constant is upstream's, which every fold
-  // and pattern of arith reads: one constant op per value.
-  auto literal = dyn_cast<LiteralTypeInterface>(type);
-  return literal && !isa<IntegerType, Float64Type>(type) && literal.isLiteral(value);
+  auto constant = dyn_cast<ConstantAttrInterface>(value);
+  return constant && constant.isBuildableAt(unrestricted(type));
 }
 
 LogicalResult ConstantOp::verify() {

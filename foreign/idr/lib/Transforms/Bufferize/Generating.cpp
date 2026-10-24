@@ -6,14 +6,16 @@
 //
 // A generating op is destination-style, so upstream's DPS model says most
 // of it: each destination is written and is its result. What the model
-// cannot know it says: a tabulation's destination and a scan's are written
-// and never read, so One-Shot keeps no undefined contents alive and copies
-// nothing it would not need to; a fold reads its destination, its first
-// accumulators; a scan's inputs are read and written never. Bufferized, the
-// op is the same op on the destinations' buffers, giving nothing, its
-// region moved: it stays an op until right before the lowering, where
-// upstream's lowerToLoopsUsingSCFForOp makes it its loops, and counting
-// meets it on buffers through its flow and effects in between.
+// cannot know, which operands it reads, the op's declared effects say: the
+// operand groups whose buffers it reads (a fold its destinations, its first
+// accumulators; a scan its inputs; a tabulation none). So a tabulation's
+// destination and a scan's are written and never read, and One-Shot keeps
+// no undefined contents alive and copies nothing it would not need to.
+// Bufferized, the op is the same op on the destinations' buffers, giving
+// nothing, its region moved: it stays an op until right before the
+// lowering, where upstream's lowerToLoopsUsingSCFForOp makes it its loops,
+// and counting meets it on buffers through its flow and effects in
+// between.
 #include "idr/IR/Grades.h"
 #include "idr/Transforms/BufferizeModels.h"
 
@@ -23,28 +25,45 @@
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
+#include <tuple>
+
 using namespace mlir;
 using namespace mlir::bufferization;
 
 namespace {
 
-// How a generating op reads its destinations: a fold its first
-// accumulators there, a tabulation and a scan nothing, which they only
-// write. Its other operands (a scan's inputs, a length) are read.
-enum class Reads { Destinations, Nothing };
+// Whether a typed rule of an op's declared effects reads the buffer of the
+// operand at `at`: a read of buffers on the group that holds it. Every
+// other rule reads none.
+template <class Element, class Op>
+struct ReadsAt {
+  static bool of(Op, unsigned) { return false; }
+};
+template <unsigned Group, class Op>
+struct ReadsAt<idr::effects::ReadsBuffers<idr::effects::OnOperand<Group>>, Op> {
+  static bool of(Op op, unsigned at) {
+    auto [start, length] = op.getODSOperandIndexAndLength(Group);
+    return at >= start && at < start + length;
+  }
+};
 
-template <Reads reads>
-bool readsOperand(Operation *op, OpOperand &operand) {
-  if (!cast<DestinationStyleOpInterface>(op).isDpsInit(&operand))
-    return true;
-  return reads == Reads::Destinations;
-}
+// Whether an op reads the buffer an operand becomes, as the specification
+// declares its effects on buffers: what One-Shot asks of the tensor before
+// it is one.
+template <class Op, class Rules = typename idr::effects::Declared<Op>::Rules>
+struct ReadsBuffer;
+template <class Op, class... Element>
+struct ReadsBuffer<Op, std::tuple<Element...>> {
+  static bool of(Op op, OpOperand &operand) {
+    unsigned at = operand.getOperandNumber();
+    return (false || ... || ReadsAt<Element, Op>::of(op, at));
+  }
+};
 
-template <typename Op, Reads reads>
-struct GeneratingModel
-    : DstBufferizableOpInterfaceExternalModel<GeneratingModel<Op, reads>, Op> {
+template <idr::effects::Declares Op>
+struct GeneratingModel : DstBufferizableOpInterfaceExternalModel<GeneratingModel<Op>, Op> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &operand, const AnalysisState &) const {
-    return readsOperand<reads>(op, operand);
+    return ReadsBuffer<Op>::of(cast<Op>(op), operand);
   }
 
   // An index or an accumulator the region binds; a result is its
@@ -211,12 +230,9 @@ struct ExtentModel : BufferizableOpInterface::ExternalModel<ExtentModel, idr::Ar
 } // namespace
 
 void idr::bufferize::attachGeneratingModels(MLIRContext *ctx) {
-  idr::ArrayTabulateOp::attachInterface<
-      GeneratingModel<idr::ArrayTabulateOp, Reads::Nothing>>(*ctx);
-  idr::ArrayFoldLastOp::attachInterface<
-      GeneratingModel<idr::ArrayFoldLastOp, Reads::Destinations>>(*ctx);
-  idr::ArrayScanLastOp::attachInterface<
-      GeneratingModel<idr::ArrayScanLastOp, Reads::Nothing>>(*ctx);
+  idr::ArrayTabulateOp::attachInterface<GeneratingModel<idr::ArrayTabulateOp>>(*ctx);
+  idr::ArrayFoldLastOp::attachInterface<GeneratingModel<idr::ArrayFoldLastOp>>(*ctx);
+  idr::ArrayScanLastOp::attachInterface<GeneratingModel<idr::ArrayScanLastOp>>(*ctx);
   idr::ArrayYieldOp::attachInterface<YieldModel>(*ctx);
   idr::ArrayReadOp::attachInterface<ReadModel>(*ctx);
   idr::ArrayExtentOp::attachInterface<ExtentModel>(*ctx);

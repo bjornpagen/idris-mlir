@@ -20,6 +20,7 @@
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 
@@ -176,8 +177,8 @@ bool isCellMemory(mlir::Type type);
 // How a constant is laid out as static data
 //===----------------------------------------------------------------------===//
 
-// The answer of ConstantAttrInterface::getStaticForm for an attribute of
-// ours, and of staticFormOf for any constant: a string, its attribute, at
+// The answer of ConstantAttrInterface::getStaticForm, and of staticFormOf
+// for anything static data holds: a string, its attribute, at
 // the string's own datum; an Integer or a natural, at a big's datum or in
 // its word; a numeral, its value at its place, a word of its layout's width or
 // a natural where its place is laid out as one; an integer or a Double,
@@ -216,33 +217,67 @@ struct StaticForm
   using variant::variant;
 };
 
-// How `value`, held at `held`, is laid out as static data: an attribute of
-// ours answers through ConstantAttrInterface, and the upstream attributes a
-// constant holds are classified where it is defined, the one place they are
-// named.
+// How `value`, held at `held`, is laid out as static data: a constant,
+// ours or upstream's, answers through ConstantAttrInterface, and poison,
+// which the lowering makes, is laid out as nothing.
 StaticForm staticFormOf(mlir::Attribute value, mlir::Type held);
 
 //===----------------------------------------------------------------------===//
 // How a constant holds closures
 //===----------------------------------------------------------------------===//
 
-// A constant that holds no closure: a big, or an attribute that is no
-// constant of ours (a string, an integer, a Double).
+// A constant that holds no closure: a big, a string, an integer or a
+// Double; or an attribute that is no constant.
 struct HoldsNoClosure {};
 
 // How a constant holds closures, the answer of
 // ConstantAttrInterface::getClosureHolding: it is a closure, which holds
 // itself; a constructor, which holds those its fields hold; or it holds
 // none. A reader that walks a constant's closures folds it with `match`, so
-// a constant of ours that gains a way to hold one is refused at every
-// reader that forgot it.
+// a constant that gains a way to hold one is refused at every reader that
+// forgot it.
 struct ClosureHolding : std::variant<AttrOf<ClosureAttr>, AttrOf<ConAttr>, HoldsNoClosure> {
   using variant::variant;
 };
 
-// How `value` holds closures: a constant of ours answers through
+// How `value` holds closures: a constant answers through
 // ConstantAttrInterface, and any other attribute holds none.
 ClosureHolding closureHoldingOf(mlir::Attribute value);
+
+//===----------------------------------------------------------------------===//
+// What a fold reads of a constant
+//===----------------------------------------------------------------------===//
+
+// The answer of ConstantAttrInterface::getFoldValue, the values a fold
+// reads: an integer, of any width, a truth among them; a Double, an f64 by
+// its value; a string, its attribute; a big, its attribute, which the
+// runtime's representation is made of; a constructor or a closure, which a
+// fold reads whole, as the attribute it is; or a float of another width,
+// no constant of the runtime's, which no fold reads. A reader of a
+// constant's value folds it with `match`, so a value a constant gains is
+// refused at every reader that forgot it.
+namespace fold_value {
+struct Integer {
+  llvm::APInt value;
+};
+struct Real {
+  double value;
+};
+struct Text {
+  mlir::StringAttr value;
+};
+struct Big {
+  AttrOf<BigAttr> value;
+};
+struct Whole {};
+struct Unread {};
+} // namespace fold_value
+
+struct FoldValue
+    : std::variant<fold_value::Integer, fold_value::Real, fold_value::Text, fold_value::Big,
+                   fold_value::Whole, fold_value::Unread> {
+  using variant::variant;
+};
 
 // What a match's region knows of its scrutinee: the value it binds it as,
 // whose type says what it knows (a data match's case or default, refined; a
