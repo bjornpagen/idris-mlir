@@ -20,6 +20,7 @@
 
 #include "idr/Analysis/Identities.h"
 #include "idr/Analysis/Solver/ProgramGraph.h"
+#include "idr/IR/Numeric/Intervals.h"
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Operation.h"
@@ -48,6 +49,10 @@ namespace idr {
 
 #define GEN_PASS_DECL_IDRSIMPLIFY
 #include "idr/Transforms/Passes.h.inc"
+
+// A guard op, whose decision a skeleton rule reads (OperandFacts), complete
+// where the engine's tables answer it.
+class GuardOpInterface;
 
 namespace egraph {
 
@@ -297,6 +302,11 @@ public:
   // The interval of an integer value, where the interval analysis knows
   // one; an interval of one value is the integer the value is.
   std::optional<mlir::ConstantIntRanges> range(mlir::Value value) const;
+  // Whether a guard's condition holds, fails, or is unknown of what the
+  // graph knows of its operands: its op's own decision, over each operand's
+  // interval and the constant its class holds, whether an op held it or the
+  // graph computed it.
+  numeric::Known decision(GuardOpInterface guard) const;
   // How the value is built, where a member of its class says so: the op of
   // the input of class `OpT` a member is (a constructor a known-case rule
   // reads), one computable wherever the class is used; null where none is.

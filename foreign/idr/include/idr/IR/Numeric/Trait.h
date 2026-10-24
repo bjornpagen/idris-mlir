@@ -19,6 +19,7 @@
 #ifndef IDR_IR_NUMERIC_TRAIT_H
 #define IDR_IR_NUMERIC_TRAIT_H
 
+#include "idr/IR/Fold.h"
 #include "idr/IR/Numeric/Arith.h"
 #include "idr/IR/Numeric/Inline.h"
 #include "idr/IR/Numeric/Intervals.h"
@@ -38,13 +39,6 @@ namespace idr::numeric {
 Word wordOf(mlir::IntegerAttr constant);
 // The integer constant of `type` a word is.
 mlir::IntegerAttr attrOf(mlir::Type type, Word word);
-
-// An op that guards its own operands (the trait GuardedOp, from the
-// specification's guards) asks them before folding.
-template <class ConcreteOp>
-concept GuardsItsOperands = requires(typename ConcreteOp::FoldAdaptor adaptor) {
-  { ConcreteOp::guardHolds(adaptor) } -> std::convertible_to<bool>;
-};
 
 template <class F>
 struct InlineArith {
@@ -78,10 +72,13 @@ struct InlineArith {
         if (!constants[i])
           return {};
       }
-      if constexpr (GuardsItsOperands<ConcreteOp>)
-        if (!ConcreteOp::guardHolds(
-                typename ConcreteOp::FoldAdaptor(operands, llvm::cast<ConcreteOp>(op))))
+      // An op that guards its own operands (the trait GuardedOp, from the
+      // specification's guards) asks them of its constants first.
+      if constexpr (fold::GuardedFold<ConcreteOp, fold::InAttributes>) {
+        fold::InAttributes where(op->getContext());
+        if (!ConcreteOp::guardsHold(where, fold::rangesOf(operands), operands))
           return {};
+      }
       Words d;
       Word result = [&]<std::size_t... I>(std::index_sequence<I...>) {
         return F::apply(d, wordOf(constants[I])...);

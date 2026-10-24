@@ -22,11 +22,12 @@
 // header's, once.
 //
 // A guarded op folds only where its guards hold on its constants: past a
-// refuted guard the program has crashed. An op the runtime's function would
-// make too large a constant for, or whose function has a precondition the
-// op's type does not carry, declares `foldable` (a member hook of its
-// specification), which the fold asks first. A domain asks those of what
-// it holds. A Double the function gives as a NaN is no constant (ieeeOn).
+// refuted guard the program has crashed. Each guard's condition is its own
+// `decide`, a template over a domain, which the domain asks of what it
+// holds. An op the runtime's function would make too large a constant for,
+// or whose function has a precondition the op's type does not carry,
+// declares `foldable` (a member hook of its specification), which the fold
+// asks first. A Double the function gives as a NaN is no constant (ieeeOn).
 //
 // Besides: what a constant constructor or closure holds in a field or
 // capture (`buildable`), the string a constant list packs or concatenates
@@ -46,6 +47,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
+#include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -158,11 +160,26 @@ concept HasFoldCondition = requires(llvm::ArrayRef<mlir::Attribute> constants) {
 };
 
 // An op that guards its own operands (the trait GuardedOp), whose fold
-// asks the guards first.
-template <class Op>
-concept GuardedFold = requires(typename Op::FoldAdaptor adaptor) {
-  { Op::guardHolds(adaptor) } -> std::convertible_to<bool>;
+// asks the guards first, of its operands as the domain `W` knows them: each
+// one's interval, and the constant `W` holds of it.
+template <class Op, class W>
+concept GuardedFold = requires(W &where, llvm::ArrayRef<mlir::ConstantIntRanges> ranges,
+                               llvm::ArrayRef<typename W::Operand> operands) {
+  { Op::guardsHold(where, ranges, operands) } -> std::same_as<bool>;
 };
+
+// The interval each constant held as an attribute is: an integer's one
+// value; one of no width where it holds no integer, upstream's mark of a
+// value no interval states, whose condition only the constant decides.
+inline llvm::SmallVector<mlir::ConstantIntRanges, 4>
+rangesOf(llvm::ArrayRef<mlir::Attribute> constants) {
+  llvm::SmallVector<mlir::ConstantIntRanges, 4> out;
+  out.reserve(constants.size());
+  for (mlir::Attribute constant : constants)
+    out.push_back(mlir::ConstantIntRanges::constant(
+        integerOf(constant).value_or(llvm::APInt::getZero(0))));
+  return out;
+}
 
 // Where a constant lives: how each kind of constant is read from where it
 // lives (Operand), and made there (Result). A string or a big read stays
@@ -210,10 +227,9 @@ public:
   std::optional<mlir::Attribute> big(mlir::Type type, idris_rt_big made);
 
   template <class Op>
-  bool admits(llvm::ArrayRef<mlir::Attribute> constants,
-              const typename Op::Properties &properties) const {
-    if constexpr (GuardedFold<Op>)
-      if (!Op::guardHolds(typename Op::FoldAdaptor(constants, mlir::DictionaryAttr(), properties)))
+  bool admits(llvm::ArrayRef<mlir::Attribute> constants) {
+    if constexpr (GuardedFold<Op, InAttributes>)
+      if (!Op::guardsHold(*this, rangesOf(constants), constants))
         return false;
     if constexpr (HasFoldCondition<Op>)
       if (!Op::foldable(constants))
@@ -337,7 +353,7 @@ std::optional<typename W::Result> evaluate(W &where,
                                            const typename Op::Properties &properties) {
   using Row = runtime::Abi<Op>;
   assert(operands.size() == std::size(Row::operands) && "an op takes its row's operands");
-  if (!where.template admits<Op>(operands, properties))
+  if (!where.template admits<Op>(operands))
     return std::nullopt;
   return [&]<std::size_t... I>(std::index_sequence<I...>) -> std::optional<typename W::Result> {
     auto args = std::make_tuple(operandOf<Row::operands[I]>(where, operands[I])...);

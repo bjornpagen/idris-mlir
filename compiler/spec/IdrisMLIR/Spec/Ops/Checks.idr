@@ -170,14 +170,11 @@ crashMessageStops = StopsByCrash
 ------------------------------------------------------------------------------
 
 ||| What every guard is: the operand it guards, its first, which it gives
-||| as its result; its cause and its site, its own properties; its
-||| condition decided on what the e-graph knows of its operands, which its
-||| rule asks (a guard that holds goes, one that fails is a crash of its
-||| cause at its site, with no test at run time): each operand's interval,
-||| an integer the graph knows being its one value whether an op holds it or
-||| the graph computed it, and the constant an op holds of one an interval
-||| says nothing of (a string, a Double, an Integer past i64). A guard can
-||| crash, so its site is the crash site's interface's, which it extends.
+||| as its result; and its cause and its site, its own properties. A guard
+||| can crash, so its site is the crash site's interface's, which it
+||| extends. Its condition is no method here: each guard op's own `decide`,
+||| a template over where its operands' values come from, which no method
+||| of an interface can be.
 public export
 guardInterface : InterfaceDef
 guardInterface = MkInterfaceDef
@@ -189,29 +186,30 @@ guardInterface = MkInterfaceDef
           "the operand the guard guards, its first, which it gives as its result"
       , MkMethod PerObject "::idr::CrashCause" "getCause" [] EveryImplementer
           "the cause its crash names"
-      , MkMethod PerClass "::idr::numeric::Known" "decide"
-          [ param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"
-          , param "::llvm::ArrayRef<::mlir::Attribute>" "constants" ] EveryImplementer
-          "whether its condition holds, fails, or is unknown on its operands' intervals and the constants ops hold of them"
       ]
   , verifier = Unverified
   , doc = says "a guard of a partial primitive's operands"
   }
 
-||| Whether a guard's condition holds of the constants its fold adaptor
-||| holds: what its folder and, through GuardedOp, every folder of the ops
-||| it guards ask before computing.
-holds : Member
-holds = MkMember OnClass "bool" "holds" [param "FoldAdaptor" "adaptor"]
-
-||| Its condition on its operands' intervals and the constants ops hold of
-||| them, the interface's `decide`: each guard's own, its operands'
-||| structure being its own. Its cause and site are its generated
-||| accessors, which the interface's methods are.
+||| Its condition, once, over where its operands' values come from (a place
+||| a constant lives, `fold::Where`): whether it holds, fails, or is unknown
+||| on each operand's interval, an integer's one value where it is one, and
+||| the constant the place holds of an operand no interval states (a
+||| string, a Double, an Integer past the small range). The attribute fold
+||| asks it of the constants ops hold, its own folder and the folders of
+||| the ops it guards (through GuardedOp); the e-graph of its own values,
+||| whether an op held them or the graph computed them, where its rule
+||| decides the guard (one that holds goes, one that fails is a crash of
+||| its cause at its site, with no test at run time) and where an op it
+||| guards computes. Each guard's own, its operands' structure being its
+||| own; its definition is a hand header's, since a template is
+||| instantiated where it is used.
 decideMember : Member
-decideMember = MkMember OnClass "::idr::numeric::Known" "decide"
-  [ param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"
-  , param "::llvm::ArrayRef<::mlir::Attribute>" "constants" ]
+decideMember = MkTemplateMember (MkTypeParam "::idr::fold::Where" "W" ::: []) OnClass
+  "::idr::numeric::Known" "decide"
+  [ param "W &" "where"
+  , param "::llvm::ArrayRef<::mlir::ConstantIntRanges>" "ranges"
+  , param "::llvm::ArrayRef<typename W::Operand>" "constants" ]
 
 ||| A condition read off the run's own state too, the runtime's handle
 ||| table, where the run ends by a crash if it fails.
@@ -258,7 +256,7 @@ guardOp m ins tested eff traits ifaces d = MkOp
       (operandItems (S others) ++ [Lit ",", ValueOf (AttrRef 0), Lit "at", ValueOf (AttrRef 1), AttrDict, Lit ":", FunctionalType OfOperands OfResults])
   , builders = []
   , defaultBuilders = WithDefaults
-  , members = [holds, decideMember]
+  , members = [decideMember]
   , guards = []
   , specializations = []
   , laws = []

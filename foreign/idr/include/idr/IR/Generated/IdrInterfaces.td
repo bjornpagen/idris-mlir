@@ -227,8 +227,7 @@ def Idr_GuardOpInterface : OpInterface<"GuardOpInterface"> {
   let baseInterfaces = [Idr_CrashSiteOpInterface];
   let methods = [
     InterfaceMethod<"the operand the guard guards, its first, which it gives as its result", "::mlir::Value", "getGuarded", (ins), [{}], [{ return ::idr::guardedOperand($_op); }]>,
-    InterfaceMethod<"the cause its crash names", "::idr::CrashCause", "getCause", (ins)>,
-    StaticInterfaceMethod<"whether its condition holds, fails, or is unknown on its operands' intervals and the constants ops hold of them", "::idr::numeric::Known", "decide", (ins "::llvm::ArrayRef<::mlir::ConstantIntRanges>":$ranges, "::llvm::ArrayRef<::mlir::Attribute>":$constants)>
+    InterfaceMethod<"the cause its crash names", "::idr::CrashCause", "getCause", (ins)>
   ];
 }
 

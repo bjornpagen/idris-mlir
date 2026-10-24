@@ -1839,8 +1839,7 @@ def Idr_CheckNonzeroOp : Idr_Op<"check.nonzero", [
   let assemblyFormat = [{ $value `,` $cause `at` $site attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
   let extraClassDeclaration = [{
-    static bool holds(FoldAdaptor adaptor);
-    static ::idr::numeric::Known decide(::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<::mlir::Attribute> constants);
+    template <::idr::fold::Where W> static ::idr::numeric::Known decide(W & where, ::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -1857,8 +1856,7 @@ def Idr_CheckInBoundsOp : Idr_Op<"check.in_bounds", [
   let assemblyFormat = [{ $index `,` $indexed `,` $cause `at` $site attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
   let extraClassDeclaration = [{
-    static bool holds(FoldAdaptor adaptor);
-    static ::idr::numeric::Known decide(::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<::mlir::Attribute> constants);
+    template <::idr::fold::Where W> static ::idr::numeric::Known decide(W & where, ::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -1875,8 +1873,7 @@ def Idr_CheckNonemptyOp : Idr_Op<"check.nonempty", [
   let assemblyFormat = [{ $str `,` $cause `at` $site attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
   let extraClassDeclaration = [{
-    static bool holds(FoldAdaptor adaptor);
-    static ::idr::numeric::Known decide(::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<::mlir::Attribute> constants);
+    template <::idr::fold::Where W> static ::idr::numeric::Known decide(W & where, ::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -1892,8 +1889,7 @@ def Idr_CheckFiniteOp : Idr_Op<"check.finite", [
   let assemblyFormat = [{ $value `,` $cause `at` $site attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
   let extraClassDeclaration = [{
-    static bool holds(FoldAdaptor adaptor);
-    static ::idr::numeric::Known decide(::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<::mlir::Attribute> constants);
+    template <::idr::fold::Where W> static ::idr::numeric::Known decide(W & where, ::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -1910,8 +1906,7 @@ def Idr_CheckRangeOp : Idr_Op<"check.range", [
   let assemblyFormat = [{ $offset `,` $count `,` $size `,` $cause `at` $site attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
   let extraClassDeclaration = [{
-    static bool holds(FoldAdaptor adaptor);
-    static ::idr::numeric::Known decide(::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<::mlir::Attribute> constants);
+    template <::idr::fold::Where W> static ::idr::numeric::Known decide(W & where, ::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 
@@ -1927,8 +1922,7 @@ def Idr_CheckHoldsStringOp : Idr_Op<"check.holds_string", [
   let assemblyFormat = [{ $handle `,` $cause `at` $site attr-dict `:` functional-type(operands, results) }];
   let hasFolder = 1;
   let extraClassDeclaration = [{
-    static bool holds(FoldAdaptor adaptor);
-    static ::idr::numeric::Known decide(::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<::mlir::Attribute> constants);
+    template <::idr::fold::Where W> static ::idr::numeric::Known decide(W & where, ::llvm::ArrayRef<::mlir::ConstantIntRanges> ranges, ::llvm::ArrayRef<typename W::Operand> constants);
   }];
 }
 

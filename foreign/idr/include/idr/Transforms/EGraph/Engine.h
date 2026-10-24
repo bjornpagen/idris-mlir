@@ -124,6 +124,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Hashing.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cassert>
@@ -215,6 +216,10 @@ struct Meaning {
   MeaningOfInput ofInput;
   std::optional<MeaningOfBuilt> ofBuilt;
 };
+
+// A guard op's decision of its condition over its operands' classes, each
+// read as the graph's own values (Values.cpp): its op's own `decide`.
+using Decision = numeric::Known (*)(llvm::ArrayRef<const Class *> operands);
 
 // The operands an op's runtime function takes as a string or a big, by
 // position: references the function borrows, neither keeping nor releasing
@@ -403,11 +408,13 @@ struct Region {
 // open op set forces to be read at run time.
 struct Kinds {
   // What the graph reads of an op of one class: the kind a pattern names it
-  // by, its meaning, and the operands its runtime function borrows.
+  // by, its meaning, the operands its runtime function borrows, and, for a
+  // guard, its decision.
   struct OfOp {
     std::optional<std::uint16_t> kind;
     std::optional<Meaning> meaning;
     Borrowed borrowed;
+    std::optional<Decision> decision;
   };
   // By the op's TypeID, sorted, for the one lookup an op's class needs.
   std::vector<std::pair<mlir::TypeID, OfOp>> byTypeId;
@@ -416,7 +423,19 @@ struct Kinds {
   std::vector<std::optional<mlir::RegisteredOperationName>> names;
   std::vector<std::optional<MeaningOfBuilt>> built;
 
-  OfOp of(mlir::TypeID id) const;
+  // The order the table is sorted in, a TypeID's address.
+  static bool before(mlir::TypeID a, mlir::TypeID b) {
+    return a.getAsOpaquePointer() < b.getAsOpaquePointer();
+  }
+  // Inline, so a skeleton rule that reads a guard's decision reaches the
+  // table with no symbol of the engine's.
+  OfOp of(mlir::TypeID id) const {
+    auto it = llvm::lower_bound(
+        byTypeId, id, [](const auto &entry, mlir::TypeID key) { return before(entry.first, key); });
+    if (it == byTypeId.end() || it->first != id)
+      return {};
+    return it->second;
+  }
   OfOp of(mlir::Operation *op) const { return of(op->getName().getTypeID()); }
 };
 
@@ -430,6 +449,10 @@ std::vector<std::pair<mlir::TypeID, Meaning>> meanings();
 // Every op whose runtime function borrows a string or a big, by its TypeID
 // (Values.cpp), read off its generated ABI row.
 std::vector<std::pair<mlir::TypeID, Borrowed>> borrowings();
+
+// Every guard op's decision, by its TypeID (Values.cpp): each op of the
+// guard interface, its own `decide` at the graph's values.
+std::vector<std::pair<mlir::TypeID, Decision>> decisions();
 
 // What a constant an op of the input holds says of its value, read once
 // from its attribute into the graph's own: an integer's interval, a
@@ -535,6 +558,7 @@ public:
   OpT memberBuiltBy(mlir::Value value) const;
   std::optional<KnownConstant> knownOf(mlir::Value value) const;
   mlir::Attribute heldBy(mlir::Value value) const;
+  numeric::Known decisionOf(GuardOpInterface guard) const;
   Cost costOf(mlir::Value value) const;
 
   // What the function's e-graph did so far, the pass's work.

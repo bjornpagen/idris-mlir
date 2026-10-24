@@ -58,41 +58,17 @@ void idr::eraseAfter(RewriterBase &rewriter, Operation *op) {
 
 namespace idr::egraph {
 
-namespace {
-
-// The interval an operand has where the e-graph knows none: every value of
-// its type, or the one value of width 0 a value that holds no integer has.
-ConstantIntRanges widest(Type type) {
-  unsigned width = ConstantIntRanges::getStorageBitwidth(type);
-  if (width == 0)
-    return ConstantIntRanges::constant(APInt::getZero(0));
-  return ConstantIntRanges::maxRange(width);
-}
-
-} // namespace
-
 //===----------------------------------------------------------------------===//
 // Guards
 //===----------------------------------------------------------------------===//
 
-// The guard's own decision on what the graph knows of its operands: each
-// one's interval, an integer the graph knows being its one value, whether
-// an op holds it or the graph computed it (a big past the small range has
-// its sign's), and the constant an op holds of one an interval says nothing
-// of, as the decision's hook takes it, an attribute. A string or a Double
-// the graph computed holds none, so its guard is decided once the hook
-// reads the graph's values. No fold is asked, and no attribute is made.
+// The guard's own decision on what the graph knows of its operands, which
+// the graph reads off the guard's op: each operand's interval, an integer
+// the graph knows being its one value, and the string, Double or big past
+// the small range its class holds, whether an op held it or the graph
+// computed it. No fold is asked, and no attribute is made.
 std::optional<Edit> GuardDecided::decide(GuardOpInterface guard, const OperandFacts &facts) {
-  Operation *op = guard.getOperation();
-  SmallVector<ConstantIntRanges> ranges;
-  SmallVector<Attribute> constants;
-  ranges.reserve(op->getNumOperands());
-  constants.reserve(op->getNumOperands());
-  for (Value operand : op->getOperands()) {
-    ranges.push_back(facts.range(operand).value_or(widest(operand.getType())));
-    constants.push_back(facts.held(operand));
-  }
-  switch (guard.decide(ranges, constants)) {
+  switch (facts.decision(guard)) {
   case numeric::Known::Holds:
     return Forward{{0}};
   case numeric::Known::Fails:

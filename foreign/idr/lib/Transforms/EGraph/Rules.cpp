@@ -105,7 +105,8 @@ void listKinds(table::OpList<Ops...>, MLIRContext *context,
   std::uint16_t kind = 0;
   (
       [&] {
-        byTypeId.emplace_back(TypeID::get<Ops>(), Kinds::OfOp{kind, std::nullopt, Borrowed()});
+        byTypeId.emplace_back(TypeID::get<Ops>(),
+                              Kinds::OfOp{kind, std::nullopt, Borrowed(), std::nullopt});
         names.push_back(RegisteredOperationName::lookup(TypeID::get<Ops>(), context));
         ++kind;
       }(),
@@ -139,31 +140,23 @@ void rewriteOne(table::RuleList<Rs...>, std::uint32_t rule, Operation *op, const
   (run.template operator()<Rs>(), ...);
 }
 
-bool beforeId(TypeID a, TypeID b) { return a.getAsOpaquePointer() < b.getAsOpaquePointer(); }
-
 } // namespace
 
-Kinds::OfOp Kinds::of(TypeID id) const {
-  auto it = llvm::lower_bound(
-      byTypeId, id, [](const auto &entry, TypeID key) { return beforeId(entry.first, key); });
-  if (it == byTypeId.end() || it->first != id)
-    return {};
-  return it->second;
-}
-
-// Each kind, each meaning and each op's borrowed operands by its op's
-// TypeID, one entry an op, sorted for the one lookup an op's class needs;
-// and each kind's meaning of a built node by its number, which a node a
-// rule built reads.
+// Each kind, each meaning, each op's borrowed operands and each guard's
+// decision by its op's TypeID, one entry an op, sorted for the one lookup
+// an op's class needs; and each kind's meaning of a built node by its
+// number, which a node a rule built reads.
 Kinds makeKinds(MLIRContext *context) {
   Kinds out;
   std::vector<std::pair<TypeID, Kinds::OfOp>> entries;
   listKinds(generated::Kinds{}, context, entries, out.names);
   for (auto [id, meaning] : meanings())
-    entries.emplace_back(id, Kinds::OfOp{std::nullopt, meaning, Borrowed()});
+    entries.emplace_back(id, Kinds::OfOp{std::nullopt, meaning, Borrowed(), std::nullopt});
   for (auto [id, borrowed] : borrowings())
-    entries.emplace_back(id, Kinds::OfOp{std::nullopt, std::nullopt, borrowed});
-  llvm::sort(entries, [](const auto &a, const auto &b) { return beforeId(a.first, b.first); });
+    entries.emplace_back(id, Kinds::OfOp{std::nullopt, std::nullopt, borrowed, std::nullopt});
+  for (auto [id, decision] : decisions())
+    entries.emplace_back(id, Kinds::OfOp{std::nullopt, std::nullopt, Borrowed(), decision});
+  llvm::sort(entries, [](const auto &a, const auto &b) { return Kinds::before(a.first, b.first); });
   for (const auto &[id, of] : entries) {
     if (out.byTypeId.empty() || out.byTypeId.back().first != id) {
       out.byTypeId.emplace_back(id, of);
@@ -174,6 +167,8 @@ Kinds makeKinds(MLIRContext *context) {
       into.kind = of.kind;
     if (of.meaning)
       into.meaning = of.meaning;
+    if (of.decision)
+      into.decision = of.decision;
     into.borrowed = into.borrowed | of.borrowed;
   }
   out.built.assign(out.names.size(), std::nullopt);

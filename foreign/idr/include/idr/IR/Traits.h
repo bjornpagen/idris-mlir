@@ -16,6 +16,9 @@
 // What an op does at run time to give its operand on, which a change of
 // grade answers here, before the generated interfaces.
 #include "idr/IR/Generated/Carry.h.inc"
+// Where a guard's operands' values come from, which its condition reads.
+#include "idr/IR/Fold.h"
+#include "idr/IR/Numeric/Intervals.h"
 
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
@@ -147,23 +150,25 @@ template <typename Op>
 struct Guarded;
 
 // A pure total op whose guards read its own operands. Its folder and its
-// speculatability ask each guard op's own condition (its `holds`) on the
+// speculatability ask each guard op's own condition (its `decide`) on the
 // op's operands at the guard's indices, read from Guarded<ConcreteType> at
 // compile time: no op names its guard again, and nothing is looked up by op
 // at run time.
 template <typename ConcreteType>
 class GuardedOp : public mlir::OpTrait::TraitBase<ConcreteType, GuardedOp> {
 public:
-  // Whether every guard's condition holds of the constants the op's fold
-  // adaptor holds at the operands the guard is given: what the op's folder
-  // asks first. Where one fails, the guard crashes first, at run time, and
-  // the op computes nothing.
-  template <typename Adaptor>
-  static bool guardHolds(Adaptor adaptor) {
-    llvm::ArrayRef<mlir::Attribute> constants = adaptor.getOperands();
+  // Whether every guard's condition holds of the op's operands as `where`
+  // knows them (each one's interval, and the constant `where` holds of it)
+  // at the operands the guard is given: what the op's fold asks first,
+  // wherever its constants live. Where one fails, the guard crashes first,
+  // at run time, and the op computes nothing.
+  template <fold::Where W>
+  static bool guardsHold(W &where, llvm::ArrayRef<mlir::ConstantIntRanges> ranges,
+                         llvm::ArrayRef<typename W::Operand> operands) {
     auto holds = [&]<typename G, unsigned... Given>(Guard<G, Given...>) {
-      std::array<mlir::Attribute, sizeof...(Given)> given{constants[Given]...};
-      return G::holds(typename G::FoldAdaptor(given));
+      std::array<mlir::ConstantIntRanges, sizeof...(Given)> intervals{ranges[Given]...};
+      std::array<typename W::Operand, sizeof...(Given)> given{operands[Given]...};
+      return G::decide(where, intervals, given) == numeric::Known::Holds;
     };
     return std::apply([&](auto... guards) { return (holds(guards) && ...); },
                       typename Guarded<ConcreteType>::Guards{});
@@ -187,7 +192,8 @@ public:
         return true;
       std::array<mlir::Attribute, 1 + sizeof...(Others)> constants{
           constantOf(op->getOperand(Checked)), constantOf(op->getOperand(Others))...};
-      return G::holds(typename G::FoldAdaptor(constants));
+      fold::InAttributes where(op->getContext());
+      return G::decide(where, fold::rangesOf(constants), constants) == numeric::Known::Holds;
     };
     bool all = std::apply([&](auto... guards) { return (passed(guards) && ...); },
                           typename Guarded<ConcreteType>::Guards{});

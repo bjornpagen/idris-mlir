@@ -141,6 +141,9 @@ class TagSet;
 // as constants and implements the generated `getEffects` from them, printed
 // from the specification after the classes they specialize.
 #include "idr/IR/Generated/Guards.h.inc"
+// Each guard op's condition, its `decide` over where its operands' values
+// come from, defined after the classes that declare it.
+#include "idr/IR/Ops/Guards.h"
 #include "idr/IR/Generated/BigOfInteger.h.inc"
 #include "idr/IR/Generated/LifetimeOpener.h.inc"
 #include "idr/IR/Effects/Declared.h"

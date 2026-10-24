@@ -13,12 +13,15 @@
 // instance; so a constant is computed once, by the runtime's own function,
 // and no attribute is made until the write-back places one, here too.
 //
-// What the graph knows of a guard is what its classes' intervals say: the
-// guard's own decision over them, which the skeleton rule asks too. A big
-// past the small range has the interval its sign gives, so a guard of it
-// decides on its interval as on any integer's. An op whose fold has a
-// condition beyond its guards states it over attributes (its `foldable`
-// hook), so the graph does not compute it.
+// A guard is decided by its own condition (its op's `decide`) over the
+// graph's values: each operand's interval, an integer the one value of its
+// class's, and the string, Double or big past the small range its class
+// holds, whether an op held it or the graph computed it. The same decision
+// is asked where an op the guard guards computes, and, by the guard's class
+// of op, where the skeleton rule decides the guard (the table `decisions`
+// gives). A big past the small range has the interval its sign gives too.
+// An op whose fold has a condition beyond its guards states it over
+// attributes (its `foldable` hook), so the graph does not compute it.
 //
 // Upstream's ops on Doubles whose result IEEE 754 fixes (the generated
 // ComputedOnDoubles) compute on the graph's Double values by the APFloat
@@ -37,10 +40,8 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/ErrorHandling.h"
 
-#include <array>
 #include <bit>
 #include <cstdint>
-#include <tuple>
 #include <vector>
 
 // The generated list of upstream's ops on Doubles the graph computes.
@@ -170,6 +171,15 @@ ConstantIntRanges guardRange(const Class &cls) {
   return ConstantIntRanges::maxRange(width);
 }
 
+// Each operand's interval, as a guard reads it.
+SmallVector<ConstantIntRanges, 4> intervalsOf(llvm::ArrayRef<const Class *> operands) {
+  SmallVector<ConstantIntRanges, 4> out;
+  out.reserve(operands.size());
+  for (const Class *cls : operands)
+    out.push_back(guardRange(*cls));
+  return out;
+}
+
 //===----------------------------------------------------------------------===//
 // The value instance
 //===----------------------------------------------------------------------===//
@@ -233,28 +243,16 @@ public:
   }
   std::optional<Facts> big(Type, idris_rt_big made) const { return factsOfBig(Big::adopt(made)); }
 
-  // Each guard decides on its operands' intervals, as the skeleton rule
-  // asks it: the op computes only where every one holds. A guard of a
-  // string's length or a Double's bits reads them from the constant an op
-  // holds, an attribute, of which the graph gives none, so it holds here
-  // once its hook reads the graph's values.
+  // The op computes only where each of its guards holds of the graph's
+  // values (each guard's own decision, read off its op).
   template <class Op>
-  bool admits(llvm::ArrayRef<const Class *> operands, const typename Op::Properties &) const {
+  bool admits(llvm::ArrayRef<const Class *> operands) {
     if constexpr (fold::HasFoldCondition<Op>)
       return false;
-    else if constexpr (fold::GuardedFold<Op>)
-      return std::apply([&](auto... guards) { return (holds(guards, operands) && ...); },
-                        typename Guarded<Op>::Guards{});
+    else if constexpr (fold::GuardedFold<Op, InGraph>)
+      return Op::guardsHold(*this, intervalsOf(operands), operands);
     else
       return true;
-  }
-
-private:
-  template <class G, unsigned... Given>
-  static bool holds(Guard<G, Given...>, llvm::ArrayRef<const Class *> operands) {
-    std::array<ConstantIntRanges, sizeof...(Given)> ranges{guardRange(*operands[Given])...};
-    std::array<Attribute, sizeof...(Given)> constants{};
-    return G::decide(ranges, constants) == numeric::Known::Holds;
   }
 };
 
@@ -284,6 +282,25 @@ void runtimeMeaningsOf(std::vector<std::pair<TypeID, Meaning>> &out) {
       [&] {
         if constexpr (fold::Folds<Ops>)
           out.emplace_back(TypeID::get<Ops>(), Meaning{&ofInput<Ops>, &ofBuilt<Ops>});
+      }(),
+      ...);
+}
+
+// A guard's own decision of its operands' classes, its condition over the
+// graph's values.
+template <class Op>
+numeric::Known decisionOf(llvm::ArrayRef<const Class *> operands) {
+  InGraph where;
+  return Op::decide(where, intervalsOf(operands), operands);
+}
+
+// Each guard op's decision, by its interface's trait.
+template <class... Ops>
+void decisionsOf(std::vector<std::pair<TypeID, Decision>> &out) {
+  (
+      [&] {
+        if constexpr (Ops::template hasTrait<GuardOpInterface::Trait>())
+          out.emplace_back(TypeID::get<Ops>(), &decisionOf<Ops>);
       }(),
       ...);
 }
@@ -493,6 +510,15 @@ std::vector<std::pair<TypeID, Meaning>> meanings() {
 #include "idr/IR/IdrOps.cpp.inc"
       >(out);
   doubleMeaningsOf(generated::ComputedOnDoubles{}, out);
+  return out;
+}
+
+std::vector<std::pair<TypeID, Decision>> decisions() {
+  std::vector<std::pair<TypeID, Decision>> out;
+  decisionsOf<
+#define GET_OP_LIST
+#include "idr/IR/IdrOps.cpp.inc"
+      >(out);
   return out;
 }
 

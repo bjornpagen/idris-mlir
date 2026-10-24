@@ -114,6 +114,18 @@ inline mlir::Attribute Function::heldBy(mlir::Value value) const {
   return {};
 }
 
+// The guard's own decision of its operands' classes: its op's, from the
+// table of guards by op class, which holds every op of the guard interface,
+// the one dispatch MLIR's open op set leaves to run time.
+inline numeric::Known Function::decisionOf(GuardOpInterface guard) const {
+  std::optional<Decision> decides = kinds.of(guard.getOperation()).decision;
+  assert(decides && "every op of the guard interface has its decision in the table");
+  llvm::SmallVector<const Class *, 3> operands;
+  for (mlir::Value operand : guard->getOperands())
+    operands.push_back(&classOfValue(operand));
+  return (*decides)(operands);
+}
+
 } // namespace idr::egraph::detail
 
 namespace idr::egraph {
@@ -124,6 +136,10 @@ inline std::optional<KnownConstant> OperandFacts::constant(mlir::Value value) co
 
 inline mlir::Attribute OperandFacts::held(mlir::Value value) const {
   return function.heldBy(value);
+}
+
+inline numeric::Known OperandFacts::decision(GuardOpInterface guard) const {
+  return function.decisionOf(guard);
 }
 
 inline std::optional<mlir::ConstantIntRanges> OperandFacts::range(mlir::Value value) const {
