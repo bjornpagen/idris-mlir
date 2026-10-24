@@ -1254,3 +1254,15 @@ to L16ev. Waiting:
   times (`fieldReadOnce`, `captures::forEachEnd`, `builtStateHolds`): one
   walker in `Grades.h` (L05 with L14); `neverEmpty` and `GuardRepeated`
   (`Ops/Rules.cpp`) still read operands without going through casts (L14).
+- From L02z: its frontend half (`/tmp/l02z/frontend.patch`: `Term.idr`
+  imports the specification's `Termination`) lands with L16ey; the
+  `IdrDialect.h` comment (hook definitions hand C++) and `Bytecode.cpp`'s
+  header (`Wire.cpp.inc` as bytecode alone) are now slightly wrong for the
+  proof's codecs (L03); `PutBound`'s hand `hash_value` and `LifetimeKind`'s
+  structs (`Lifetimes.h`) could be printed by `SumOf` (L03 with L05); the
+  frontend's `ComponentId` goes with C292. For review: a wired value that
+  is one composite of numbers is spelled by its members (`Wire.idr`,
+  `spellingOf`).
+- From L03af (0c316511e): seams dispatched as L03ai (the result side's
+  pairing, `functionsOf` reading `Taken`, `Outputs.idr:364`'s name compare,
+  the crash operand's pairing).
